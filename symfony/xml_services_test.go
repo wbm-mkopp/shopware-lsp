@@ -99,6 +99,35 @@ func TestParseXMLServices(t *testing.T) {
 				"app.service2": {"app.tag3"},
 			},
 		},
+		{
+			name: "Symfony namespaced XML with nested services",
+			xmlContent: `<?xml version="1.0" encoding="UTF-8" ?>
+<container xmlns="http://symfony.com/schema/dic/services"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://symfony.com/schema/dic/services
+        https://symfony.com/schema/dic/services/services-1.0.xsd">
+
+    <services>
+        <!-- Default configuration for services in *this* file -->
+        <defaults autowire="true" autoconfigure="true"/>
+
+        <!-- makes classes in src/ available to be used as services -->
+        <!-- this creates a service per class whose id is the fully-qualified class name -->
+        <prototype namespace="App\" resource="../src/" exclude="../src/{DependencyInjection,Entity,Kernel.php}"/>
+
+        <service id="App\Service\SiteUpdateManager">
+            <argument key="$adminEmail">manager@example.com</argument>
+        </service>
+
+        <service id="bla">
+            <argument type="service" id=""/>
+        </service>
+    </services>
+</container>`,
+			expectedServices: 2,
+			expectedAliases:  0,
+			expectedTags:     map[string][]string{},
+		},
 	}
 
 	for _, tc := range testCases {

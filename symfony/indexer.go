@@ -13,9 +13,9 @@ import (
 
 // ServiceIndex maintains an index of all service IDs from XML files
 type ServiceIndex struct {
-	services    map[string]Service       // map[serviceID]Service
-	aliases     map[string]ServiceAlias  // map[aliasID]ServiceAlias
-	tags        map[string][]string      // map[tagName][]serviceIDs
+	services    map[string]Service      // map[serviceID]Service
+	aliases     map[string]ServiceAlias // map[aliasID]ServiceAlias
+	tags        map[string][]string     // map[tagName][]serviceIDs
 	projectRoot string
 	watcher     *fsnotify.Watcher
 	mu          sync.RWMutex
@@ -68,6 +68,8 @@ func (idx *ServiceIndex) BuildIndex() error {
 			return nil
 		}
 
+		log.Printf("Processing file: %s", path)
+
 		// Try to parse as a Symfony services file
 		idx.processFile(path)
 
@@ -80,14 +82,17 @@ func (idx *ServiceIndex) BuildIndex() error {
 func (idx *ServiceIndex) processFile(path string) {
 	services, aliases, err := ParseXMLServices(path)
 	if err != nil {
+		log.Printf("Failed to parse XML file %s: %v", path, err)
 		return // Skip files that can't be parsed
 	}
+
+	log.Printf("Found %d services and %d aliases in %s", len(services), len(aliases), path)
 
 	// Add services to index
 	if len(services) > 0 {
 		for _, service := range services {
 			idx.services[service.ID] = service
-			
+
 			// Index tags
 			for tagName := range service.Tags {
 				if _, exists := idx.tags[tagName]; !exists {
@@ -182,14 +187,14 @@ func (idx *ServiceIndex) removeServicesFromFile(path string) {
 							break
 						}
 					}
-					
+
 					// If no services left with this tag, remove the tag
 					if len(idx.tags[tagName]) == 0 {
 						delete(idx.tags, tagName)
 					}
 				}
 			}
-			
+
 			// Remove the service itself
 			delete(idx.services, id)
 		}
@@ -210,17 +215,17 @@ func (idx *ServiceIndex) GetAllServices() []string {
 
 	// Allocate slice with capacity for all services and aliases
 	services := make([]string, 0, len(idx.services)+len(idx.aliases))
-	
+
 	// Add service IDs
 	for serviceID := range idx.services {
 		services = append(services, serviceID)
 	}
-	
+
 	// Add alias IDs
 	for aliasID := range idx.aliases {
 		services = append(services, aliasID)
 	}
-	
+
 	return services
 }
 
@@ -228,12 +233,12 @@ func (idx *ServiceIndex) GetAllServices() []string {
 func (idx *ServiceIndex) GetServiceByID(id string) (Service, bool) {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
-	
+
 	service, exists := idx.services[id]
 	if exists {
 		return service, true
 	}
-	
+
 	// Check if it's an alias and resolve it
 	alias, isAlias := idx.aliases[id]
 	if isAlias {
@@ -243,7 +248,7 @@ func (idx *ServiceIndex) GetServiceByID(id string) (Service, bool) {
 			return targetService, true
 		}
 	}
-	
+
 	return Service{}, false
 }
 
@@ -256,7 +261,7 @@ func (idx *ServiceIndex) Close() error {
 func (idx *ServiceIndex) GetCounts() (int, int) {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
-	
+
 	return len(idx.services), len(idx.aliases)
 }
 

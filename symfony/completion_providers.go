@@ -40,10 +40,6 @@ func NewTagCompletionProvider(serviceIndex *ServiceIndex) *SymfonyCompletionProv
 
 // GetCompletions returns completion items based on the provider type
 func (p *SymfonyCompletionProvider) GetCompletions(ctx context.Context, params *protocol.CompletionParams) []protocol.CompletionItem {
-	if p.serviceIndex == nil {
-		return []protocol.CompletionItem{}
-	}
-
 	switch p.compType {
 	case ServiceCompletion:
 		return p.getServiceCompletions(ctx, params)
@@ -143,14 +139,4 @@ func (p *SymfonyCompletionProvider) GetTriggerCharacters() []string {
 	default:
 		return []string{}
 	}
-}
-
-// Index builds or updates the provider's index
-func (p *SymfonyCompletionProvider) Index() error {
-	if p.serviceIndex == nil {
-		return nil
-	}
-
-	// Both service and tag completions use the same index
-	return p.serviceIndex.BuildIndex()
 }

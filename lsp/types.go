@@ -12,8 +12,6 @@ type CompletionProvider interface {
 	GetCompletions(ctx context.Context, params *protocol.CompletionParams) []protocol.CompletionItem
 	// GetTriggerCharacters returns the characters that trigger this completion provider
 	GetTriggerCharacters() []string
-	// Index builds or updates the provider's index
-	Index() error
 }
 
 // IndexerProvider is an interface for indexers that can be registered with the server

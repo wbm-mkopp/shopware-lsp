@@ -130,13 +130,6 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 	case "initialized":
 		// Build the index when the client is initialized
 		go func() {
-			// Index all providers
-			for _, provider := range s.completionProviders {
-				if err := provider.Index(); err != nil {
-					log.Printf("Error indexing provider: %v", err)
-				}
-			}
-			
 			// Index all registered indexers
 			if err := s.IndexAll(); err != nil {
 				log.Printf("Error indexing: %v", err)
@@ -156,7 +149,7 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 		if err := s.CloseAll(); err != nil {
 			log.Printf("Error closing indexers: %v", err)
 		}
-		
+
 		log.Println("Received shutdown request, waiting for exit notification")
 		return nil, nil
 

@@ -80,24 +80,73 @@ func ParseXMLServices(path string) ([]Service, []ServiceAlias, error) {
 		Service string `xml:"service,attr"`
 	}
 
+	type XMLServices struct {
+		Services []XMLService `xml:"service"`
+		Defaults struct{}    `xml:"defaults"`
+		Prototype struct{}  `xml:"prototype"`
+	}
+
 	type XMLContainer struct {
 		Services []XMLService `xml:"service"`
 		Aliases  []XMLAlias   `xml:"alias"`
+		// Handle nested services tag
+		ServicesTag XMLServices `xml:"services"`
 	}
 
 	// Parse the XML
 	var container XMLContainer
 	decoder := xml.NewDecoder(strings.NewReader(string(data)))
+	
+	// Handle XML namespaces by ignoring them
 	decoder.Strict = false
+	decoder.AutoClose = xml.HTMLAutoClose
+	decoder.Entity = xml.HTMLEntity
+	
+	// Skip namespace declarations
+	decoder.DefaultSpace = "http://symfony.com/schema/dic/services"
+	
 	err = decoder.Decode(&container)
 	if err != nil && err != io.EOF {
 		log.Printf("Error decoding XML: %v", err)
 		return nil, nil, err
 	}
+	
+	// Log the parsed structure for debugging
+	log.Printf("Parsed XML container: %d direct services, %d direct aliases, %d nested services", 
+		len(container.Services), len(container.Aliases), len(container.ServicesTag.Services))
 
 	// Convert to our service structures
 	var services []Service
+	
+	// Process direct services
 	for _, xmlService := range container.Services {
+		service := Service{
+			ID:    xmlService.ID,
+			Class: xmlService.Class,
+			Tags:  make(map[string]string),
+			Path:  path,
+			Line:  serviceLineMap[xmlService.ID], // Set the line number
+		}
+
+		// If service has no class, use ID as class (Symfony default behavior)
+		if service.Class == "" {
+			service.Class = service.ID
+		}
+
+		// Process tags
+		for _, tag := range xmlService.Tags {
+			if tag.Name != "" {
+				service.Tags[tag.Name] = ""
+			}
+		}
+
+		if service.ID != "" {
+			services = append(services, service)
+		}
+	}
+	
+	// Process services inside the services tag
+	for _, xmlService := range container.ServicesTag.Services {
 		service := Service{
 			ID:    xmlService.ID,
 			Class: xmlService.Class,
