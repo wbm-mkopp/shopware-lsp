@@ -20,6 +20,7 @@ type Server struct {
 	completionProviders []CompletionProvider
 	indexers            map[string]IndexerProvider
 	indexerMu           sync.RWMutex
+	documentManager     *DocumentManager
 }
 
 // NewServer creates a new LSP server
@@ -27,6 +28,7 @@ func NewServer() *Server {
 	return &Server{
 		completionProviders: make([]CompletionProvider, 0),
 		indexers:            make(map[string]IndexerProvider),
+		documentManager:     NewDocumentManager(),
 	}
 }
 
@@ -137,10 +139,54 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 		}()
 		return nil, nil
 
+	case "textDocument/didOpen":
+		var params struct {
+			TextDocument struct {
+				URI     string `json:"uri"`
+				Text    string `json:"text"`
+				Version int    `json:"version"`
+			} `json:"textDocument"`
+		}
+		if err := json.Unmarshal(*req.Params, &params); err != nil {
+			return nil, err
+		}
+		s.documentManager.OpenDocument(params.TextDocument.URI, params.TextDocument.Text, params.TextDocument.Version)
+		return nil, nil
+
+	case "textDocument/didChange":
+		var params struct {
+			TextDocument struct {
+				URI     string `json:"uri"`
+				Version int    `json:"version"`
+			} `json:"textDocument"`
+			ContentChanges []struct {
+				Text string `json:"text"`
+			} `json:"contentChanges"`
+		}
+		if err := json.Unmarshal(*req.Params, &params); err != nil {
+			return nil, err
+		}
+		if len(params.ContentChanges) > 0 {
+			s.documentManager.UpdateDocument(params.TextDocument.URI, params.ContentChanges[0].Text, params.TextDocument.Version)
+		}
+		return nil, nil
+
+	case "textDocument/didClose":
+		var params struct {
+			TextDocument struct {
+				URI string `json:"uri"`
+			} `json:"textDocument"`
+		}
+		if err := json.Unmarshal(*req.Params, &params); err != nil {
+			return nil, err
+		}
+		s.documentManager.CloseDocument(params.TextDocument.URI)
+		return nil, nil
+
 	case "textDocument/completion":
 		var params protocol.CompletionParams
 		if err := json.Unmarshal(*req.Params, &params); err != nil {
-			return nil, &jsonrpc2.Error{Code: jsonrpc2.CodeParseError, Message: err.Error()}
+			return nil, err
 		}
 		return s.completion(ctx, &params), nil
 
@@ -185,20 +231,34 @@ func (s *Server) initialize(ctx context.Context, params *protocol.InitializePara
 	}
 }
 
-// completion handles the LSP completion request
-func (s *Server) completion(ctx context.Context, params *protocol.CompletionParams) interface{} {
-	// Collect completion items from all providers
-	allItems := make([]protocol.CompletionItem, 0)
+// completion handles textDocument/completion requests
+func (s *Server) completion(ctx context.Context, params *protocol.CompletionParams) *protocol.CompletionList {
+	// Get the document content for the current file
+	docText, ok := s.documentManager.GetDocumentText(params.TextDocument.URI)
 
-	// Call each registered completion provider
-	for _, provider := range s.completionProviders {
-		items := provider.GetCompletions(ctx, params)
-		allItems = append(allItems, items...)
+	// Add document content to params for context-aware completions
+	if ok {
+		// Add document content directly to params
+		params.DocumentContent = docText
+
+		// Get the line at the cursor position
+		line, lineOk := s.documentManager.GetLineAtPosition(params.TextDocument.URI, params.Position.Line)
+		if lineOk {
+			params.CurrentLine = line
+		}
 	}
 
-	return protocol.CompletionList{
+	// Collect completion items from all providers
+	var items []protocol.CompletionItem
+	for _, provider := range s.completionProviders {
+		providerItems := provider.GetCompletions(ctx, params)
+		items = append(items, providerItems...)
+	}
+
+	// Return the completion list
+	return &protocol.CompletionList{
 		IsIncomplete: false,
-		Items:        allItems,
+		Items:        items,
 	}
 }
 
@@ -246,4 +306,8 @@ func (s *Server) collectTriggerCharacters() []string {
 	}
 
 	return triggerChars
+}
+
+func (s *Server) DocumentManager() *DocumentManager {
+	return s.documentManager
 }
