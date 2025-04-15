@@ -121,8 +121,6 @@ func (p *SymfonyCompletionProvider) getServiceCompletions(ctx context.Context, p
 
 		attrValues := treesitterhelper.GetXmlAttributeValues(parentElement, documentText)
 
-		log.Printf("Attribute values: %v", attrValues)
-
 		if attrValues == nil {
 			return []protocol.CompletionItem{}
 		}
@@ -131,12 +129,20 @@ func (p *SymfonyCompletionProvider) getServiceCompletions(ctx context.Context, p
 			return []protocol.CompletionItem{}
 		}
 
-		serviceTag := parentElement.Parent().Parent()
-
-		if serviceTag == nil {
+		// Check if the parent element is a <service> element
+		elementNameNode := treesitterhelper.GetFirstNodeOfKind(parentElement, "Name")
+		if elementNameNode == nil {
+			log.Printf("No element name found")
 			return []protocol.CompletionItem{}
 		}
 
+		elementName := elementNameNode.Utf8Text([]byte(documentText))
+
+		if elementName != "argument" {
+			return []protocol.CompletionItem{}
+		}
+	} else {
+		return []protocol.CompletionItem{}
 	}
 
 	// Get all services from the index
