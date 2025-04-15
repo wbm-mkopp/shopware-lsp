@@ -70,8 +70,8 @@ func ParseXMLServices(path string) ([]Service, []ServiceAlias, error) {
 	}
 
 	type XMLService struct {
-		ID    string  `xml:"id,attr"`
-		Class string  `xml:"class,attr"`
+		ID    string   `xml:"id,attr"`
+		Class string   `xml:"class,attr"`
 		Tags  []XMLTag `xml:"tag"`
 	}
 
@@ -81,9 +81,9 @@ func ParseXMLServices(path string) ([]Service, []ServiceAlias, error) {
 	}
 
 	type XMLServices struct {
-		Services []XMLService `xml:"service"`
-		Defaults struct{}    `xml:"defaults"`
-		Prototype struct{}  `xml:"prototype"`
+		Services  []XMLService `xml:"service"`
+		Defaults  struct{}     `xml:"defaults"`
+		Prototype struct{}     `xml:"prototype"`
 	}
 
 	type XMLContainer struct {
@@ -96,28 +96,28 @@ func ParseXMLServices(path string) ([]Service, []ServiceAlias, error) {
 	// Parse the XML
 	var container XMLContainer
 	decoder := xml.NewDecoder(strings.NewReader(string(data)))
-	
+
 	// Handle XML namespaces by ignoring them
 	decoder.Strict = false
 	decoder.AutoClose = xml.HTMLAutoClose
 	decoder.Entity = xml.HTMLEntity
-	
+
 	// Skip namespace declarations
 	decoder.DefaultSpace = "http://symfony.com/schema/dic/services"
-	
+
 	err = decoder.Decode(&container)
 	if err != nil && err != io.EOF {
 		log.Printf("Error decoding XML: %v", err)
 		return nil, nil, err
 	}
-	
+
 	// Log the parsed structure for debugging
-	log.Printf("Parsed XML container: %d direct services, %d direct aliases, %d nested services", 
+	log.Printf("Parsed XML container: %d direct services, %d direct aliases, %d nested services",
 		len(container.Services), len(container.Aliases), len(container.ServicesTag.Services))
 
 	// Convert to our service structures
 	var services []Service
-	
+
 	// Process direct services
 	for _, xmlService := range container.Services {
 		service := Service{
@@ -144,7 +144,7 @@ func ParseXMLServices(path string) ([]Service, []ServiceAlias, error) {
 			services = append(services, service)
 		}
 	}
-	
+
 	// Process services inside the services tag
 	for _, xmlService := range container.ServicesTag.Services {
 		service := Service{
@@ -195,28 +195,16 @@ func ParseXMLServices(path string) ([]Service, []ServiceAlias, error) {
 // GetServiceIDs extracts just the service IDs from a list of services
 func GetServiceIDs(services []Service, aliases []ServiceAlias) []string {
 	result := make([]string, 0, len(services)+len(aliases))
-	
+
 	// Add service IDs
 	for _, service := range services {
 		result = append(result, service.ID)
 	}
-	
+
 	// Add alias IDs
 	for _, alias := range aliases {
 		result = append(result, alias.ID)
 	}
-	
+
 	return result
-}
-
-func trimQuotes(s string) string {
-	if len(s) >= 2 && ((s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'')) {
-		return s[1 : len(s)-1]
-	}
-	return s
-}
-
-// indexOf returns the index of the first instance of substr in s, or -1 if substr is not present in s.
-func indexOf(s, substr string) int {
-	return strings.Index(s, substr)
 }

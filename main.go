@@ -4,8 +4,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/shopware/shopware-lsp/lsp"
-	"github.com/shopware/shopware-lsp/symfony"
+	"github.com/shopware/shopware-lsp/internal/lsp"
+	"github.com/shopware/shopware-lsp/internal/symfony"
 )
 
 func main() {
@@ -27,7 +27,6 @@ func main() {
 
 		// Register completion providers that use the service indexer
 		server.RegisterCompletionProvider(symfony.NewServiceCompletionProvider(serviceIndexer.GetServiceIndex(), server))
-		server.RegisterCompletionProvider(symfony.NewTagCompletionProvider(serviceIndexer.GetServiceIndex(), server))
 	}
 
 	if err := server.Start(os.Stdin, os.Stdout); err != nil {

@@ -239,19 +239,10 @@ func (s *Server) initialize(ctx context.Context, params *protocol.InitializePara
 
 // completion handles textDocument/completion requests
 func (s *Server) completion(ctx context.Context, params *protocol.CompletionParams) *protocol.CompletionList {
-	// Get the document content for the current file
-	docText, ok := s.documentManager.GetDocumentText(params.TextDocument.URI)
-
-	// Add document content to params for context-aware completions
+	node, docText, ok := s.documentManager.GetNodeAtPosition(params.TextDocument.URI, params.Position.Line, params.Position.Character)
 	if ok {
-		// Add document content directly to params
-		params.DocumentContent = docText
-
-		// Get the line at the cursor position
-		line, lineOk := s.documentManager.GetLineAtPosition(params.TextDocument.URI, params.Position.Line)
-		if lineOk {
-			params.CurrentLine = line
-		}
+		params.Node = node
+		params.DocumentContent = docText.Text
 	}
 
 	// Collect completion items from all providers
