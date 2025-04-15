@@ -77,8 +77,14 @@ func (s *Server) IndexAll() error {
 	return nil
 }
 
-// CloseAll closes all registered indexers
+// CloseAll closes all registered indexers and resources
 func (s *Server) CloseAll() error {
+	// Close document manager first
+	if s.documentManager != nil {
+		s.documentManager.Close()
+	}
+
+	// Then close all indexers
 	s.indexerMu.RLock()
 	defer s.indexerMu.RUnlock()
 

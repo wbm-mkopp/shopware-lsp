@@ -5,12 +5,10 @@ import (
 	"log"
 	"strings"
 
-	tree_sitter_xml "github.com/tree-sitter-grammars/tree-sitter-xml/bindings/go"
-	tree_sitter "github.com/tree-sitter/go-tree-sitter"
-
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
 	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
 	"github.com/shopware/shopware-lsp/lsp"
+	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 // CompletionType represents the type of completion
@@ -69,78 +67,12 @@ func (p *SymfonyCompletionProvider) getServiceCompletions(ctx context.Context, p
 		return []protocol.CompletionItem{}
 	}
 
-	// Get the document text
-	documentText, exists := p.server.DocumentManager().GetDocumentText(uri)
-	if !exists {
-		log.Printf("Document not found: %s", uri)
+	node, doc, ok := p.server.DocumentManager().GetNodeAtPosition(uri, params.Position.Line, params.Position.Character)
+	if !ok {
 		return []protocol.CompletionItem{}
 	}
 
-	// Use tree-sitter to parse the XML and determine the context
-	parser := tree_sitter.NewParser()
-	defer parser.Close()
-
-	parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_xml.LanguageXML()))
-
-	tree := parser.Parse([]byte(documentText), nil)
-	defer tree.Close()
-
-	// Find the closest element to our cursor position
-	position := tree_sitter.Point{
-		Row:    uint(params.Position.Line),
-		Column: uint(params.Position.Character),
-	}
-
-	// Find the node at the cursor position
-	node := tree.RootNode().NamedDescendantForPointRange(position, position)
-
-	if node == nil {
-		return []protocol.CompletionItem{}
-	}
-
-	if node.Kind() == "AttValue" && node.Parent() != nil && node.Parent().Kind() == "Attribute" {
-		attrNode := node.Parent()
-
-		nameNode := treesitterhelper.GetFirstNodeOfKind(attrNode, "Name")
-
-		if nameNode == nil {
-			return []protocol.CompletionItem{}
-		}
-
-		attrName := nameNode.Utf8Text([]byte(documentText))
-
-		if attrName != "id" {
-			return []protocol.CompletionItem{}
-		}
-
-		parentElement := attrNode.Parent()
-
-		if parentElement == nil {
-			return []protocol.CompletionItem{}
-		}
-
-		attrValues := treesitterhelper.GetXmlAttributeValues(parentElement, documentText)
-
-		if attrValues == nil {
-			return []protocol.CompletionItem{}
-		}
-
-		if attrValues["type"] != "\"service\"" {
-			return []protocol.CompletionItem{}
-		}
-
-		// Check if the parent element is a <service> element
-		elementNameNode := treesitterhelper.GetFirstNodeOfKind(parentElement, "Name")
-		if elementNameNode == nil {
-			return []protocol.CompletionItem{}
-		}
-
-		elementName := elementNameNode.Utf8Text([]byte(documentText))
-
-		if elementName != "argument" {
-			return []protocol.CompletionItem{}
-		}
-	} else {
+	if !p.isServiceIDContext(node, doc) {
 		return []protocol.CompletionItem{}
 	}
 
@@ -240,4 +172,44 @@ func (p *SymfonyCompletionProvider) GetTriggerCharacters() []string {
 	default:
 		return []string{}
 	}
+}
+
+func (p *SymfonyCompletionProvider) isServiceIDContext(node *tree_sitter.Node, doc *lsp.TextDocument) bool {
+	if node.Kind() == "AttValue" && node.Parent() != nil && node.Parent().Kind() == "Attribute" {
+		attrNode := node.Parent()
+
+		// Get the attribute name
+		nameNode := treesitterhelper.GetFirstNodeOfKind(attrNode, "Name")
+		if nameNode == nil {
+			return false
+		}
+
+		attrName := nameNode.Utf8Text([]byte(doc.Text))
+		if attrName != "id" {
+			return false
+		}
+
+		// Get the parent element
+		parentElement := attrNode.Parent()
+		if parentElement == nil {
+			return false
+		}
+
+		// Check if the parent element has a type="service" attribute
+		attrValues := treesitterhelper.GetXmlAttributeValues(parentElement, doc.Text)
+		if attrValues == nil || attrValues["type"] != "\"service\"" {
+			return false
+		}
+
+		// Check if the parent element is an argument element
+		elementNameNode := treesitterhelper.GetFirstNodeOfKind(parentElement, "Name")
+		if elementNameNode == nil {
+			return false
+		}
+
+		elementName := elementNameNode.Utf8Text([]byte(doc.Text))
+		return elementName == "argument"
+	}
+
+	return false
 }
