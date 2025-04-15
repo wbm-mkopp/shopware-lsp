@@ -7,72 +7,93 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 
-	"github.com/shopware/shopware-lsp/symfony"
+	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
 	"github.com/sourcegraph/jsonrpc2"
 )
 
 // Server represents the LSP server
 type Server struct {
-	serviceIndex *symfony.ServiceIndex
-	rootPath     string
-	conn         *jsonrpc2.Conn
+	rootPath            string
+	conn                *jsonrpc2.Conn
+	completionProviders []CompletionProvider
+	indexers            map[string]IndexerProvider
+	indexerMu           sync.RWMutex
 }
 
 // NewServer creates a new LSP server
 func NewServer() *Server {
-	return &Server{}
+	return &Server{
+		completionProviders: make([]CompletionProvider, 0),
+		indexers:            make(map[string]IndexerProvider),
+	}
 }
 
-// InitializeParams represents the parameters for the 'initialize' request
-type InitializeParams struct {
-	RootPath        string             `json:"rootPath,omitempty"`
-	RootURI         string             `json:"rootUri,omitempty"`
-	WorkspaceFolders []WorkspaceFolder `json:"workspaceFolders,omitempty"`
+// RegisterCompletionProvider registers a completion provider with the server
+func (s *Server) RegisterCompletionProvider(provider CompletionProvider) {
+	s.completionProviders = append(s.completionProviders, provider)
 }
 
-// WorkspaceFolder represents a workspace folder
-type WorkspaceFolder struct {
-	URI  string `json:"uri"`
-	Name string `json:"name"`
+// RegisterIndexer adds an indexer to the registry
+func (s *Server) RegisterIndexer(indexer IndexerProvider) {
+	s.indexerMu.Lock()
+	defer s.indexerMu.Unlock()
+	s.indexers[indexer.ID()] = indexer
 }
 
-// CompletionParams represents the parameters for the 'textDocument/completion' request
-type CompletionParams struct {
-	TextDocument struct {
-		URI string `json:"uri"`
-	} `json:"textDocument"`
-	Position struct {
-		Line      int `json:"line"`
-		Character int `json:"character"`
-	} `json:"position"`
+// GetIndexer retrieves an indexer by ID
+func (s *Server) GetIndexer(id string) (IndexerProvider, bool) {
+	s.indexerMu.RLock()
+	defer s.indexerMu.RUnlock()
+	indexer, ok := s.indexers[id]
+	return indexer, ok
 }
 
-// CompletionItem represents a completion item
-type CompletionItem struct {
-	Label         string `json:"label"`
-	Kind          int    `json:"kind"`
-	Documentation struct {
-		Kind  string `json:"kind"`
-		Value string `json:"value"`
-	} `json:"documentation"`
+// GetAllIndexers returns all registered indexers
+func (s *Server) GetAllIndexers() []IndexerProvider {
+	s.indexerMu.RLock()
+	defer s.indexerMu.RUnlock()
+
+	indexers := make([]IndexerProvider, 0, len(s.indexers))
+	for _, indexer := range s.indexers {
+		indexers = append(indexers, indexer)
+	}
+	return indexers
 }
 
-// CompletionList represents a list of completion items
-type CompletionList struct {
-	IsIncomplete bool             `json:"isIncomplete"`
-	Items        []CompletionItem `json:"items"`
+// IndexAll builds or updates all registered indexes
+func (s *Server) IndexAll() error {
+	s.indexerMu.RLock()
+	defer s.indexerMu.RUnlock()
+
+	for _, indexer := range s.indexers {
+		if err := indexer.Index(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-// RunServer starts the LSP server
-func RunServer(in io.Reader, out io.Writer) error {
-	server := NewServer()
-	
+// CloseAll closes all registered indexers
+func (s *Server) CloseAll() error {
+	s.indexerMu.RLock()
+	defer s.indexerMu.RUnlock()
+
+	for _, indexer := range s.indexers {
+		if err := indexer.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Server) Start(in io.Reader, out io.Writer) error {
 	// Create a new JSON-RPC connection
 	stream := jsonrpc2.NewBufferedStream(rwc{in, out}, jsonrpc2.VSCodeObjectCodec{})
-	conn := jsonrpc2.NewConn(context.Background(), stream, jsonrpc2.HandlerWithError(server.handle))
-	server.conn = conn
-	
+	conn := jsonrpc2.NewConn(context.Background(), stream, jsonrpc2.HandlerWithError(s.handle))
+	s.conn = conn
+
 	// Wait for the connection to close
 	<-conn.DisconnectNotify()
 	return nil
@@ -100,7 +121,7 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 
 	switch req.Method {
 	case "initialize":
-		var params InitializeParams
+		var params protocol.InitializeParams
 		if err := json.Unmarshal(*req.Params, &params); err != nil {
 			return nil, &jsonrpc2.Error{Code: jsonrpc2.CodeParseError, Message: err.Error()}
 		}
@@ -108,19 +129,23 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 
 	case "initialized":
 		// Build the index when the client is initialized
-		if s.serviceIndex != nil {
-			go func() {
-				if err := s.serviceIndex.BuildIndex(); err != nil {
-					log.Printf("Error building index: %v", err)
+		go func() {
+			// Index all providers
+			for _, provider := range s.completionProviders {
+				if err := provider.Index(); err != nil {
+					log.Printf("Error indexing provider: %v", err)
 				}
-				// Send service count notification after indexing
-				s.sendServiceCountNotification()
-			}()
-		}
+			}
+			
+			// Index all registered indexers
+			if err := s.IndexAll(); err != nil {
+				log.Printf("Error indexing: %v", err)
+			}
+		}()
 		return nil, nil
 
 	case "textDocument/completion":
-		var params CompletionParams
+		var params protocol.CompletionParams
 		if err := json.Unmarshal(*req.Params, &params); err != nil {
 			return nil, &jsonrpc2.Error{Code: jsonrpc2.CodeParseError, Message: err.Error()}
 		}
@@ -128,8 +153,8 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 
 	case "shutdown":
 		// Clean up resources
-		if s.serviceIndex != nil {
-			_ = s.serviceIndex.Close()
+		if err := s.CloseAll(); err != nil {
+			log.Printf("Error closing indexers: %v", err)
 		}
 		
 		log.Println("Received shutdown request, waiting for exit notification")
@@ -146,16 +171,12 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 }
 
 // initialize handles the LSP initialize request
-func (s *Server) initialize(ctx context.Context, params *InitializeParams) interface{} {
+func (s *Server) initialize(ctx context.Context, params *protocol.InitializeParams) interface{} {
 	// Extract root path from params
 	s.extractRootPath(params)
 
-	// Initialize the service indexer
-	var err error
-	s.serviceIndex, err = symfony.NewServiceIndex(s.rootPath)
-	if err != nil {
-		log.Printf("Error initializing service index: %v", err)
-	}
+	// Collect all trigger characters from providers
+	triggerChars := s.collectTriggerCharacters()
 
 	// Define server capabilities
 	return map[string]interface{}{
@@ -165,69 +186,31 @@ func (s *Server) initialize(ctx context.Context, params *InitializeParams) inter
 				"change":    1, // Full sync
 			},
 			"completionProvider": map[string]interface{}{
-				"triggerCharacters": []string{"@", "'", "\""},
+				"triggerCharacters": triggerChars,
 			},
 		},
 	}
 }
 
 // completion handles the LSP completion request
-func (s *Server) completion(ctx context.Context, params *CompletionParams) interface{} {
-	if s.serviceIndex == nil {
-		return CompletionList{
-			IsIncomplete: false,
-			Items:        []CompletionItem{},
-		}
+func (s *Server) completion(ctx context.Context, params *protocol.CompletionParams) interface{} {
+	// Collect completion items from all providers
+	allItems := make([]protocol.CompletionItem, 0)
+
+	// Call each registered completion provider
+	for _, provider := range s.completionProviders {
+		items := provider.GetCompletions(ctx, params)
+		allItems = append(allItems, items...)
 	}
 
-	// Get all services from the index
-	serviceIDs := s.serviceIndex.GetAllServices()
-
-	// Convert to completion items
-	items := make([]CompletionItem, 0, len(serviceIDs))
-	for _, serviceID := range serviceIDs {
-		item := CompletionItem{
-			Label: serviceID,
-			Kind:  6, // 6 = Class
-		}
-		
-		// Try to get detailed service information
-		if service, found := s.serviceIndex.GetServiceByID(serviceID); found {
-			// Add class information to documentation
-			documentation := "Symfony service ID\n\n"
-			
-			// Add class information
-			if service.Class != "" {
-				documentation += "**Class:** `" + service.Class + "`\n\n"
-			}
-			
-			// Add tags information if available
-			if len(service.Tags) > 0 {
-				documentation += "**Tags:**\n"
-				for tag := range service.Tags {
-					documentation += "- " + tag + "\n"
-				}
-			}
-			
-			item.Documentation.Kind = "markdown"
-			item.Documentation.Value = documentation
-		} else {
-			// Default documentation
-			item.Documentation.Kind = "markdown"
-			item.Documentation.Value = "Symfony service ID"
-		}
-		
-		items = append(items, item)
-	}
-
-	return CompletionList{
+	return protocol.CompletionList{
 		IsIncomplete: false,
-		Items:        items,
+		Items:        allItems,
 	}
 }
 
 // extractRootPath extracts the root path from the initialize params
-func (s *Server) extractRootPath(params *InitializeParams) {
+func (s *Server) extractRootPath(params *protocol.InitializeParams) {
 	// Try to get from RootPath
 	if params.RootPath != "" {
 		s.rootPath = params.RootPath
@@ -252,30 +235,22 @@ func (s *Server) extractRootPath(params *InitializeParams) {
 	s.rootPath, _ = os.Getwd()
 }
 
-// sendServiceCountNotification sends a notification to the client with service count information
-func (s *Server) sendServiceCountNotification() {
-	if s.conn == nil || s.serviceIndex == nil {
-		return
+// collectTriggerCharacters collects all trigger characters from registered providers
+func (s *Server) collectTriggerCharacters() []string {
+	// Use a map to deduplicate trigger characters
+	triggerCharsMap := make(map[string]bool)
+
+	for _, provider := range s.completionProviders {
+		for _, char := range provider.GetTriggerCharacters() {
+			triggerCharsMap[char] = true
+		}
 	}
-	
-	// Get service and alias counts
-	serviceCount, aliasCount := s.serviceIndex.GetCounts()
-	totalCount := serviceCount + aliasCount
-	
-	// Create notification params
-	params := map[string]interface{}{
-		"serviceCount": serviceCount,
-		"aliasCount":   aliasCount,
-		"total":        totalCount,
+
+	// Convert map keys to slice
+	triggerChars := make([]string, 0, len(triggerCharsMap))
+	for char := range triggerCharsMap {
+		triggerChars = append(triggerChars, char)
 	}
-	
-	// Send the notification
-	err := s.conn.Notify(context.Background(), "symfony/serviceCount", params)
-	if err != nil {
-		log.Printf("Error sending service count notification: %v", err)
-		return
-	}
-	
-	log.Printf("Sent service count notification: %d services, %d aliases, %d total", 
-		serviceCount, aliasCount, totalCount)
+
+	return triggerChars
 }
