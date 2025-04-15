@@ -1,0 +1,65 @@
+{
+  "name": "symfony-service-lsp",
+  "displayName": "Symfony Service Autocompletion",
+  "description": "Provides autocompletion for Symfony service IDs from XML definitions",
+  "version": "0.1.0",
+  "publisher": "shopware",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "activationEvents": [
+    "onLanguage:php",
+    "onLanguage:xml",
+    "onCommand:symfonyServiceLSP.restart"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "symfonyServiceLSP.restart",
+        "title": "Restart Symfony Service Language Server"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Symfony Service LSP",
+      "properties": {
+        "symfonyServiceLSP.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable/disable the Symfony Service LSP"
+        },
+        "symfonyServiceLSP.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the Symfony Service LSP server executable. Leave empty to use the bundled server."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "test": "node ./out/test/runTest.js"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^8.1.0"
+  },
+  "devDependencies": {
+    "@types/glob": "^7.2.0",
+    "@types/mocha": "^10.0.1",
+    "@types/node": "^16.18.34",
+    "@types/vscode": "^1.74.0",
+    "@vscode/test-electron": "^2.3.8",
+    "glob": "^7.2.3",
+    "minimatch": "^3.1.2",
+    "mocha": "^10.2.0",
+    "typescript": "^5.1.3"
+  }
+}

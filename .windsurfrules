@@ -1,0 +1,5 @@
+For tests:
+
+- Don't mock things
+- Use testify assert instead of regular if conditions
+- Use t.Context for context and t.TempDir for an temporary directory
