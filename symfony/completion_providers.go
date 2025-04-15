@@ -132,7 +132,6 @@ func (p *SymfonyCompletionProvider) getServiceCompletions(ctx context.Context, p
 		// Check if the parent element is a <service> element
 		elementNameNode := treesitterhelper.GetFirstNodeOfKind(parentElement, "Name")
 		if elementNameNode == nil {
-			log.Printf("No element name found")
 			return []protocol.CompletionItem{}
 		}
 
