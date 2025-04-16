@@ -66,6 +66,15 @@ func (idx *PHPIndex) Index() error {
 
 		// Skip directories
 		if info.IsDir() {
+			// Skip node_modules and var folders at project root level
+			relPath, err := filepath.Rel(idx.projectRoot, path)
+			if err == nil {
+				pathParts := strings.Split(relPath, string(os.PathSeparator))
+				if len(pathParts) == 1 && (pathParts[0] == "node_modules" || pathParts[0] == "var") {
+					log.Printf("Skipping directory: %s", path)
+					return filepath.SkipDir
+				}
+			}
 			return nil
 		}
 
