@@ -1,40 +1,29 @@
-package symfony
+package definition
 
 import (
 	"context"
-	"log"
 	"strings"
 
 	"github.com/shopware/shopware-lsp/internal/lsp"
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
-	"github.com/shopware/shopware-lsp/internal/php"
+	"github.com/shopware/shopware-lsp/internal/symfony"
+	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
 )
 
-// SymfonyGotoDefinitionProvider provides goto definition for Symfony services
-type SymfonyGotoDefinitionProvider struct {
-	serviceIndex *ServiceIndex
-	server       *lsp.Server
-	phpIndex     *php.PHPIndex
+type serviceXMLDefinitionProvider struct {
+	serviceIndex *symfony.ServiceIndex
 }
 
-// NewGotoDefinitionProvider creates a new goto definition provider for Symfony services
-func NewGotoDefinitionProvider(server *lsp.Server) *SymfonyGotoDefinitionProvider {
-	indexer, _ := server.GetIndexer("symfony.service")
-	phpIndexer, _ := server.GetIndexer("php.index")
+func NewServiceXMLDefinitionProvider(lsp *lsp.Server) *serviceXMLDefinitionProvider {
+	serviceIndex, _ := lsp.GetIndexer("symfony.service")
 
-	return &SymfonyGotoDefinitionProvider{
-		serviceIndex: indexer.(*ServiceIndex),
-		phpIndex:     phpIndexer.(*php.PHPIndex),
-		server:       server,
+	return &serviceXMLDefinitionProvider{
+		serviceIndex: serviceIndex.(*symfony.ServiceIndex),
 	}
 }
 
-// GetDefinition returns the location of the definition for a service ID
-func (p *SymfonyGotoDefinitionProvider) GetDefinition(ctx context.Context, params *protocol.DefinitionParams) []protocol.Location {
-	// Check if we're in an XML file
-	uri := params.TextDocument.URI
-	if !strings.HasSuffix(strings.ToLower(uri), ".xml") {
-		log.Printf("Not providing definitions for non-XML file: %s", uri)
+func (p *serviceXMLDefinitionProvider) GetDefinition(ctx context.Context, params *protocol.DefinitionParams) []protocol.Location {
+	if !strings.HasSuffix(params.TextDocument.URI, ".xml") {
 		return []protocol.Location{}
 	}
 
@@ -43,9 +32,9 @@ func (p *SymfonyGotoDefinitionProvider) GetDefinition(ctx context.Context, param
 	}
 
 	// Check if we're in a service ID context
-	if isArgumentServiceContext(params.Node, params.DocumentContent) {
+	if treesitterhelper.SymfonyServiceIsServiceTag(params.Node, params.DocumentContent) {
 		// Get the service ID at the current position
-		serviceID := getCurrentAttributeValue(params.Node, params.DocumentContent)
+		serviceID := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
 		if serviceID == "" {
 			return []protocol.Location{}
 		}
@@ -95,8 +84,8 @@ func (p *SymfonyGotoDefinitionProvider) GetDefinition(ctx context.Context, param
 		}
 	}
 
-	if isArgumentTagContext(params.Node, params.DocumentContent) {
-		serviceID := getCurrentAttributeValue(params.Node, params.DocumentContent)
+	if treesitterhelper.SymfonyServiceIsArgumentTag(params.Node, params.DocumentContent) {
+		serviceID := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
 		if serviceID == "" {
 			return []protocol.Location{}
 		}
@@ -119,35 +108,6 @@ func (p *SymfonyGotoDefinitionProvider) GetDefinition(ctx context.Context, param
 					},
 					End: protocol.Position{
 						Line:      service.Line - 1,
-						Character: 0,
-					},
-				},
-			})
-		}
-
-		return locations
-	}
-
-	if isServiceIdContext(params.Node, params.DocumentContent) {
-		serviceID := getCurrentAttributeValue(params.Node, params.DocumentContent)
-		if serviceID == "" {
-			return []protocol.Location{}
-		}
-
-		var locations []protocol.Location
-
-		phpClass := p.phpIndex.GetClass(serviceID)
-
-		if phpClass != nil {
-			locations = append(locations, protocol.Location{
-				URI: "file://" + phpClass.Path,
-				Range: protocol.Range{
-					Start: protocol.Position{
-						Line:      phpClass.Line - 1, // LSP uses 0-based line numbers
-						Character: 0,
-					},
-					End: protocol.Position{
-						Line:      phpClass.Line - 1,
 						Character: 0,
 					},
 				},

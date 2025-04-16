@@ -6,6 +6,8 @@ import (
 
 	"github.com/shopware/shopware-lsp/internal/lsp"
 	"github.com/shopware/shopware-lsp/internal/lsp/codelens"
+	"github.com/shopware/shopware-lsp/internal/lsp/completion"
+	"github.com/shopware/shopware-lsp/internal/lsp/definition"
 	"github.com/shopware/shopware-lsp/internal/php"
 	"github.com/shopware/shopware-lsp/internal/symfony"
 )
@@ -23,9 +25,11 @@ func main() {
 	server.RegisterIndexer(symfony.NewServiceIndex(projectRoot))
 	server.RegisterIndexer(php.NewPHPIndex(projectRoot))
 
-	// Register providers
-	server.RegisterCompletionProvider(symfony.NewServiceCompletionProvider(server))
-	server.RegisterDefinitionProvider(symfony.NewGotoDefinitionProvider(server))
+	server.RegisterCompletionProvider(completion.NewServiceCompletionProvider(server))
+
+	server.RegisterDefinitionProvider(definition.NewServiceXMLPHPDefinitionProvider(server))
+	server.RegisterDefinitionProvider(definition.NewServiceXMLDefinitionProvider(server))
+
 	server.RegisterCodeLensProvider(codelens.NewPHPCodeLensProvider(server))
 
 	if err := server.Start(os.Stdin, os.Stdout); err != nil {

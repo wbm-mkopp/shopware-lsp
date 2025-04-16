@@ -1,4 +1,4 @@
-package symfony
+package completion
 
 import (
 	"context"
@@ -7,11 +7,13 @@ import (
 	"github.com/shopware/shopware-lsp/internal/lsp"
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
 	"github.com/shopware/shopware-lsp/internal/php"
+	"github.com/shopware/shopware-lsp/internal/symfony"
+	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
 )
 
 // SymfonyCompletionProvider provides completions for Symfony services and tags
 type SymfonyCompletionProvider struct {
-	serviceIndex *ServiceIndex
+	serviceIndex *symfony.ServiceIndex
 	server       *lsp.Server
 	phpIndex     *php.PHPIndex
 }
@@ -22,7 +24,7 @@ func NewServiceCompletionProvider(server *lsp.Server) *SymfonyCompletionProvider
 	phpIndexer, _ := server.GetIndexer("php.index")
 
 	return &SymfonyCompletionProvider{
-		serviceIndex: symfonyIndexer.(*ServiceIndex),
+		serviceIndex: symfonyIndexer.(*symfony.ServiceIndex),
 		phpIndex:     phpIndexer.(*php.PHPIndex),
 		server:       server,
 	}
@@ -40,8 +42,8 @@ func (p *SymfonyCompletionProvider) GetCompletions(ctx context.Context, params *
 		return []protocol.CompletionItem{}
 	}
 
-	if isArgumentServiceContext(params.Node, params.DocumentContent) {
-		currentServiceId := getParentServiceId(params.Node, params.DocumentContent)
+	if treesitterhelper.SymfonyServiceIsServiceTag(params.Node, params.DocumentContent) {
+		currentServiceId := treesitterhelper.SymfonyGetCurrentServiceIdFromArgument(params.Node, params.DocumentContent)
 
 		// Get all services from the index
 		serviceIDs := p.serviceIndex.GetAllServices()
@@ -90,7 +92,7 @@ func (p *SymfonyCompletionProvider) GetCompletions(ctx context.Context, params *
 		return items
 	}
 
-	if isArgumentTagContext(params.Node, params.DocumentContent) {
+	if treesitterhelper.SymfonyServiceIsArgumentTag(params.Node, params.DocumentContent) {
 		items := make([]protocol.CompletionItem, 0)
 		tags := p.serviceIndex.GetAllTags()
 		for _, tag := range tags {
@@ -103,7 +105,7 @@ func (p *SymfonyCompletionProvider) GetCompletions(ctx context.Context, params *
 		return items
 	}
 
-	if isServiceIdContext(params.Node, params.DocumentContent) {
+	if treesitterhelper.SymfonyServiceIsServiceId(params.Node, params.DocumentContent) {
 		classNames := p.phpIndex.GetClassNames()
 
 		items := make([]protocol.CompletionItem, 0)

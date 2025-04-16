@@ -1,18 +1,17 @@
-package symfony
+package treesitterhelper
 
 import (
 	"slices"
 	"strings"
 
-	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
-func isServiceIdContext(node *tree_sitter.Node, docText string) bool {
+func SymfonyServiceIsServiceId(node *tree_sitter.Node, docText string) bool {
 	if node.Kind() == "AttValue" && node.Parent() != nil && node.Parent().Kind() == "Attribute" {
 		attrNode := node.Parent()
 
-		nameNode := treesitterhelper.GetFirstNodeOfKind(attrNode, "Name")
+		nameNode := GetFirstNodeOfKind(attrNode, "Name")
 		if nameNode == nil {
 			return false
 		}
@@ -23,7 +22,7 @@ func isServiceIdContext(node *tree_sitter.Node, docText string) bool {
 			return false
 		}
 
-		tagName := treesitterhelper.GetFirstNodeOfKind(attrNode.Parent(), "Name")
+		tagName := GetFirstNodeOfKind(attrNode.Parent(), "Name")
 
 		if tagName == nil {
 			return false
@@ -36,12 +35,12 @@ func isServiceIdContext(node *tree_sitter.Node, docText string) bool {
 	return false
 }
 
-func isArgumentServiceContext(node *tree_sitter.Node, docText string) bool {
+func SymfonyServiceIsServiceTag(node *tree_sitter.Node, docText string) bool {
 	if node.Kind() == "AttValue" && node.Parent() != nil && node.Parent().Kind() == "Attribute" {
 		attrNode := node.Parent()
 
 		// Get the attribute name
-		nameNode := treesitterhelper.GetFirstNodeOfKind(attrNode, "Name")
+		nameNode := GetFirstNodeOfKind(attrNode, "Name")
 		if nameNode == nil {
 			return false
 		}
@@ -58,13 +57,13 @@ func isArgumentServiceContext(node *tree_sitter.Node, docText string) bool {
 		}
 
 		// Check if the parent element has a type="service" attribute
-		attrValues := treesitterhelper.GetXmlAttributeValues(parentElement, docText)
+		attrValues := GetXmlAttributeValues(parentElement, docText)
 		if attrValues == nil || attrValues["type"] != "service" {
 			return false
 		}
 
 		// Check if the parent element is an argument element
-		elementNameNode := treesitterhelper.GetFirstNodeOfKind(parentElement, "Name")
+		elementNameNode := GetFirstNodeOfKind(parentElement, "Name")
 		if elementNameNode == nil {
 			return false
 		}
@@ -78,12 +77,12 @@ func isArgumentServiceContext(node *tree_sitter.Node, docText string) bool {
 
 var possibleTaggedTypes = []string{"tagged_iterator", "tagged_locator", "tagged"}
 
-func isArgumentTagContext(node *tree_sitter.Node, docText string) bool {
+func SymfonyServiceIsArgumentTag(node *tree_sitter.Node, docText string) bool {
 	if node.Kind() == "AttValue" && node.Parent() != nil && node.Parent().Kind() == "Attribute" {
 		attrNode := node.Parent()
 
 		// Get the attribute name
-		nameNode := treesitterhelper.GetFirstNodeOfKind(attrNode, "Name")
+		nameNode := GetFirstNodeOfKind(attrNode, "Name")
 		if nameNode == nil {
 			return false
 		}
@@ -100,13 +99,13 @@ func isArgumentTagContext(node *tree_sitter.Node, docText string) bool {
 		}
 
 		// Check if the parent element has a type="tagged_iterator" attribute
-		attrValues := treesitterhelper.GetXmlAttributeValues(parentElement, docText)
+		attrValues := GetXmlAttributeValues(parentElement, docText)
 		if attrValues == nil || !slices.Contains(possibleTaggedTypes, attrValues["type"]) {
 			return false
 		}
 
 		// Check if the parent element is an argument element
-		elementNameNode := treesitterhelper.GetFirstNodeOfKind(parentElement, "Name")
+		elementNameNode := GetFirstNodeOfKind(parentElement, "Name")
 		if elementNameNode == nil {
 			return false
 		}
@@ -118,11 +117,11 @@ func isArgumentTagContext(node *tree_sitter.Node, docText string) bool {
 	return false
 }
 
-func getCurrentAttributeValue(node *tree_sitter.Node, docText string) string {
+func GetNodeText(node *tree_sitter.Node, docText string) string {
 	return strings.Trim(node.Utf8Text([]byte(docText)), "\"")
 }
 
-func getParentServiceId(node *tree_sitter.Node, docText string) string {
+func SymfonyGetCurrentServiceIdFromArgument(node *tree_sitter.Node, docText string) string {
 	argumentNode := node.Parent().Parent()
 
 	if argumentNode == nil {
@@ -141,7 +140,7 @@ func getParentServiceId(node *tree_sitter.Node, docText string) string {
 		return ""
 	}
 
-	elementNameNode := treesitterhelper.GetFirstNodeOfKind(startTag, "Name")
+	elementNameNode := GetFirstNodeOfKind(startTag, "Name")
 	if elementNameNode == nil {
 		return ""
 	}
@@ -150,7 +149,7 @@ func getParentServiceId(node *tree_sitter.Node, docText string) string {
 		return ""
 	}
 
-	attrValues := treesitterhelper.GetXmlAttributeValues(startTag, docText)
+	attrValues := GetXmlAttributeValues(startTag, docText)
 	if attrValues == nil || attrValues["id"] == "" {
 		return ""
 	}
