@@ -16,6 +16,7 @@ type ServiceIndex struct {
 	services    map[string]Service      // map[serviceID]Service
 	aliases     map[string]ServiceAlias // map[aliasID]ServiceAlias
 	tags        map[string][]string     // map[tagName][]serviceIDs
+	parameters  map[string]Parameter    // map[parameterName]parameterValue
 	projectRoot string
 	mu          sync.RWMutex
 }
@@ -49,6 +50,7 @@ func (idx *ServiceIndex) Index() error {
 	idx.services = make(map[string]Service)
 	idx.aliases = make(map[string]ServiceAlias)
 	idx.tags = make(map[string][]string)
+	idx.parameters = make(map[string]Parameter)
 
 	// Walk the project directory
 	return filepath.Walk(idx.projectRoot, func(path string, info os.FileInfo, err error) error {
@@ -77,13 +79,13 @@ func (idx *ServiceIndex) Index() error {
 
 // processFile parses an XML file and adds any service IDs to the index
 func (idx *ServiceIndex) processFile(path string) {
-	services, aliases, err := ParseXMLServices(path)
+	services, aliases, params, err := ParseXMLServices(path)
 	if err != nil {
 		log.Printf("Failed to parse XML file %s: %v", path, err)
 		return // Skip files that can't be parsed
 	}
 
-	log.Printf("Found %d services and %d aliases in %s", len(services), len(aliases), path)
+	log.Printf("Found %d services, %d aliases, and %d parameters in %s", len(services), len(aliases), len(params), path)
 
 	// Add services to index
 	if len(services) > 0 {
@@ -107,10 +109,15 @@ func (idx *ServiceIndex) processFile(path string) {
 		}
 	}
 
-	// Skip debug logging
+	// Add parameters to index
+	if len(params) > 0 {
+		for _, param := range params {
+			idx.parameters[param.Name] = param
+		}
+	}
 }
 
-// removeServicesFromFile removes all services from a specific file
+// removeServicesFromFile removes all services, aliases, and parameters from a specific file
 func (idx *ServiceIndex) removeServicesFromFile(path string) {
 	// Note: This function should be called with the mutex already locked
 	// by the caller to avoid deadlocks
@@ -147,6 +154,12 @@ func (idx *ServiceIndex) removeServicesFromFile(path string) {
 	for id, alias := range idx.aliases {
 		if alias.Path == path {
 			delete(idx.aliases, id)
+		}
+	}
+
+	for id, param := range idx.parameters {
+		if param.Path == path {
+			delete(idx.parameters, id)
 		}
 	}
 }
@@ -291,6 +304,35 @@ func (idx *ServiceIndex) GetAliasByID(id string) (ServiceAlias, bool) {
 
 	alias, exists := idx.aliases[id]
 	return alias, exists
+}
+
+// GetAllParameters returns all parameter names in the index
+func (idx *ServiceIndex) GetAllParameters() []Parameter {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	parameters := make([]Parameter, 0, len(idx.parameters))
+	for name := range idx.parameters {
+		parameters = append(parameters, idx.parameters[name])
+	}
+	return parameters
+}
+
+// GetParameterByName returns a specific parameter value by its name
+func (idx *ServiceIndex) GetParameterByName(name string) (Parameter, bool) {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	value, exists := idx.parameters[name]
+	return value, exists
+}
+
+// GetParameterCount returns the number of parameters in the index
+func (idx *ServiceIndex) GetParameterCount() int {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	return len(idx.parameters)
 }
 
 type Location struct {

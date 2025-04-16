@@ -15,12 +15,13 @@ func TestParseXMLServices(t *testing.T) {
 
 	// Test cases
 	testCases := []struct {
-		name             string
-		xmlContent       string
-		expectedServices int
-		expectedAliases  int
-		expectedTags     map[string][]string // map[serviceID][]tagNames
-		expectError      bool
+		name               string
+		xmlContent         string
+		expectedServices   int
+		expectedAliases    int
+		expectedParameters int
+		expectedTags       map[string][]string // map[serviceID][]tagNames
+		expectError        bool
 	}{
 		{
 			name: "Basic service",
@@ -28,10 +29,11 @@ func TestParseXMLServices(t *testing.T) {
 <container>
     <service id="app.service1" class="App\Service\Service1" />
 </container>`,
-			expectedServices: 1,
-			expectedAliases:  0,
-			expectedTags:     map[string][]string{},
-			expectError:      false,
+			expectedServices:   1,
+			expectedAliases:    0,
+			expectedParameters: 0,
+			expectedTags:       map[string][]string{},
+			expectError:        false,
 		},
 		{
 			name: "Service with tags",
@@ -41,10 +43,11 @@ func TestParseXMLServices(t *testing.T) {
         <tag name="app.tag" />
     </service>
 </container>`,
-			expectedServices: 1,
-			expectedAliases:  0,
-			expectedTags:     map[string][]string{"app.service1": {"app.tag"}},
-			expectError:      false,
+			expectedServices:   1,
+			expectedAliases:    0,
+			expectedParameters: 0,
+			expectedTags:       map[string][]string{"app.service1": {"app.tag"}},
+			expectError:        false,
 		},
 		{
 			name: "Service with multiple tags",
@@ -55,10 +58,11 @@ func TestParseXMLServices(t *testing.T) {
         <tag name="app.tag2" />
     </service>
 </container>`,
-			expectedServices: 1,
-			expectedAliases:  0,
-			expectedTags:     map[string][]string{"app.service1": {"app.tag1", "app.tag2"}},
-			expectError:      false,
+			expectedServices:   1,
+			expectedAliases:    0,
+			expectedParameters: 0,
+			expectedTags:       map[string][]string{"app.service1": {"app.tag1", "app.tag2"}},
+			expectError:        false,
 		},
 		{
 			name: "Multiple services",
@@ -67,10 +71,11 @@ func TestParseXMLServices(t *testing.T) {
     <service id="app.service1" class="App\Service\Service1" />
     <service id="app.service2" class="App\Service\Service2" />
 </container>`,
-			expectedServices: 2,
-			expectedAliases:  0,
-			expectedTags:     map[string][]string{},
-			expectError:      false,
+			expectedServices:   2,
+			expectedAliases:    0,
+			expectedParameters: 0,
+			expectedTags:       map[string][]string{},
+			expectError:        false,
 		},
 		{
 			name: "Services with aliases",
@@ -79,10 +84,11 @@ func TestParseXMLServices(t *testing.T) {
     <service id="app.service1" class="App\Service\Service1" />
     <alias id="app.alias1" service="app.service1" />
 </container>`,
-			expectedServices: 1,
-			expectedAliases:  1,
-			expectedTags:     map[string][]string{},
-			expectError:      false,
+			expectedServices:   1,
+			expectedAliases:    1,
+			expectedParameters: 0,
+			expectedTags:       map[string][]string{},
+			expectError:        false,
 		},
 		{
 			name: "Complex XML with services, tags, and aliases",
@@ -98,9 +104,10 @@ func TestParseXMLServices(t *testing.T) {
     <alias id="app.alias1" service="app.service1" />
     <alias id="app.alias2" service="app.service2" />
 </container>`,
-			expectedServices: 2,
-			expectedAliases:  2,
-			expectedTags:     map[string][]string{
+			expectedServices:   2,
+			expectedAliases:    2,
+			expectedParameters: 0,
+			expectedTags:       map[string][]string{
 				"app.service1": {"app.tag1", "app.tag2"},
 				"app.service2": {"app.tag3"},
 			},
@@ -131,10 +138,57 @@ func TestParseXMLServices(t *testing.T) {
         </service>
     </services>
 </container>`,
-			expectedServices: 2,
-			expectedAliases:  0,
-			expectedTags:     map[string][]string{},
-			expectError:      false,
+			expectedServices:   2,
+			expectedAliases:    0,
+			expectedParameters: 0,
+			expectedTags:       map[string][]string{},
+			expectError:        false,
+		},
+		{
+			name: "Container with parameters",
+			xmlContent: `<?xml version="1.0" encoding="UTF-8" ?>
+<container>
+    <parameters>
+        <parameter key="database_host">localhost</parameter>
+        <parameter key="database_port">3306</parameter>
+        <parameter key="database_name">app</parameter>
+    </parameters>
+    <service id="app.service1" class="App\Service\Service1" />
+</container>`,
+			expectedServices:   1,
+			expectedAliases:    0,
+			expectedParameters: 3,
+			expectedTags:       map[string][]string{},
+			expectError:        false,
+		},
+		{
+			name: "Container with parameter and value attribute",
+			xmlContent: `<?xml version="1.0" encoding="UTF-8" ?>
+<container>
+    <parameters>
+        <parameter key="app.debug" value="true" />
+    </parameters>
+</container>`,
+			expectedServices:   0,
+			expectedAliases:    0,
+			expectedParameters: 1,
+			expectedTags:       map[string][]string{},
+			expectError:        false,
+		},
+		{
+			name: "Container with service reference parameter",
+			xmlContent: `<?xml version="1.0" encoding="UTF-8" ?>
+<container>
+    <parameters>
+        <parameter key="app.manager" type="service" id="app.service.manager" />
+    </parameters>
+    <service id="app.service.manager" class="App\Service\Manager" />
+</container>`,
+			expectedServices:   1,
+			expectedAliases:    0,
+			expectedParameters: 1,
+			expectedTags:       map[string][]string{},
+			expectError:        false,
 		},
 		// Add test cases for invalid/non-service XML
 		{
@@ -149,10 +203,11 @@ func TestParseXMLServices(t *testing.T) {
     <p>Just a regular HTML document</p>
 </body>
 </html>`,
-			expectedServices: 0,
-			expectedAliases:  0,
-			expectedTags:     map[string][]string{},
-			expectError:      false,
+			expectedServices:   0,
+			expectedAliases:    0,
+			expectedParameters: 0,
+			expectedTags:       map[string][]string{},
+			expectError:        false,
 		},
 		{
 			name: "XML without container tag",
@@ -162,20 +217,22 @@ func TestParseXMLServices(t *testing.T) {
         <parameter name="test">value</parameter>
     </parameters>
 </config>`,
-			expectedServices: 0,
-			expectedAliases:  0,
-			expectedTags:     map[string][]string{},
-			expectError:      false,
+			expectedServices:   0,
+			expectedAliases:    0,
+			expectedParameters: 0,
+			expectedTags:       map[string][]string{},
+			expectError:        false,
 		},
 		{
 			name: "Empty XML",
 			xmlContent: `<?xml version="1.0" encoding="UTF-8" ?>
 <container>
 </container>`,
-			expectedServices: 0,
-			expectedAliases:  0,
-			expectedTags:     map[string][]string{},
-			expectError:      false,
+			expectedServices:   0,
+			expectedAliases:    0,
+			expectedParameters: 0,
+			expectedTags:       map[string][]string{},
+			expectError:        false,
 		},
 		{
 			name: "Services with missing attributes",
@@ -187,18 +244,20 @@ func TestParseXMLServices(t *testing.T) {
     <alias />
     <alias id="missing.service.reference" />
 </container>`,
-			expectedServices: 0,
-			expectedAliases:  0,
-			expectedTags:     map[string][]string{},
-			expectError:      false,
+			expectedServices:   0,
+			expectedAliases:    0,
+			expectedParameters: 0,
+			expectedTags:       map[string][]string{},
+			expectError:        false,
 		},
 		{
-			name:             "Malformed XML",
-			xmlContent:       `<?xml version="1.0" encoding="UTF-8" ?><container><service></container>`,
-			expectedServices: 0,
-			expectedAliases:  0,
-			expectedTags:     map[string][]string{},
-			expectError:      false, // Tree-sitter can still parse malformed XML without errors
+			name:               "Malformed XML",
+			xmlContent:         `<?xml version="1.0" encoding="UTF-8" ?><container><service></container>`,
+			expectedServices:   0,
+			expectedAliases:    0,
+			expectedParameters: 0,
+			expectedTags:       map[string][]string{},
+			expectError:        false, // Tree-sitter can still parse malformed XML without errors
 		},
 	}
 
@@ -210,7 +269,7 @@ func TestParseXMLServices(t *testing.T) {
 			require.NoError(t, err, "Failed to write test file")
 
 			// Parse the XML file
-			services, aliases, err := ParseXMLServices(testFile)
+			services, aliases, parameters, err := ParseXMLServices(testFile)
 			
 			if tc.expectError {
 				require.Error(t, err, "Expected ParseXMLServices to fail")
@@ -224,6 +283,9 @@ func TestParseXMLServices(t *testing.T) {
 
 			// Check alias count
 			assert.Len(t, aliases, tc.expectedAliases, "Expected %d aliases, got %d", tc.expectedAliases, len(aliases))
+			
+			// Check parameter count
+			assert.Len(t, parameters, tc.expectedParameters, "Expected %d parameters, got %d", tc.expectedParameters, len(parameters))
 
 			// Check tags
 			for serviceID, expectedTags := range tc.expectedTags {

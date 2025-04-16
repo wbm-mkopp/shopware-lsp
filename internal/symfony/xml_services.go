@@ -28,40 +28,49 @@ type ServiceAlias struct {
 	Line   int    // Line number in source file
 }
 
-// ParseXMLServices parses Symfony XML service definitions and returns a list of services and aliases.
-func ParseXMLServices(path string) ([]Service, []ServiceAlias, error) {
+// Parameter represents a Symfony container parameter
+type Parameter struct {
+	Name  string // Parameter name
+	Value string // Parameter value
+	Path  string // Source file path
+	Line  int    // Line number in source file
+}
+
+// ParseXMLServices parses Symfony XML service definitions and returns a list of services, aliases, and parameters.
+func ParseXMLServices(path string) ([]Service, []ServiceAlias, []Parameter, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	// Initialize tree-sitter parser
 	parser := tree_sitter.NewParser()
 	if err := parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_xml.LanguageXML())); err != nil {
-		return nil, nil, fmt.Errorf("failed to set XML language: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to set XML language: %w", err)
 	}
 
 	// Parse the XML content
 	tree := parser.Parse([]byte(data), nil)
 	if tree == nil {
-		return nil, nil, errors.New("failed to parse XML")
+		return nil, nil, nil, errors.New("failed to parse XML")
 	}
 	defer tree.Close()
 
 	rootNode := tree.RootNode()
 	if rootNode == nil {
-		return nil, nil, errors.New("failed to get root node")
+		return nil, nil, nil, errors.New("failed to get root node")
 	}
 
 	// Create content lines for line number lookup
 	contentLines := strings.Split(string(data), "\n")
 	services := []Service{}
 	aliases := []ServiceAlias{}
+	parameters := []Parameter{}
 
 	// Process container node
 	containerNode := findContainerNode(rootNode, data)
 	if containerNode == nil {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 
 	// Process content node directly for better handling of different XML structures
@@ -100,11 +109,20 @@ func ParseXMLServices(path string) ([]Service, []ServiceAlias, error) {
 						// Process services inside the services tag
 						nestedServices := processServicesNode(child, data, path, contentLines)
 						services = append(services, nestedServices...)
+					case "parameters":
+						// Process parameters inside the parameters tag
+						nestedParams := processParametersNode(child, data, path, contentLines)
+						parameters = append(parameters, nestedParams...)
+					case "parameter":
+						param := processParameterNode(child, data, path, contentLines)
+						if param.Name != "" {
+							parameters = append(parameters, param)
+						}
 					}
 				}
 			}
 
-			return services, aliases, nil
+			return services, aliases, parameters, nil
 		}
 	}
 	// Fall back to the original approach if needed
@@ -144,10 +162,19 @@ func ParseXMLServices(path string) ([]Service, []ServiceAlias, error) {
 			// Process services inside the services tag
 			nestedServices := processServicesNode(child, data, path, contentLines)
 			services = append(services, nestedServices...)
+		case "parameters":
+			// Process parameters inside the parameters tag
+			nestedParams := processParametersNode(child, data, path, contentLines)
+			parameters = append(parameters, nestedParams...)
+		case "parameter":
+			param := processParameterNode(child, data, path, contentLines)
+			if param.Name != "" {
+				parameters = append(parameters, param)
+			}
 		}
 	}
 
-	return services, aliases, nil
+	return services, aliases, parameters, nil
 }
 
 // findContainerNode finds the container node in the XML tree
@@ -322,6 +349,98 @@ func processServicesNode(node *tree_sitter.Node, data []byte, path string, conte
 	return services
 }
 
+// processParameterNode extracts parameter information from a parameter element node
+func processParameterNode(node *tree_sitter.Node, data []byte, path string, contentLines []string) Parameter {
+	param := Parameter{
+		Path: path,
+	}
+
+	// Get start tag node (either STag or EmptyElemTag)
+	startTag := node.NamedChild(0)
+	if startTag == nil {
+		return param
+	}
+
+	// Get attributes
+	attrs := getXmlAttributeValues(startTag, data)
+	param.Name = attrs["key"] // In Symfony XML, parameters use "key" as attribute
+
+	// Handle different types of parameter content
+	// If it's an empty element tag with 'type' and 'id' attributes, it's a service reference
+	if paramType, hasType := attrs["type"]; hasType && paramType == "service" {
+		if serviceId, hasServiceId := attrs["id"]; hasServiceId {
+			param.Value = "@" + serviceId // Symfony convention for service references
+		}
+	} else if value, hasValue := attrs["value"]; hasValue {
+		// Simple value attribute
+		param.Value = value
+	} else if startTag.Kind() == "STag" && node.NamedChildCount() > 1 {
+		// Parameter has content
+		contentNode := node.NamedChild(1)
+		if contentNode != nil && contentNode.Kind() == "content" {
+			// Extract text value from content
+			param.Value = strings.TrimSpace(contentNode.Utf8Text(data))
+		}
+	}
+
+	// Get line number - approximate by counting newlines
+	if param.Name != "" {
+		bytePos := int(node.StartByte())
+		lineNum := 1
+		for i := 0; i < bytePos && i < len(data); i++ {
+			if data[i] == '\n' {
+				lineNum++
+			}
+		}
+		param.Line = lineNum
+	}
+
+	return param
+}
+
+// processParametersNode processes parameters inside a parameters element
+func processParametersNode(node *tree_sitter.Node, data []byte, path string, contentLines []string) []Parameter {
+	parameters := []Parameter{}
+
+	// Get the content node
+	if node.NamedChildCount() < 2 {
+		return parameters
+	}
+
+	contentNode := node.NamedChild(1)
+	if contentNode == nil || contentNode.Kind() != "content" {
+		return parameters
+	}
+
+	// Process all elements in content
+	for i := 0; i < int(contentNode.NamedChildCount()); i++ {
+		child := contentNode.NamedChild(uint(i))
+		if child.Kind() == "element" {
+			// Get element's STag or EmptyElemTag
+			elementTag := child.NamedChild(0)
+			if elementTag == nil {
+				continue
+			}
+
+			// Get element name
+			nameNode := treesitterhelper.GetFirstNodeOfKind(elementTag, "Name")
+			if nameNode == nil {
+				continue
+			}
+
+			elementName := nameNode.Utf8Text(data)
+			if elementName == "parameter" {
+				param := processParameterNode(child, data, path, contentLines)
+				if param.Name != "" {
+					parameters = append(parameters, param)
+				}
+			}
+		}
+	}
+
+	return parameters
+}
+
 // GetServiceIDs extracts just the service IDs from a list of services
 func GetServiceIDs(services []Service, aliases []ServiceAlias) []string {
 	result := make([]string, 0, len(services)+len(aliases))
@@ -334,6 +453,17 @@ func GetServiceIDs(services []Service, aliases []ServiceAlias) []string {
 	// Add alias IDs
 	for _, alias := range aliases {
 		result = append(result, alias.ID)
+	}
+
+	return result
+}
+
+// GetParameterNames extracts just the parameter names from a list of parameters
+func GetParameterNames(parameters []Parameter) []string {
+	result := make([]string, 0, len(parameters))
+
+	for _, param := range parameters {
+		result = append(result, param.Name)
 	}
 
 	return result

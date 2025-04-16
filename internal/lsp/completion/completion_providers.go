@@ -105,6 +105,29 @@ func (p *SymfonyCompletionProvider) GetCompletions(ctx context.Context, params *
 		return items
 	}
 
+	// Handle parameter reference in format %parameter_name%
+	if treesitterhelper.SymfonyServiceIsParameterReference(params.Node, params.DocumentContent) {
+		items := make([]protocol.CompletionItem, 0)
+		parameters := p.serviceIndex.GetAllParameters()
+
+		for _, paramName := range parameters {
+			item := protocol.CompletionItem{
+				Label:      paramName.Name,
+				InsertText: paramName.Name + "%",
+				Kind:       21, // 21 = Constant
+			}
+
+			// Try to get parameter value for documentation
+			if value, found := p.serviceIndex.GetParameterByName(paramName.Name); found {
+				item.Documentation.Kind = "markdown"
+				item.Documentation.Value = "**Parameter:** `" + paramName.Name + "`\n\n**Value:** `" + value.Value + "`"
+			}
+
+			items = append(items, item)
+		}
+		return items
+	}
+
 	if treesitterhelper.SymfonyServiceIsServiceId(params.Node, params.DocumentContent) {
 		classNames := p.phpIndex.GetClassNames()
 
@@ -124,5 +147,5 @@ func (p *SymfonyCompletionProvider) GetCompletions(ctx context.Context, params *
 
 // GetTriggerCharacters returns the characters that trigger this completion provider
 func (p *SymfonyCompletionProvider) GetTriggerCharacters() []string {
-	return []string{"\""}
+	return []string{"\"", "%"}
 }

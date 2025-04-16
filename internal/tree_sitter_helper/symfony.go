@@ -121,6 +121,69 @@ func GetNodeText(node *tree_sitter.Node, docText string) string {
 	return strings.Trim(node.Utf8Text([]byte(docText)), "\"")
 }
 
+// SymfonyServiceIsParameterReference checks if the node is inside a parameter reference (like %parameter.name%)
+func SymfonyServiceIsParameterReference(node *tree_sitter.Node, docText string) bool {
+	if node.Kind() == "ETag" {
+		parentNode := node.Parent()
+
+		startTag := GetFirstNodeOfKind(parentNode, "STag")
+		if startTag == nil {
+			return false
+		}
+
+		attributeName := GetFirstNodeOfKind(startTag, "Name")
+
+		if attributeName == nil {
+			return false
+		}
+
+		if attributeName.Utf8Text([]byte(docText)) != "argument" {
+			return false
+		}
+
+		contentTag := GetFirstNodeOfKind(parentNode, "content")
+
+		if contentTag == nil {
+			return false
+		}
+
+		charTag := GetFirstNodeOfKind(contentTag, "CharData")
+
+		if charTag == nil {
+			return false
+		}
+
+		nodeText := charTag.Utf8Text([]byte(docText))
+
+		return strings.Contains(nodeText, "%") && (!strings.HasPrefix(nodeText, "%") || len(nodeText) == 1)
+	}
+
+	if node.Kind() == "CharData" {
+		parentNode := node.Parent().Parent()
+
+		startTag := GetFirstNodeOfKind(parentNode, "STag")
+		if startTag == nil {
+			return false
+		}
+
+		attributeName := GetFirstNodeOfKind(startTag, "Name")
+
+		if attributeName == nil {
+			return false
+		}
+
+		if attributeName.Utf8Text([]byte(docText)) != "argument" {
+			return false
+		}
+
+		nodeText := node.Utf8Text([]byte(docText))
+
+		return strings.Contains(nodeText, "%")
+	}
+
+	return false
+}
+
 func SymfonyGetCurrentServiceIdFromArgument(node *tree_sitter.Node, docText string) string {
 	argumentNode := node.Parent().Parent()
 
