@@ -2,7 +2,6 @@ package symfony
 
 import (
 	"context"
-	"log"
 	"strings"
 
 	"github.com/shopware/shopware-lsp/internal/lsp"
@@ -34,7 +33,6 @@ func (p *SymfonyCompletionProvider) GetCompletions(ctx context.Context, params *
 	// Check if we're in an XML file
 	uri := params.TextDocument.URI
 	if !strings.HasSuffix(strings.ToLower(uri), ".xml") {
-		log.Printf("Not showing completions for non-XML file: %s", uri)
 		return []protocol.CompletionItem{}
 	}
 

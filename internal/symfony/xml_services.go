@@ -111,10 +111,6 @@ func ParseXMLServices(path string) ([]Service, []ServiceAlias, error) {
 		return nil, nil, err
 	}
 
-	// Log the parsed structure for debugging
-	log.Printf("Parsed XML container: %d direct services, %d direct aliases, %d nested services",
-		len(container.Services), len(container.Aliases), len(container.ServicesTag.Services))
-
 	// Convert to our service structures
 	var services []Service
 
@@ -186,8 +182,6 @@ func ParseXMLServices(path string) ([]Service, []ServiceAlias, error) {
 			aliases = append(aliases, alias)
 		}
 	}
-
-	// Skip detailed logging in production code
 
 	return services, aliases, nil
 }

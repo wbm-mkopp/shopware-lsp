@@ -202,7 +202,7 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 			return nil, err
 		}
 		return s.completion(ctx, &params), nil
-		
+
 	case "textDocument/definition":
 		var params protocol.DefinitionParams
 		if err := json.Unmarshal(*req.Params, &params); err != nil {
@@ -217,6 +217,60 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 		}
 
 		log.Println("Received shutdown request, waiting for exit notification")
+		return nil, nil
+
+	case "workspace/didCreateFiles":
+		var params protocol.CreateFilesParams
+		if err := json.Unmarshal(*req.Params, &params); err != nil {
+			return nil, err
+		}
+		s.handleFileCreation(ctx, &params)
+		return nil, nil
+
+	case "workspace/didRenameFiles":
+		var params protocol.RenameFilesParams
+		if err := json.Unmarshal(*req.Params, &params); err != nil {
+			return nil, err
+		}
+		s.handleFileRename(ctx, &params)
+		return nil, nil
+
+	case "workspace/didDeleteFiles":
+		var params protocol.DeleteFilesParams
+		if err := json.Unmarshal(*req.Params, &params); err != nil {
+			return nil, err
+		}
+		s.handleFileDeletion(ctx, &params)
+		return nil, nil
+
+	case "workspace/didChangeWatchedFiles":
+		var params protocol.DidChangeWatchedFilesParams
+		if err := json.Unmarshal(*req.Params, &params); err != nil {
+			return nil, err
+		}
+
+		createFiles := &protocol.CreateFilesParams{}
+		deleteFiles := &protocol.DeleteFilesParams{}
+
+		// Handle file change events
+		for _, change := range params.Changes {
+			switch change.Type {
+			case int(protocol.FileCreated):
+				createFiles.Files = append(createFiles.Files, protocol.FileCreate{URI: change.URI})
+			case int(protocol.FileChanged):
+				createFiles.Files = append(createFiles.Files, protocol.FileCreate{URI: change.URI})
+			case int(protocol.FileDeleted):
+				deleteFiles.Files = append(deleteFiles.Files, protocol.FileDelete{URI: change.URI})
+			}
+		}
+
+		if createFiles.Files != nil {
+			s.handleFileCreation(ctx, createFiles)
+		}
+		if deleteFiles.Files != nil {
+			s.handleFileDeletion(ctx, deleteFiles)
+		}
+
 		return nil, nil
 
 	default:
@@ -248,6 +302,28 @@ func (s *Server) initialize(ctx context.Context, params *protocol.InitializePara
 				"triggerCharacters": triggerChars,
 			},
 			"definitionProvider": true,
+			"workspace": map[string]interface{}{
+				"fileOperations": map[string]interface{}{
+					"didCreate": map[string]interface{}{
+						"filters": []map[string]interface{}{
+							{"pattern": map[string]interface{}{"glob": "**/*.xml"}},
+							{"pattern": map[string]interface{}{"glob": "**/*.php"}},
+						},
+					},
+					"didRename": map[string]interface{}{
+						"filters": []map[string]interface{}{
+							{"pattern": map[string]interface{}{"glob": "**/*.xml"}},
+							{"pattern": map[string]interface{}{"glob": "**/*.php"}},
+						},
+					},
+					"didDelete": map[string]interface{}{
+						"filters": []map[string]interface{}{
+							{"pattern": map[string]interface{}{"glob": "**/*.xml"}},
+							{"pattern": map[string]interface{}{"glob": "**/*.php"}},
+						},
+					},
+				},
+			},
 		},
 	}
 }
@@ -322,4 +398,25 @@ func (s *Server) collectTriggerCharacters() []string {
 
 func (s *Server) DocumentManager() *DocumentManager {
 	return s.documentManager
+}
+
+// handleFileCreation handles workspace/didCreateFiles notifications
+func (s *Server) handleFileCreation(ctx context.Context, params *protocol.CreateFilesParams) {
+	for _, indexer := range s.indexers {
+		go indexer.FileCreated(ctx, params)
+	}
+}
+
+// handleFileRename handles workspace/didRenameFiles notifications
+func (s *Server) handleFileRename(ctx context.Context, params *protocol.RenameFilesParams) {
+	for _, indexer := range s.indexers {
+		go indexer.FileRenamed(ctx, params)
+	}
+}
+
+// handleFileDeletion handles workspace/didDeleteFiles notifications
+func (s *Server) handleFileDeletion(ctx context.Context, params *protocol.DeleteFilesParams) {
+	for _, indexer := range s.indexers {
+		go indexer.FileDeleted(ctx, params)
+	}
 }

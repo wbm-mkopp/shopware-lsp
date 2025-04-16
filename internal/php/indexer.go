@@ -1,15 +1,15 @@
 package php
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
-	"github.com/fsnotify/fsnotify"
+	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 	tree_sitter_php "github.com/tree-sitter/tree-sitter-php/bindings/go"
 )
@@ -22,19 +22,12 @@ type PHPClass struct {
 
 type PHPIndex struct {
 	projectRoot string
-	watcher     *fsnotify.Watcher
 	phpClasses  map[string]PHPClass
 	mu          sync.RWMutex
 	parser      *tree_sitter.Parser
 }
 
 func NewPHPIndex(projectRoot string) (*PHPIndex, error) {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		log.Printf("Failed to create watcher: %v", err)
-
-		return nil, fmt.Errorf("failed to create watcher: %w", err)
-	}
 
 	parser := tree_sitter.NewParser()
 	if err := parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_php.LanguagePHP())); err != nil {
@@ -43,12 +36,8 @@ func NewPHPIndex(projectRoot string) (*PHPIndex, error) {
 
 	idx := &PHPIndex{
 		projectRoot: projectRoot,
-		watcher:     watcher,
 		parser:      parser,
 	}
-
-	// Start the file watcher
-	go idx.watchFiles()
 
 	return idx, nil
 }
@@ -88,8 +77,7 @@ func (idx *PHPIndex) Index() error {
 		// Try to parse as a Symfony services file
 		idx.processFile(path)
 
-		// Add to watcher
-		return idx.watcher.Add(path)
+		return nil
 	})
 }
 
@@ -154,62 +142,50 @@ func (idx *PHPIndex) removeFile(path string) {
 	}
 }
 
-func (idx *PHPIndex) watchFiles() {
-	debounceMap := make(map[string]time.Time)
-	debounceInterval := 500 * time.Millisecond
-
-	for {
-		select {
-		case event, ok := <-idx.watcher.Events:
-			if !ok {
-				return
-			}
-
-			// Skip non-XML files
-			if !strings.HasSuffix(strings.ToLower(event.Name), ".xml") {
-				continue
-			}
-
-			// Debounce file events (editors often trigger multiple events)
-			now := time.Now()
-			lastEvent, exists := debounceMap[event.Name]
-			if exists && now.Sub(lastEvent) < debounceInterval {
-				debounceMap[event.Name] = now
-				continue
-			}
-			debounceMap[event.Name] = now
-
-			// Skip debug logging
-
-			idx.mu.Lock()
-			// Handle file events
-			if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
-				// File was modified or created
-				// Remove any existing services from this file
-				idx.removeFile(event.Name)
-				// Process the file again
-				idx.processFile(event.Name)
-			} else if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
-				// File was removed or renamed, remove its services from the index
-				idx.removeFile(event.Name)
-			}
-			idx.mu.Unlock()
-
-		case err, ok := <-idx.watcher.Errors:
-			if !ok {
-				return
-			}
-			// Log only critical errors
-			if err != nil {
-				log.Printf("Critical watcher error: %v", err)
-			}
-		}
-	}
+func (idx *PHPIndex) Close() error {
+	idx.parser.Close()
+	return nil
 }
 
-func (idx *PHPIndex) Close() error {
-	idx.watcher.Close()
-	idx.parser.Close()
+func (idx *PHPIndex) FileCreated(ctx context.Context, params *protocol.CreateFilesParams) error {
+	for _, file := range params.Files {
+		if !strings.HasSuffix(strings.ToLower(file.URI), ".php") {
+			continue
+		}
+
+		idx.removeFile(strings.TrimPrefix(file.URI, "file://"))
+		idx.processFile(strings.TrimPrefix(file.URI, "file://"))
+	}
+
+	return nil
+}
+
+func (idx *PHPIndex) FileRenamed(ctx context.Context, params *protocol.RenameFilesParams) error {
+	for _, file := range params.Files {
+		if !strings.HasSuffix(strings.ToLower(file.NewURI), ".php") {
+			continue
+		}
+
+		// Remove the old file from the index
+		idx.removeFile(strings.TrimPrefix(file.OldURI, "file://"))
+
+		// Process the new file
+		idx.processFile(file.NewURI)
+	}
+
+	return nil
+}
+
+func (idx *PHPIndex) FileDeleted(ctx context.Context, params *protocol.DeleteFilesParams) error {
+	for _, file := range params.Files {
+		if !strings.HasSuffix(strings.ToLower(file.URI), ".php") {
+			continue
+		}
+
+		// Remove the file from the index
+		idx.removeFile(strings.TrimPrefix(file.URI, "file://"))
+	}
+
 	return nil
 }
 

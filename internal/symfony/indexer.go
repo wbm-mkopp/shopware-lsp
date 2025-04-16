@@ -1,15 +1,14 @@
 package symfony
 
 import (
-	"fmt"
+	"context"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
-	"github.com/fsnotify/fsnotify"
+	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
 )
 
 // ServiceIndex maintains an index of all service IDs from XML files
@@ -18,29 +17,17 @@ type ServiceIndex struct {
 	aliases     map[string]ServiceAlias // map[aliasID]ServiceAlias
 	tags        map[string][]string     // map[tagName][]serviceIDs
 	projectRoot string
-	watcher     *fsnotify.Watcher
 	mu          sync.RWMutex
 }
 
 // NewServiceIndex creates a new service indexer for the given project root
 func NewServiceIndex(projectRoot string) (*ServiceIndex, error) {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		log.Printf("Failed to create watcher: %v", err)
-
-		return nil, fmt.Errorf("failed to create watcher: %w", err)
-	}
-
 	idx := &ServiceIndex{
 		services:    make(map[string]Service),
 		aliases:     make(map[string]ServiceAlias),
 		tags:        make(map[string][]string),
 		projectRoot: projectRoot,
-		watcher:     watcher,
 	}
-
-	// Start the file watcher
-	go idx.watchFiles()
 
 	return idx, nil
 }
@@ -84,8 +71,7 @@ func (idx *ServiceIndex) Index() error {
 		// Try to parse as a Symfony services file
 		idx.processFile(path)
 
-		// Add to watcher
-		return idx.watcher.Add(path)
+		return nil
 	})
 }
 
@@ -122,60 +108,6 @@ func (idx *ServiceIndex) processFile(path string) {
 	}
 
 	// Skip debug logging
-}
-
-// watchFiles monitors file changes and updates the index accordingly
-func (idx *ServiceIndex) watchFiles() {
-	debounceMap := make(map[string]time.Time)
-	debounceInterval := 500 * time.Millisecond
-
-	for {
-		select {
-		case event, ok := <-idx.watcher.Events:
-			if !ok {
-				return
-			}
-
-			// Skip non-XML files
-			if !strings.HasSuffix(strings.ToLower(event.Name), ".xml") {
-				continue
-			}
-
-			// Debounce file events (editors often trigger multiple events)
-			now := time.Now()
-			lastEvent, exists := debounceMap[event.Name]
-			if exists && now.Sub(lastEvent) < debounceInterval {
-				debounceMap[event.Name] = now
-				continue
-			}
-			debounceMap[event.Name] = now
-
-			// Skip debug logging
-
-			idx.mu.Lock()
-			// Handle file events
-			if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
-				// File was modified or created
-				// Remove any existing services from this file
-				idx.removeServicesFromFile(event.Name)
-				// Process the file again
-				idx.processFile(event.Name)
-			} else if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
-				// File was removed or renamed, remove its services from the index
-				idx.removeServicesFromFile(event.Name)
-			}
-			idx.mu.Unlock()
-
-		case err, ok := <-idx.watcher.Errors:
-			if !ok {
-				return
-			}
-			// Log only critical errors
-			if err != nil {
-				log.Printf("Critical watcher error: %v", err)
-			}
-		}
-	}
 }
 
 // removeServicesFromFile removes all services from a specific file
@@ -265,7 +197,49 @@ func (idx *ServiceIndex) GetServiceByID(id string) (Service, bool) {
 
 // Close shuts down the file watcher
 func (idx *ServiceIndex) Close() error {
-	return idx.watcher.Close()
+	return nil
+}
+
+func (idx *ServiceIndex) FileCreated(ctx context.Context, params *protocol.CreateFilesParams) error {
+	for _, file := range params.Files {
+		if !strings.HasSuffix(strings.ToLower(file.URI), ".xml") {
+			continue
+		}
+
+		idx.removeServicesFromFile(strings.TrimPrefix(file.URI, "file://"))
+		idx.processFile(strings.TrimPrefix(file.URI, "file://"))
+	}
+
+	return nil
+}
+
+func (idx *ServiceIndex) FileRenamed(ctx context.Context, params *protocol.RenameFilesParams) error {
+	for _, file := range params.Files {
+		if !strings.HasSuffix(strings.ToLower(file.NewURI), ".xml") {
+			continue
+		}
+
+		// Remove the old file from the index
+		idx.removeServicesFromFile(strings.TrimPrefix(file.OldURI, "file://"))
+
+		// Process the new file
+		idx.processFile(strings.TrimPrefix(file.NewURI, "file://"))
+	}
+
+	return nil
+}
+
+func (idx *ServiceIndex) FileDeleted(ctx context.Context, params *protocol.DeleteFilesParams) error {
+	for _, file := range params.Files {
+		if !strings.HasSuffix(strings.ToLower(file.URI), ".xml") {
+			continue
+		}
+
+		// Remove the file from the index
+		idx.removeServicesFromFile(strings.TrimPrefix(file.URI, "file://"))
+	}
+
+	return nil
 }
 
 // GetCounts returns the number of services and aliases in the index

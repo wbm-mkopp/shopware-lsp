@@ -24,6 +24,10 @@ type IndexerProvider interface {
 	Index() error
 	// Close cleans up resources used by the indexer
 	Close() error
+
+	FileCreated(ctx context.Context, params *protocol.CreateFilesParams) error
+	FileRenamed(ctx context.Context, params *protocol.RenameFilesParams) error
+	FileDeleted(ctx context.Context, params *protocol.DeleteFilesParams) error
 }
 
 // IndexerRegistry provides access to registered indexers
