@@ -3,7 +3,6 @@ package codelens
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/shopware/shopware-lsp/internal/lsp"
@@ -28,7 +27,6 @@ func NewPHPCodeLensProvider(lsp *lsp.Server) *PHPServiceCodelensProvider {
 }
 
 func (p *PHPServiceCodelensProvider) GetCodeLenses(ctx context.Context, params *protocol.CodeLensParams) []protocol.CodeLens {
-	log.Printf("GetCodeLenses: %s", params.TextDocument.URI)
 	if !strings.HasSuffix(params.TextDocument.URI, ".php") {
 		return []protocol.CodeLens{}
 	}
