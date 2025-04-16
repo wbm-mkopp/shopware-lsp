@@ -235,7 +235,7 @@ func (m *DocumentManager) IsServiceIDContext(uri string, line int, character int
 
 		// Check if the parent element has a type="service" attribute
 		attrValues := treesitterhelper.GetXmlAttributeValues(parentElement, doc.Text)
-		if attrValues == nil || attrValues["type"] != "\"service\"" {
+		if attrValues == nil || attrValues["type"] != "service" {
 			return false
 		}
 

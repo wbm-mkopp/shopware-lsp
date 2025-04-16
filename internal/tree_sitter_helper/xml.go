@@ -1,6 +1,8 @@
 package treesitterhelper
 
 import (
+	"strings"
+
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
@@ -26,7 +28,7 @@ func GetXmlAttributeValues(node *tree_sitter.Node, documentText string) map[stri
 			if nameNode != nil && valueNode != nil {
 				name := nameNode.Utf8Text([]byte(documentText))
 				value := valueNode.Utf8Text([]byte(documentText))
-				result[name] = value
+				result[name] = strings.Trim(value, "\"")
 			}
 		}
 	}

@@ -38,57 +38,70 @@ func (p *SymfonyCompletionProvider) GetCompletions(ctx context.Context, params *
 		return []protocol.CompletionItem{}
 	}
 
-	if !isServiceIDContext(params.Node, params.DocumentContent) {
-		return []protocol.CompletionItem{}
-	}
+	if isArgumentServiceContext(params.Node, params.DocumentContent) {
+		currentServiceId := getParentServiceId(params.Node, params.DocumentContent)
 
-	currentServiceId := getParentServiceId(params.Node, params.DocumentContent)
+		// Get all services from the index
+		serviceIDs := p.serviceIndex.GetAllServices()
 
-	// Get all services from the index
-	serviceIDs := p.serviceIndex.GetAllServices()
-
-	// Convert to completion items
-	items := make([]protocol.CompletionItem, 0)
-	for _, serviceID := range serviceIDs {
-		if serviceID == currentServiceId {
-			continue
-		}
-
-		item := protocol.CompletionItem{
-			Label: serviceID,
-			Kind:  6, // 6 = Class
-		}
-
-		// Try to get detailed service information
-		if service, found := p.serviceIndex.GetServiceByID(serviceID); found {
-			// Add class information to documentation
-			documentation := "Symfony service ID\n\n"
-
-			// Add class information
-			if service.Class != "" {
-				documentation += "**Class:** `" + service.Class + "`\n\n"
+		// Convert to completion items
+		items := make([]protocol.CompletionItem, 0)
+		for _, serviceID := range serviceIDs {
+			if serviceID == currentServiceId {
+				continue
 			}
 
-			// Add tags information if available
-			if len(service.Tags) > 0 {
-				documentation += "**Tags:**\n"
-				for tag := range service.Tags {
-					documentation += "- " + tag + "\n"
+			item := protocol.CompletionItem{
+				Label: serviceID,
+				Kind:  6, // 6 = Class
+			}
+
+			// Try to get detailed service information
+			if service, found := p.serviceIndex.GetServiceByID(serviceID); found {
+				// Add class information to documentation
+				documentation := "Symfony service ID\n\n"
+
+				// Add class information
+				if service.Class != "" {
+					documentation += "**Class:** `" + service.Class + "`\n\n"
 				}
+
+				// Add tags information if available
+				if len(service.Tags) > 0 {
+					documentation += "**Tags:**\n"
+					for tag := range service.Tags {
+						documentation += "- " + tag + "\n"
+					}
+				}
+
+				item.Documentation.Kind = "markdown"
+				item.Documentation.Value = documentation
+			} else {
+				// Default documentation
+				item.Documentation.Kind = "markdown"
+				item.Documentation.Value = "Symfony service ID"
 			}
 
-			item.Documentation.Kind = "markdown"
-			item.Documentation.Value = documentation
-		} else {
-			// Default documentation
-			item.Documentation.Kind = "markdown"
-			item.Documentation.Value = "Symfony service ID"
+			items = append(items, item)
 		}
 
-		items = append(items, item)
+		return items
 	}
 
-	return items
+	if isArgumentTagContext(params.Node, params.DocumentContent) {
+		items := make([]protocol.CompletionItem, 0)
+		tags := p.serviceIndex.GetAllTags()
+		for _, tag := range tags {
+			item := protocol.CompletionItem{
+				Label: tag,
+				Kind:  6, // 6 = Class
+			}
+			items = append(items, item)
+		}
+		return items
+	}
+
+	return []protocol.CompletionItem{}
 }
 
 // GetTriggerCharacters returns the characters that trigger this completion provider
