@@ -137,7 +137,9 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 	// Handle exit notification after shutdown
 	if req.Method == "exit" {
 		log.Println("Received exit notification, exiting")
-		conn.Close()
+		if err := conn.Close(); err != nil {
+			log.Printf("error closing connection: %v", err)
+		}
 		return nil, nil
 	}
 
@@ -427,20 +429,32 @@ func (s *Server) DocumentManager() *DocumentManager {
 // handleFileCreation handles workspace/didCreateFiles notifications
 func (s *Server) handleFileCreation(ctx context.Context, params *protocol.CreateFilesParams) {
 	for _, indexer := range s.indexers {
-		go indexer.FileCreated(ctx, params)
+		go func(idx IndexerProvider) {
+			if err := idx.FileCreated(ctx, params); err != nil {
+				log.Printf("Error handling file creation: %v", err)
+			}
+		}(indexer)
 	}
 }
 
 // handleFileRename handles workspace/didRenameFiles notifications
 func (s *Server) handleFileRename(ctx context.Context, params *protocol.RenameFilesParams) {
 	for _, indexer := range s.indexers {
-		go indexer.FileRenamed(ctx, params)
+		go func(idx IndexerProvider) {
+			if err := idx.FileRenamed(ctx, params); err != nil {
+				log.Printf("Error handling file rename: %v", err)
+			}
+		}(indexer)
 	}
 }
 
 // handleFileDeletion handles workspace/didDeleteFiles notifications
 func (s *Server) handleFileDeletion(ctx context.Context, params *protocol.DeleteFilesParams) {
 	for _, indexer := range s.indexers {
-		go indexer.FileDeleted(ctx, params)
+		go func(idx IndexerProvider) {
+			if err := idx.FileDeleted(ctx, params); err != nil {
+				log.Printf("Error handling file deletion: %v", err)
+			}
+		}(indexer)
 	}
 }

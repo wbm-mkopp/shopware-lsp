@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"log"
 	"strings"
 	"sync"
 
@@ -29,10 +30,14 @@ type DocumentManager struct {
 // NewDocumentManager creates a new document manager
 func NewDocumentManager() *DocumentManager {
 	xmlParser := tree_sitter.NewParser()
-	xmlParser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_xml.LanguageXML()))
+	if err := xmlParser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_xml.LanguageXML())); err != nil {
+		log.Panicf("failed to set XML language: %v", err)
+	}
 
 	phpParser := tree_sitter.NewParser()
-	phpParser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_php.LanguagePHP()))
+	if err := phpParser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_php.LanguagePHP())); err != nil {
+		log.Panicf("failed to set PHP language: %v", err)
+	}
 
 	return &DocumentManager{
 		documents: make(map[string]*TextDocument),

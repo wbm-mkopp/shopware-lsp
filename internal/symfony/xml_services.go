@@ -2,12 +2,13 @@ package symfony
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 
-	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
-	tree_sitter_xml "github.com/tree-sitter-grammars/tree-sitter-xml/bindings/go"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
+	tree_sitter_xml "github.com/tree-sitter-grammars/tree-sitter-xml/bindings/go"
+	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
 )
 
 // Service represents a Symfony service definition
@@ -36,7 +37,9 @@ func ParseXMLServices(path string) ([]Service, []ServiceAlias, error) {
 
 	// Initialize tree-sitter parser
 	parser := tree_sitter.NewParser()
-	parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_xml.LanguageXML()))
+	if err := parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_xml.LanguageXML())); err != nil {
+		return nil, nil, fmt.Errorf("failed to set XML language: %w", err)
+	}
 
 	// Parse the XML content
 	tree := parser.Parse([]byte(data), nil)
@@ -82,17 +85,18 @@ func ParseXMLServices(path string) ([]Service, []ServiceAlias, error) {
 					}
 
 					elementName := nameNode.Utf8Text(data)
-					if elementName == "service" {
+					switch elementName {
+					case "service":
 						service := processServiceNode(child, data, path, contentLines)
 						if service.ID != "" {
 							services = append(services, service)
 						}
-					} else if elementName == "alias" {
+					case "alias":
 						alias := processAliasNode(child, data, path, contentLines)
 						if alias.ID != "" && alias.Target != "" {
 							aliases = append(aliases, alias)
 						}
-					} else if elementName == "services" {
+					case "services":
 						// Process services inside the services tag
 						nestedServices := processServicesNode(child, data, path, contentLines)
 						services = append(services, nestedServices...)
@@ -125,17 +129,18 @@ func ParseXMLServices(path string) ([]Service, []ServiceAlias, error) {
 
 		elementName := nameNode.Utf8Text(data)
 
-		if elementName == "service" {
+		switch elementName {
+		case "service":
 			service := processServiceNode(child, data, path, contentLines)
 			if service.ID != "" {
 				services = append(services, service)
 			}
-		} else if elementName == "alias" {
+		case "alias":
 			alias := processAliasNode(child, data, path, contentLines)
 			if alias.ID != "" && alias.Target != "" {
 				aliases = append(aliases, alias)
 			}
-		} else if elementName == "services" {
+		case "services":
 			// Process services inside the services tag
 			nestedServices := processServicesNode(child, data, path, contentLines)
 			services = append(services, nestedServices...)
@@ -304,7 +309,8 @@ func processServicesNode(node *tree_sitter.Node, data []byte, path string, conte
 			}
 
 			elementName := nameNode.Utf8Text(data)
-			if elementName == "service" {
+			switch elementName {
+			case "service":
 				service := processServiceNode(child, data, path, contentLines)
 				if service.ID != "" {
 					services = append(services, service)

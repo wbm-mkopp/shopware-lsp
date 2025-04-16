@@ -44,7 +44,11 @@ func TestServiceIndex(t *testing.T) {
 	// Create the service index
 	index, err := NewServiceIndex(tempDir)
 	require.NoError(t, err, "Failed to create service index")
-	defer index.Close()
+	defer func() {
+		if err := index.Close(); err != nil {
+			t.Logf("Error closing index: %v", err)
+		}
+	}()
 
 	// Build the index
 	err = index.Index()
@@ -136,7 +140,8 @@ func TestServiceIndex(t *testing.T) {
 		// Skip debug logging
 
 		// Force the file watcher to detect the change by explicitly triggering a rebuild
-		index.Index()
+		err = index.Index()
+		require.NoError(t, err, "Failed to rebuild index after file modification")
 
 		// Check that the service was updated
 		service, found := index.GetServiceByID("app.service1")
@@ -161,7 +166,8 @@ func TestServiceIndex(t *testing.T) {
 		require.NoError(t, err, "Failed to remove test file")
 
 		// Force the indexer to rebuild after file deletion
-		index.Index()
+		err = index.Index()
+		require.NoError(t, err, "Failed to rebuild index after file deletion")
 
 		// Check that services from the deleted file are gone
 		_, found := index.GetServiceByID("app.service3")
