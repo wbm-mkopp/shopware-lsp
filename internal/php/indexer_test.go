@@ -20,5 +20,5 @@ func TestGetClassesOfFile(t *testing.T) {
 
 	assert.Equal(t, expectedClassName, classes[expectedClassName].Name)
 	assert.Equal(t, "testdata/01.php", classes[expectedClassName].Path)
-	assert.Equal(t, 19, classes[expectedClassName].Line)
+	assert.Equal(t, 20, classes[expectedClassName].Line)
 }
