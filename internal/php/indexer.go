@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
+	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 	tree_sitter_php "github.com/tree-sitter/tree-sitter-php/bindings/go"
 )
@@ -58,7 +59,7 @@ func (idx *PHPIndex) Index() error {
 	idx.phpClasses = make(map[string]PHPClass)
 
 	// Walk the project directory
-	return filepath.Walk(idx.projectRoot, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(idx.projectRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip files we can't access
 		}
@@ -79,6 +80,14 @@ func (idx *PHPIndex) Index() error {
 
 		return nil
 	})
+
+	if err != nil {
+		return fmt.Errorf("failed to walk project directory: %w", err)
+	}
+
+	log.Printf("Finished indexing %d classes", len(idx.phpClasses))
+
+	return nil
 }
 
 func (idx *PHPIndex) processFile(path string) {
@@ -118,7 +127,7 @@ func (idx *PHPIndex) GetClassesOfFile(path string) map[string]PHPClass {
 			}
 
 			if node.Kind() == "class_declaration" {
-				classNameNode := node.Child(1)
+				classNameNode := treesitterhelper.GetFirstNodeOfKind(node, "name")
 
 				if classNameNode != nil {
 					className := string(classNameNode.Utf8Text(content))
@@ -130,7 +139,7 @@ func (idx *PHPIndex) GetClassesOfFile(path string) map[string]PHPClass {
 					classes[className] = PHPClass{
 						Name: className,
 						Path: path,
-						Line: int(node.Range().StartPoint.Row) + 1,
+						Line: int(classNameNode.Range().StartPoint.Row) + 1,
 					}
 				}
 			}
