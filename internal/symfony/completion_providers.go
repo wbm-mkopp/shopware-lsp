@@ -7,8 +7,6 @@ import (
 
 	"github.com/shopware/shopware-lsp/internal/lsp"
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
-	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
-	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 // SymfonyCompletionProvider provides completions for Symfony services and tags
@@ -38,16 +36,22 @@ func (p *SymfonyCompletionProvider) GetCompletions(ctx context.Context, params *
 		return []protocol.CompletionItem{}
 	}
 
-	if !p.isServiceIDContext(params.Node, params.DocumentContent) {
+	if !isServiceIDContext(params.Node, params.DocumentContent) {
 		return []protocol.CompletionItem{}
 	}
+
+	currentServiceId := getCurrentServiceId(params.Node, params.DocumentContent)
 
 	// Get all services from the index
 	serviceIDs := p.serviceIndex.GetAllServices()
 
 	// Convert to completion items
-	items := make([]protocol.CompletionItem, 0, len(serviceIDs))
+	items := make([]protocol.CompletionItem, 0)
 	for _, serviceID := range serviceIDs {
+		if serviceID == currentServiceId {
+			continue
+		}
+
 		item := protocol.CompletionItem{
 			Label: serviceID,
 			Kind:  6, // 6 = Class
@@ -88,44 +92,4 @@ func (p *SymfonyCompletionProvider) GetCompletions(ctx context.Context, params *
 // GetTriggerCharacters returns the characters that trigger this completion provider
 func (p *SymfonyCompletionProvider) GetTriggerCharacters() []string {
 	return []string{"\""}
-}
-
-func (p *SymfonyCompletionProvider) isServiceIDContext(node *tree_sitter.Node, docText string) bool {
-	if node.Kind() == "AttValue" && node.Parent() != nil && node.Parent().Kind() == "Attribute" {
-		attrNode := node.Parent()
-
-		// Get the attribute name
-		nameNode := treesitterhelper.GetFirstNodeOfKind(attrNode, "Name")
-		if nameNode == nil {
-			return false
-		}
-
-		attrName := nameNode.Utf8Text([]byte(docText))
-		if attrName != "id" {
-			return false
-		}
-
-		// Get the parent element
-		parentElement := attrNode.Parent()
-		if parentElement == nil {
-			return false
-		}
-
-		// Check if the parent element has a type="service" attribute
-		attrValues := treesitterhelper.GetXmlAttributeValues(parentElement, docText)
-		if attrValues == nil || attrValues["type"] != "\"service\"" {
-			return false
-		}
-
-		// Check if the parent element is an argument element
-		elementNameNode := treesitterhelper.GetFirstNodeOfKind(parentElement, "Name")
-		if elementNameNode == nil {
-			return false
-		}
-
-		elementName := elementNameNode.Utf8Text([]byte(docText))
-		return elementName == "argument"
-	}
-
-	return false
 }
