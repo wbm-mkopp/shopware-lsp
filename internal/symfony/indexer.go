@@ -2,11 +2,13 @@ package symfony
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
 )
@@ -43,6 +45,7 @@ func (i *ServiceIndex) Name() string {
 
 // Index scans the project for XML files and builds the service index
 func (idx *ServiceIndex) Index() error {
+	startTime := time.Now()
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
@@ -53,13 +56,32 @@ func (idx *ServiceIndex) Index() error {
 	idx.parameters = make(map[string]Parameter)
 
 	// Walk the project directory
-	return filepath.Walk(idx.projectRoot, func(path string, info os.FileInfo, err error) error {
+	// Define directories to skip at project root level
+	skipDirs := map[string]bool{
+		"node_modules": true,
+		"var":          true,
+		"vendor-bin":   true,
+		"bin":          true,
+		"cache":        true,
+		".git":         true,
+		".github":      true,
+	}
+
+	err := filepath.Walk(idx.projectRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip files we can't access
 		}
 
 		// Skip directories
 		if info.IsDir() {
+			// Skip common directories at project root level
+			relPath, err := filepath.Rel(idx.projectRoot, path)
+			if err == nil {
+				pathParts := strings.Split(relPath, string(os.PathSeparator))
+				if len(pathParts) == 1 && skipDirs[pathParts[0]] {
+					return filepath.SkipDir
+				}
+			}
 			return nil
 		}
 
@@ -73,6 +95,14 @@ func (idx *ServiceIndex) Index() error {
 
 		return nil
 	})
+
+	if err != nil {
+		return fmt.Errorf("failed to walk project directory: %w", err)
+	}
+
+	log.Printf("Finished indexing %d services in %v", len(idx.services), time.Since(startTime))
+
+	return nil
 }
 
 // processFile parses an XML file and adds any service IDs to the index
@@ -80,10 +110,8 @@ func (idx *ServiceIndex) processFile(path string) {
 	services, aliases, params, err := ParseXMLServices(path)
 	if err != nil {
 		log.Printf("Failed to parse XML file %s: %v", path, err)
-		return // Skip files that can't be parsed
+		return
 	}
-
-	//log.Printf("Found %d services, %d aliases, and %d parameters in %s", len(services), len(aliases), len(params), path)
 
 	// Add services to index
 	if len(services) > 0 {
@@ -117,10 +145,6 @@ func (idx *ServiceIndex) processFile(path string) {
 
 // removeServicesFromFile removes all services, aliases, and parameters from a specific file
 func (idx *ServiceIndex) removeServicesFromFile(path string) {
-	// Note: This function should be called with the mutex already locked
-	// by the caller to avoid deadlocks
-
-	// Remove services from this file and update tag index
 	for id, service := range idx.services {
 		if service.Path == path {
 			// Remove service from tag index
