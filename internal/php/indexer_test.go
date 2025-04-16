@@ -9,7 +9,7 @@ import (
 )
 
 func TestGetClassesOfFile(t *testing.T) {
-	index, err := NewPHPIndex("testdata")
+	index, err := NewPHPIndex("testdata", t.TempDir())
 	assert.NoError(t, err)
 
 	classes := index.GetClassesOfFile("testdata/01.php")
@@ -52,7 +52,7 @@ func TestSkipNodeModulesAndVarFolders(t *testing.T) {
 	writeTestPHPClass(t, subFile, "SubClass")
 
 	// Create a PHP index for the temp directory
-	index, err := NewPHPIndex(tempDir)
+	index, err := NewPHPIndex(tempDir, t.TempDir())
 	assert.NoError(t, err)
 
 	// Run the indexer

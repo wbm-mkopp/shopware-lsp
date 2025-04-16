@@ -11,6 +11,7 @@ import (
 
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
 	"github.com/sourcegraph/jsonrpc2"
+	"golang.org/x/sync/errgroup"
 )
 
 // Server represents the LSP server
@@ -83,12 +84,23 @@ func (s *Server) IndexAll() error {
 	s.indexerMu.RLock()
 	defer s.indexerMu.RUnlock()
 
+	var eg errgroup.Group
+
+	// Create a slice to avoid the loop variable capture issue
+	indexers := make([]IndexerProvider, 0, len(s.indexers))
 	for _, indexer := range s.indexers {
-		if err := indexer.Index(); err != nil {
-			return err
-		}
+		indexers = append(indexers, indexer)
 	}
-	return nil
+
+	// Now launch goroutines with proper variable scoping
+	for i := range indexers {
+		indexer := indexers[i] // Create a new variable in this scope
+		eg.Go(func() error {
+			return indexer.Index()
+		})
+	}
+
+	return eg.Wait()
 }
 
 // CloseAll closes all registered indexers and resources

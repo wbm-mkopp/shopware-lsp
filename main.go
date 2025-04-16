@@ -22,8 +22,13 @@ func main() {
 		log.Fatalf("Failed to get working directory: %v", err)
 	}
 
+	configDir, err := getProjectConfigFolder(projectRoot)
+	if err != nil {
+		log.Fatalf("Failed to get project config directory: %v", err)
+	}
+
 	server.RegisterIndexer(symfony.NewServiceIndex(projectRoot))
-	server.RegisterIndexer(php.NewPHPIndex(projectRoot))
+	server.RegisterIndexer(php.NewPHPIndex(projectRoot, configDir))
 
 	server.RegisterCompletionProvider(completion.NewServiceCompletionProvider(server))
 

@@ -68,8 +68,6 @@ func (idx *ServiceIndex) Index() error {
 			return nil
 		}
 
-		log.Printf("Processing file: %s", path)
-
 		// Try to parse as a Symfony services file
 		idx.processFile(path)
 
@@ -85,7 +83,7 @@ func (idx *ServiceIndex) processFile(path string) {
 		return // Skip files that can't be parsed
 	}
 
-	log.Printf("Found %d services, %d aliases, and %d parameters in %s", len(services), len(aliases), len(params), path)
+	//log.Printf("Found %d services, %d aliases, and %d parameters in %s", len(services), len(aliases), len(params), path)
 
 	// Add services to index
 	if len(services) > 0 {
