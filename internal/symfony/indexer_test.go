@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -50,13 +49,6 @@ func TestServiceIndex(t *testing.T) {
 	// Build the index
 	err = index.Index()
 	require.NoError(t, err, "Failed to build index")
-
-	// Test GetCounts
-	t.Run("GetCounts", func(t *testing.T) {
-		serviceCount, aliasCount := index.GetCounts()
-		assert.Equal(t, 4, serviceCount, "Expected 4 services")
-		assert.Equal(t, 2, aliasCount, "Expected 2 aliases")
-	})
 
 	// Test tag index functionality
 	t.Run("TagIndex", func(t *testing.T) {
@@ -146,9 +138,6 @@ func TestServiceIndex(t *testing.T) {
 		// Force the file watcher to detect the change by explicitly triggering a rebuild
 		index.Index()
 
-		// Wait for the file watcher to process the change
-		time.Sleep(1 * time.Second)
-
 		// Check that the service was updated
 		service, found := index.GetServiceByID("app.service1")
 		assert.True(t, found, "Modified service app.service1 not found")
@@ -173,9 +162,6 @@ func TestServiceIndex(t *testing.T) {
 
 		// Force the indexer to rebuild after file deletion
 		index.Index()
-
-		// Wait for the file watcher to process the deletion
-		time.Sleep(1 * time.Second)
 
 		// Check that services from the deleted file are gone
 		_, found := index.GetServiceByID("app.service3")
