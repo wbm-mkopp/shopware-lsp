@@ -10,6 +10,7 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/tree-sitter-grammars/tree-sitter-xml v0.7.0
 	github.com/tree-sitter/go-tree-sitter v0.25.0
+	github.com/tree-sitter/tree-sitter-php v0.23.12
 )
 
 require (

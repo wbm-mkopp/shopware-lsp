@@ -7,6 +7,7 @@ import (
 	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
 	tree_sitter_xml "github.com/tree-sitter-grammars/tree-sitter-xml/bindings/go"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
+	tree_sitter_php "github.com/tree-sitter/tree-sitter-php/bindings/go"
 )
 
 // TextDocument represents a document open in the editor
@@ -21,17 +22,22 @@ type TextDocument struct {
 type DocumentManager struct {
 	documents map[string]*TextDocument
 	mu        sync.RWMutex
-	parser    *tree_sitter.Parser
+	xmlParser *tree_sitter.Parser
+	phpParser *tree_sitter.Parser
 }
 
 // NewDocumentManager creates a new document manager
 func NewDocumentManager() *DocumentManager {
-	parser := tree_sitter.NewParser()
-	parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_xml.LanguageXML()))
+	xmlParser := tree_sitter.NewParser()
+	xmlParser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_xml.LanguageXML()))
+
+	phpParser := tree_sitter.NewParser()
+	phpParser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_php.LanguagePHP()))
 
 	return &DocumentManager{
 		documents: make(map[string]*TextDocument),
-		parser:    parser,
+		xmlParser: xmlParser,
+		phpParser: phpParser,
 	}
 }
 
@@ -48,7 +54,7 @@ func (m *DocumentManager) OpenDocument(uri string, text string, version int) {
 
 	// Parse XML document if it's an XML file
 	if isXMLFile(uri) {
-		doc.tree = m.parser.Parse([]byte(text), nil)
+		doc.tree = m.xmlParser.Parse([]byte(text), nil)
 	}
 
 	m.documents[uri] = doc
@@ -69,7 +75,7 @@ func (m *DocumentManager) UpdateDocument(uri string, text string, version int) {
 			if doc.tree != nil {
 				doc.tree.Close()
 			}
-			doc.tree = m.parser.Parse([]byte(text), nil)
+			doc.tree = m.xmlParser.Parse([]byte(text), nil)
 		}
 	} else {
 		// If the document doesn't exist, create it
@@ -81,7 +87,7 @@ func (m *DocumentManager) UpdateDocument(uri string, text string, version int) {
 
 		// Parse XML document if it's an XML file
 		if isXMLFile(uri) {
-			doc.tree = m.parser.Parse([]byte(text), nil)
+			doc.tree = m.xmlParser.Parse([]byte(text), nil)
 		}
 
 		m.documents[uri] = doc
@@ -266,8 +272,8 @@ func (m *DocumentManager) Close() {
 	}
 
 	// Close the parser
-	if m.parser != nil {
-		m.parser.Close()
-		m.parser = nil
+	if m.xmlParser != nil {
+		m.xmlParser.Close()
+		m.xmlParser = nil
 	}
 }

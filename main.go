@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/shopware/shopware-lsp/internal/lsp"
+	"github.com/shopware/shopware-lsp/internal/php"
 	"github.com/shopware/shopware-lsp/internal/symfony"
 )
 
@@ -19,6 +20,7 @@ func main() {
 	}
 
 	server.RegisterIndexer(symfony.NewServiceIndex(projectRoot))
+	server.RegisterIndexer(php.NewPHPIndex(projectRoot))
 	server.RegisterCompletionProvider(symfony.NewServiceCompletionProvider(server))
 	server.RegisterDefinitionProvider(symfony.NewGotoDefinitionProvider(server))
 

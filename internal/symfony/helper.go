@@ -8,6 +8,34 @@ import (
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
+func isServiceIdContext(node *tree_sitter.Node, docText string) bool {
+	if node.Kind() == "AttValue" && node.Parent() != nil && node.Parent().Kind() == "Attribute" {
+		attrNode := node.Parent()
+
+		nameNode := treesitterhelper.GetFirstNodeOfKind(attrNode, "Name")
+		if nameNode == nil {
+			return false
+		}
+
+		attrName := nameNode.Utf8Text([]byte(docText))
+
+		if attrName != "id" && attrName != "class" {
+			return false
+		}
+
+		tagName := treesitterhelper.GetFirstNodeOfKind(attrNode.Parent(), "Name")
+
+		if tagName == nil {
+			return false
+		}
+
+		tagNameText := tagName.Utf8Text([]byte(docText))
+		return tagNameText == "service"
+	}
+
+	return false
+}
+
 func isArgumentServiceContext(node *tree_sitter.Node, docText string) bool {
 	if node.Kind() == "AttValue" && node.Parent() != nil && node.Parent().Kind() == "Attribute" {
 		attrNode := node.Parent()

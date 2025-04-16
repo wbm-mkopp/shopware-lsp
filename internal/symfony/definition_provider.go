@@ -7,20 +7,24 @@ import (
 
 	"github.com/shopware/shopware-lsp/internal/lsp"
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
+	"github.com/shopware/shopware-lsp/internal/php"
 )
 
 // SymfonyGotoDefinitionProvider provides goto definition for Symfony services
 type SymfonyGotoDefinitionProvider struct {
 	serviceIndex *ServiceIndex
 	server       *lsp.Server
+	phpIndex     *php.PHPIndex
 }
 
 // NewGotoDefinitionProvider creates a new goto definition provider for Symfony services
 func NewGotoDefinitionProvider(server *lsp.Server) *SymfonyGotoDefinitionProvider {
 	indexer, _ := server.GetIndexer("symfony.service")
+	phpIndexer, _ := server.GetIndexer("php.index")
 
 	return &SymfonyGotoDefinitionProvider{
 		serviceIndex: indexer.(*ServiceIndex),
+		phpIndex:     phpIndexer.(*php.PHPIndex),
 		server:       server,
 	}
 }
@@ -115,6 +119,35 @@ func (p *SymfonyGotoDefinitionProvider) GetDefinition(ctx context.Context, param
 					},
 					End: protocol.Position{
 						Line:      service.Line - 1,
+						Character: 0,
+					},
+				},
+			})
+		}
+
+		return locations
+	}
+
+	if isServiceIdContext(params.Node, params.DocumentContent) {
+		serviceID := getCurrentAttributeValue(params.Node, params.DocumentContent)
+		if serviceID == "" {
+			return []protocol.Location{}
+		}
+
+		var locations []protocol.Location
+
+		phpClass := p.phpIndex.GetClass(serviceID)
+
+		if phpClass != nil {
+			locations = append(locations, protocol.Location{
+				URI: "file://" + phpClass.Path,
+				Range: protocol.Range{
+					Start: protocol.Position{
+						Line:      phpClass.Line - 1, // LSP uses 0-based line numbers
+						Character: 0,
+					},
+					End: protocol.Position{
+						Line:      phpClass.Line - 1,
 						Character: 0,
 					},
 				},

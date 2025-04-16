@@ -7,20 +7,24 @@ import (
 
 	"github.com/shopware/shopware-lsp/internal/lsp"
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
+	"github.com/shopware/shopware-lsp/internal/php"
 )
 
 // SymfonyCompletionProvider provides completions for Symfony services and tags
 type SymfonyCompletionProvider struct {
 	serviceIndex *ServiceIndex
 	server       *lsp.Server
+	phpIndex     *php.PHPIndex
 }
 
 // NewServiceCompletionProvider creates a new service completion provider
 func NewServiceCompletionProvider(server *lsp.Server) *SymfonyCompletionProvider {
-	indexer, _ := server.GetIndexer("symfony.service")
+	symfonyIndexer, _ := server.GetIndexer("symfony.service")
+	phpIndexer, _ := server.GetIndexer("php.index")
 
 	return &SymfonyCompletionProvider{
-		serviceIndex: indexer.(*ServiceIndex),
+		serviceIndex: symfonyIndexer.(*ServiceIndex),
+		phpIndex:     phpIndexer.(*php.PHPIndex),
 		server:       server,
 	}
 }
@@ -94,6 +98,20 @@ func (p *SymfonyCompletionProvider) GetCompletions(ctx context.Context, params *
 		for _, tag := range tags {
 			item := protocol.CompletionItem{
 				Label: tag,
+				Kind:  6, // 6 = Class
+			}
+			items = append(items, item)
+		}
+		return items
+	}
+
+	if isServiceIdContext(params.Node, params.DocumentContent) {
+		classNames := p.phpIndex.GetClassNames()
+
+		items := make([]protocol.CompletionItem, 0)
+		for _, className := range classNames {
+			item := protocol.CompletionItem{
+				Label: className,
 				Kind:  6, // 6 = Class
 			}
 			items = append(items, item)
