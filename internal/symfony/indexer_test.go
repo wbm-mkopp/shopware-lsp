@@ -48,7 +48,7 @@ func TestServiceIndex(t *testing.T) {
 	defer index.Close()
 
 	// Build the index
-	err = index.BuildIndex()
+	err = index.Index()
 	require.NoError(t, err, "Failed to build index")
 
 	// Test GetCounts
@@ -57,28 +57,28 @@ func TestServiceIndex(t *testing.T) {
 		assert.Equal(t, 4, serviceCount, "Expected 4 services")
 		assert.Equal(t, 2, aliasCount, "Expected 2 aliases")
 	})
-	
+
 	// Test tag index functionality
 	t.Run("TagIndex", func(t *testing.T) {
 		// Test GetTagCount
 		tagCount := index.GetTagCount()
 		assert.Equal(t, 2, tagCount, "Expected 2 unique tags")
-		
+
 		// Test GetAllTags
 		allTags := index.GetAllTags()
 		assert.Len(t, allTags, 2, "Expected 2 tags")
 		assert.Contains(t, allTags, "app.tag", "Expected 'app.tag' in tags list")
 		assert.Contains(t, allTags, "app.tag2", "Expected 'app.tag2' in tags list")
-		
+
 		// Test GetServicesByTag
 		servicesWithTag1 := index.GetServicesByTag("app.tag")
 		assert.Len(t, servicesWithTag1, 1, "Expected 1 service with tag 'app.tag'")
 		assert.Contains(t, servicesWithTag1, "app.service1", "Expected 'app.service1' to have tag 'app.tag'")
-		
+
 		servicesWithTag2 := index.GetServicesByTag("app.tag2")
 		assert.Len(t, servicesWithTag2, 1, "Expected 1 service with tag 'app.tag2'")
 		assert.Contains(t, servicesWithTag2, "app.service4", "Expected 'app.service4' to have tag 'app.tag2'")
-		
+
 		// Test tag that doesn't exist
 		servicesWithNonExistentTag := index.GetServicesByTag("non.existent.tag")
 		assert.Empty(t, servicesWithNonExistentTag, "Expected no services with non-existent tag")
@@ -140,11 +140,11 @@ func TestServiceIndex(t *testing.T) {
 </container>`)
 		err = os.WriteFile(testFile1, modifiedContent, 0644)
 		require.NoError(t, err, "Failed to modify test file")
-		
+
 		// Skip debug logging
 
 		// Force the file watcher to detect the change by explicitly triggering a rebuild
-		index.BuildIndex()
+		index.Index()
 
 		// Wait for the file watcher to process the change
 		time.Sleep(1 * time.Second)
@@ -172,7 +172,7 @@ func TestServiceIndex(t *testing.T) {
 		require.NoError(t, err, "Failed to remove test file")
 
 		// Force the indexer to rebuild after file deletion
-		index.BuildIndex()
+		index.Index()
 
 		// Wait for the file watcher to process the deletion
 		time.Sleep(1 * time.Second)

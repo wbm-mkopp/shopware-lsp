@@ -16,9 +16,11 @@ type SymfonyCompletionProvider struct {
 }
 
 // NewServiceCompletionProvider creates a new service completion provider
-func NewServiceCompletionProvider(serviceIndex *ServiceIndex, server *lsp.Server) *SymfonyCompletionProvider {
+func NewServiceCompletionProvider(server *lsp.Server) *SymfonyCompletionProvider {
+	indexer, _ := server.GetIndexer("symfony.service")
+
 	return &SymfonyCompletionProvider{
-		serviceIndex: serviceIndex,
+		serviceIndex: indexer.(*ServiceIndex),
 		server:       server,
 	}
 }

@@ -18,16 +18,8 @@ func main() {
 		log.Fatalf("Failed to get working directory: %v", err)
 	}
 
-	// Create and register the Symfony service indexer
-	serviceIndexer, err := symfony.NewServiceIndexer(projectRoot)
-	if err != nil {
-		log.Printf("Warning: Failed to create Symfony service indexer: %v", err)
-	} else {
-		server.RegisterIndexer(serviceIndexer)
-
-		// Register completion providers that use the service indexer
-		server.RegisterCompletionProvider(symfony.NewServiceCompletionProvider(serviceIndexer.GetServiceIndex(), server))
-	}
+	server.RegisterIndexer(symfony.NewServiceIndex(projectRoot))
+	server.RegisterCompletionProvider(symfony.NewServiceCompletionProvider(server))
 
 	if err := server.Start(os.Stdin, os.Stdout); err != nil {
 		log.Fatalf("LSP server error: %v", err)

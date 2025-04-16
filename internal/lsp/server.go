@@ -38,7 +38,7 @@ func (s *Server) RegisterCompletionProvider(provider CompletionProvider) {
 }
 
 // RegisterIndexer adds an indexer to the registry
-func (s *Server) RegisterIndexer(indexer IndexerProvider) {
+func (s *Server) RegisterIndexer(indexer IndexerProvider, err error) {
 	s.indexerMu.Lock()
 	defer s.indexerMu.Unlock()
 	s.indexers[indexer.ID()] = indexer

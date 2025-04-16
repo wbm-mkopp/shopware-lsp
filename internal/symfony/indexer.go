@@ -1,6 +1,7 @@
 package symfony
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -25,7 +26,9 @@ type ServiceIndex struct {
 func NewServiceIndex(projectRoot string) (*ServiceIndex, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		return nil, err
+		log.Printf("Failed to create watcher: %v", err)
+
+		return nil, fmt.Errorf("failed to create watcher: %w", err)
 	}
 
 	idx := &ServiceIndex{
@@ -42,8 +45,16 @@ func NewServiceIndex(projectRoot string) (*ServiceIndex, error) {
 	return idx, nil
 }
 
-// BuildIndex scans the project for XML files and builds the service index
-func (idx *ServiceIndex) BuildIndex() error {
+func (idx *ServiceIndex) ID() string {
+	return "symfony.service"
+}
+
+func (i *ServiceIndex) Name() string {
+	return "Symfony Service Indexer"
+}
+
+// Index scans the project for XML files and builds the service index
+func (idx *ServiceIndex) Index() error {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
