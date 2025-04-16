@@ -13,7 +13,7 @@ let client: LanguageClient | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // Create output channel for the language server
-  const outputChannel = vscode.window.createOutputChannel("Symfony Service LSP");
+  const outputChannel = vscode.window.createOutputChannel("Shopware LSP");
   context.subscriptions.push(outputChannel);
 
   async function startClient() {
@@ -21,6 +21,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await client.stop();
       client = undefined;
     }
+
+    // Clear the output channel when restarting
+    outputChannel.clear();
 
     // Get the server path from settings or use default
     let serverPath = '';
@@ -71,38 +74,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     };
 
     // Show output channel on start
-    outputChannel.appendLine(`Starting Symfony Service Language Server at ${serverPath}`);
+    outputChannel.appendLine(`Starting Shopware Language Server at ${serverPath}`);
     outputChannel.show();
 
     // Create and start the client
     client = new LanguageClient(
-      'symfonyServiceLSP',
-      'Symfony Service Language Server',
+      'shopwareLSP',
+      'Shopware Language Server',
       serverOptions,
       clientOptions
     );
 
-    // Register notification handler for service counts
     client.start().then(() => {
-      client!.onNotification('symfony/serviceCount', (params: { serviceCount: number, aliasCount: number, total: number }) => {
-        // Update status bar with service count
-        outputChannel.appendLine(`Found ${params.serviceCount} services, ${params.aliasCount} aliases (${params.total} total)`); 
-        vscode.window.setStatusBarMessage(`Symfony: ${params.total} services`, 10000);
-      });
     }).catch((err: Error) => {
       outputChannel.appendLine(`Error registering notification handler: ${err}`);
     });
 
-    vscode.window.showInformationMessage('Symfony Service LSP activated');
+    vscode.window.showInformationMessage('Shopware LSP activated');
   }
 
   // Start client on activation and await it
   await startClient();
 
   // Register restart command
-  context.subscriptions.push(vscode.commands.registerCommand('symfonyServiceLSP.restart', async () => {
+  context.subscriptions.push(vscode.commands.registerCommand('shopwareLSP.restart', async () => {
     await startClient();
-    vscode.window.showInformationMessage('Symfony Service LSP restarted');
+    vscode.window.showInformationMessage('Shopware LSP restarted');
   }));
 }
 

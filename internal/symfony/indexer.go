@@ -309,3 +309,12 @@ func (idx *ServiceIndex) GetTagCount() int {
 
 	return len(idx.tags)
 }
+
+// GetAliasByID returns a specific alias by its ID
+func (idx *ServiceIndex) GetAliasByID(id string) (ServiceAlias, bool) {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	alias, exists := idx.aliases[id]
+	return alias, exists
+}

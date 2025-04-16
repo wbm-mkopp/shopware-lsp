@@ -47,7 +47,11 @@ func isServiceIDContext(node *tree_sitter.Node, docText string) bool {
 	return false
 }
 
-func getCurrentServiceId(node *tree_sitter.Node, docText string) string {
+func getCurrentAttributeValue(node *tree_sitter.Node, docText string) string {
+	return strings.Trim(node.Utf8Text([]byte(docText)), "\"")
+}
+
+func getParentServiceId(node *tree_sitter.Node, docText string) string {
 	argumentNode := node.Parent().Parent()
 
 	if argumentNode == nil {

@@ -1,7 +1,7 @@
 {
-  "name": "symfony-service-lsp",
-  "displayName": "Symfony Service Autocompletion",
-  "description": "Provides autocompletion for Symfony service IDs from XML definitions",
+  "name": "shopware-lsp",
+  "displayName": "Shopware Language Server",
+  "description": "Provide Shopware 6 language server support for PHP and XML files.",
   "version": "0.1.0",
   "publisher": "shopware",
   "engines": {
@@ -19,26 +19,10 @@
   "contributes": {
     "commands": [
       {
-        "command": "symfonyServiceLSP.restart",
-        "title": "Restart Symfony Service Language Server"
+        "command": "shopwareLSP.restart",
+        "title": "Restart Shopware Language Server"
       }
-    ],
-    "configuration": {
-      "type": "object",
-      "title": "Symfony Service LSP",
-      "properties": {
-        "symfonyServiceLSP.enable": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable/disable the Symfony Service LSP"
-        },
-        "symfonyServiceLSP.serverPath": {
-          "type": "string",
-          "default": "",
-          "description": "Path to the Symfony Service LSP server executable. Leave empty to use the bundled server."
-        }
-      }
-    }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

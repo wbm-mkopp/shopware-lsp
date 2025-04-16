@@ -18,6 +18,7 @@ type Server struct {
 	rootPath            string
 	conn                *jsonrpc2.Conn
 	completionProviders []CompletionProvider
+	definitionProviders []GotoDefinitionProvider
 	indexers            map[string]IndexerProvider
 	indexerMu           sync.RWMutex
 	documentManager     *DocumentManager
@@ -27,6 +28,7 @@ type Server struct {
 func NewServer() *Server {
 	return &Server{
 		completionProviders: make([]CompletionProvider, 0),
+		definitionProviders: make([]GotoDefinitionProvider, 0),
 		indexers:            make(map[string]IndexerProvider),
 		documentManager:     NewDocumentManager(),
 	}
@@ -35,6 +37,11 @@ func NewServer() *Server {
 // RegisterCompletionProvider registers a completion provider with the server
 func (s *Server) RegisterCompletionProvider(provider CompletionProvider) {
 	s.completionProviders = append(s.completionProviders, provider)
+}
+
+// RegisterDefinitionProvider registers a definition provider with the server
+func (s *Server) RegisterDefinitionProvider(provider GotoDefinitionProvider) {
+	s.definitionProviders = append(s.definitionProviders, provider)
 }
 
 // RegisterIndexer adds an indexer to the registry
@@ -195,6 +202,13 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 			return nil, err
 		}
 		return s.completion(ctx, &params), nil
+		
+	case "textDocument/definition":
+		var params protocol.DefinitionParams
+		if err := json.Unmarshal(*req.Params, &params); err != nil {
+			return nil, err
+		}
+		return s.definition(ctx, &params), nil
 
 	case "shutdown":
 		// Clean up resources
@@ -233,6 +247,7 @@ func (s *Server) initialize(ctx context.Context, params *protocol.InitializePara
 			"completionProvider": map[string]interface{}{
 				"triggerCharacters": triggerChars,
 			},
+			"definitionProvider": true,
 		},
 	}
 }

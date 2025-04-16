@@ -42,7 +42,7 @@ func (p *SymfonyCompletionProvider) GetCompletions(ctx context.Context, params *
 		return []protocol.CompletionItem{}
 	}
 
-	currentServiceId := getCurrentServiceId(params.Node, params.DocumentContent)
+	currentServiceId := getParentServiceId(params.Node, params.DocumentContent)
 
 	// Get all services from the index
 	serviceIDs := p.serviceIndex.GetAllServices()

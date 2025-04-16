@@ -20,6 +20,7 @@ func main() {
 
 	server.RegisterIndexer(symfony.NewServiceIndex(projectRoot))
 	server.RegisterCompletionProvider(symfony.NewServiceCompletionProvider(server))
+	server.RegisterDefinitionProvider(symfony.NewGotoDefinitionProvider(server))
 
 	if err := server.Start(os.Stdin, os.Stdout); err != nil {
 		log.Fatalf("LSP server error: %v", err)
