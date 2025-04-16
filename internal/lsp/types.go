@@ -14,6 +14,14 @@ type CompletionProvider interface {
 	GetTriggerCharacters() []string
 }
 
+// CodeLensProvider is an interface for providing code lenses
+type CodeLensProvider interface {
+	// GetCodeLenses returns code lenses for the given document
+	GetCodeLenses(ctx context.Context, params *protocol.CodeLensParams) []protocol.CodeLens
+	// ResolveCodeLens resolves the command for a given code lens item
+	ResolveCodeLens(ctx context.Context, codeLens *protocol.CodeLens) (*protocol.CodeLens, error)
+}
+
 // IndexerProvider is an interface for indexers that can be registered with the server
 type IndexerProvider interface {
 	// ID returns a unique identifier for this indexer

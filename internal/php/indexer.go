@@ -82,11 +82,19 @@ func (idx *PHPIndex) Index() error {
 }
 
 func (idx *PHPIndex) processFile(path string) {
+	for className, phpClass := range idx.GetClassesOfFile(path) {
+		idx.phpClasses[className] = phpClass
+	}
+}
+
+func (idx *PHPIndex) GetClassesOfFile(path string) map[string]PHPClass {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		log.Printf("Failed to read file %s: %v", path, err)
-		return
+		return nil
 	}
+
+	classes := make(map[string]PHPClass)
 
 	tree := idx.parser.Parse(content, nil)
 
@@ -119,7 +127,7 @@ func (idx *PHPIndex) processFile(path string) {
 						className = currentNamespace + "\\" + className
 					}
 
-					idx.phpClasses[className] = PHPClass{
+					classes[className] = PHPClass{
 						Name: className,
 						Path: path,
 						Line: int(node.Range().StartPoint.Row) + 1,
@@ -132,6 +140,8 @@ func (idx *PHPIndex) processFile(path string) {
 			}
 		}
 	}
+
+	return classes
 }
 
 func (idx *PHPIndex) removeFile(path string) {

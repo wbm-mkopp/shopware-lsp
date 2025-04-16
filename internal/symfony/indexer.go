@@ -292,3 +292,33 @@ func (idx *ServiceIndex) GetAliasByID(id string) (ServiceAlias, bool) {
 	alias, exists := idx.aliases[id]
 	return alias, exists
 }
+
+type Location struct {
+	Path string
+	Line int
+}
+
+func (idx *ServiceIndex) GetServicesUsageByClassName(className string) []Location {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	locations := make([]Location, 0)
+
+	for _, service := range idx.services {
+		if service.Class == className {
+			locations = append(locations, Location{
+				Path: service.Path,
+				Line: service.Line,
+			})
+		}
+	}
+
+	if alias, exists := idx.aliases[className]; exists {
+		locations = append(locations, Location{
+			Path: alias.Path,
+			Line: alias.Line,
+		})
+	}
+
+	return locations
+}
