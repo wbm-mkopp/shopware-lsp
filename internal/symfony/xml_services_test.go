@@ -15,11 +15,12 @@ func TestParseXMLServices(t *testing.T) {
 
 	// Test cases
 	testCases := []struct {
-		name           string
-		xmlContent     string
+		name             string
+		xmlContent       string
 		expectedServices int
 		expectedAliases  int
 		expectedTags     map[string][]string // map[serviceID][]tagNames
+		expectError      bool
 	}{
 		{
 			name: "Basic service",
@@ -30,6 +31,7 @@ func TestParseXMLServices(t *testing.T) {
 			expectedServices: 1,
 			expectedAliases:  0,
 			expectedTags:     map[string][]string{},
+			expectError:      false,
 		},
 		{
 			name: "Service with tags",
@@ -42,6 +44,7 @@ func TestParseXMLServices(t *testing.T) {
 			expectedServices: 1,
 			expectedAliases:  0,
 			expectedTags:     map[string][]string{"app.service1": {"app.tag"}},
+			expectError:      false,
 		},
 		{
 			name: "Service with multiple tags",
@@ -55,6 +58,7 @@ func TestParseXMLServices(t *testing.T) {
 			expectedServices: 1,
 			expectedAliases:  0,
 			expectedTags:     map[string][]string{"app.service1": {"app.tag1", "app.tag2"}},
+			expectError:      false,
 		},
 		{
 			name: "Multiple services",
@@ -66,6 +70,7 @@ func TestParseXMLServices(t *testing.T) {
 			expectedServices: 2,
 			expectedAliases:  0,
 			expectedTags:     map[string][]string{},
+			expectError:      false,
 		},
 		{
 			name: "Services with aliases",
@@ -77,6 +82,7 @@ func TestParseXMLServices(t *testing.T) {
 			expectedServices: 1,
 			expectedAliases:  1,
 			expectedTags:     map[string][]string{},
+			expectError:      false,
 		},
 		{
 			name: "Complex XML with services, tags, and aliases",
@@ -98,6 +104,7 @@ func TestParseXMLServices(t *testing.T) {
 				"app.service1": {"app.tag1", "app.tag2"},
 				"app.service2": {"app.tag3"},
 			},
+			expectError: false,
 		},
 		{
 			name: "Symfony namespaced XML with nested services",
@@ -127,6 +134,71 @@ func TestParseXMLServices(t *testing.T) {
 			expectedServices: 2,
 			expectedAliases:  0,
 			expectedTags:     map[string][]string{},
+			expectError:      false,
+		},
+		// Add test cases for invalid/non-service XML
+		{
+			name: "Non-service XML - HTML document",
+			xmlContent: `<!DOCTYPE html>
+<html>
+<head>
+    <title>Test HTML</title>
+</head>
+<body>
+    <h1>This is not a service file</h1>
+    <p>Just a regular HTML document</p>
+</body>
+</html>`,
+			expectedServices: 0,
+			expectedAliases:  0,
+			expectedTags:     map[string][]string{},
+			expectError:      false,
+		},
+		{
+			name: "XML without container tag",
+			xmlContent: `<?xml version="1.0" encoding="UTF-8" ?>
+<config>
+    <parameters>
+        <parameter name="test">value</parameter>
+    </parameters>
+</config>`,
+			expectedServices: 0,
+			expectedAliases:  0,
+			expectedTags:     map[string][]string{},
+			expectError:      false,
+		},
+		{
+			name: "Empty XML",
+			xmlContent: `<?xml version="1.0" encoding="UTF-8" ?>
+<container>
+</container>`,
+			expectedServices: 0,
+			expectedAliases:  0,
+			expectedTags:     map[string][]string{},
+			expectError:      false,
+		},
+		{
+			name: "Services with missing attributes",
+			xmlContent: `<?xml version="1.0" encoding="UTF-8" ?>
+<container>
+    <service />
+    <service id="" />
+    <service class="App\Service\MissingId" />
+    <alias />
+    <alias id="missing.service.reference" />
+</container>`,
+			expectedServices: 0,
+			expectedAliases:  0,
+			expectedTags:     map[string][]string{},
+			expectError:      false,
+		},
+		{
+			name:             "Malformed XML",
+			xmlContent:       `<?xml version="1.0" encoding="UTF-8" ?><container><service></container>`,
+			expectedServices: 0,
+			expectedAliases:  0,
+			expectedTags:     map[string][]string{},
+			expectError:      false, // Tree-sitter can still parse malformed XML without errors
 		},
 	}
 
@@ -139,6 +211,12 @@ func TestParseXMLServices(t *testing.T) {
 
 			// Parse the XML file
 			services, aliases, err := ParseXMLServices(testFile)
+			
+			if tc.expectError {
+				require.Error(t, err, "Expected ParseXMLServices to fail")
+				return
+			}
+			
 			require.NoError(t, err, "ParseXMLServices failed")
 
 			// Check service count
