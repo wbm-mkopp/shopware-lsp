@@ -294,6 +294,11 @@ func processServiceNode(node *tree_sitter.Node, data []byte, path string, conten
 	// Get attributes
 	attrs := getXmlAttributeValues(startTag, data)
 	service.ID = attrs["id"]
+
+	if strings.Contains(service.ID, " ") {
+		return Service{}
+	}
+
 	service.Class = attrs["class"]
 
 	// If service has no class, use ID as class (Symfony default behavior)
