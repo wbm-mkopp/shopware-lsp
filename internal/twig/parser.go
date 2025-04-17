@@ -40,8 +40,9 @@ func ParseTwig(parser *tree_sitter.Parser, content []byte, filePath string) (*Tw
 	}
 
 	file := &TwigFile{
-		Path:   filePath,
-		Blocks: make(map[string]TwigBlock),
+		Path:    filePath,
+		RelPath: convertToRelativePath(filePath),
+		Blocks:  make(map[string]TwigBlock),
 	}
 
 	var cursor = rootNode.Walk()
