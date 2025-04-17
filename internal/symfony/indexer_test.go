@@ -51,7 +51,7 @@ func TestServiceIndex(t *testing.T) {
 	}()
 
 	// Build the index
-	err = index.Index()
+	err = index.Index(false)
 	require.NoError(t, err, "Failed to build index")
 
 	// Test tag index functionality
@@ -140,7 +140,7 @@ func TestServiceIndex(t *testing.T) {
 		// Skip debug logging
 
 		// Force the file watcher to detect the change by explicitly triggering a rebuild
-		err = index.Index()
+		err = index.Index(false)
 		require.NoError(t, err, "Failed to rebuild index after file modification")
 
 		// Check that the service was updated
@@ -166,7 +166,7 @@ func TestServiceIndex(t *testing.T) {
 		require.NoError(t, err, "Failed to remove test file")
 
 		// Force the indexer to rebuild after file deletion
-		err = index.Index()
+		err = index.Index(false)
 		require.NoError(t, err, "Failed to rebuild index after file deletion")
 
 		// Check that services from the deleted file are gone

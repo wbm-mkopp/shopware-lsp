@@ -19,6 +19,7 @@ import (
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 	tree_sitter_php "github.com/tree-sitter/tree-sitter-php/bindings/go"
 	"go.etcd.io/bbolt"
+	"go.etcd.io/bbolt/errors"
 )
 
 type PHPClass struct {
@@ -96,16 +97,37 @@ func (idx *PHPIndex) Name() string {
 	return "PHP Indexer"
 }
 
-func (idx *PHPIndex) Index() error {
+func (idx *PHPIndex) Index(forceReindex bool) error {
 	// Start timing
 	startTime := time.Now()
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
-	// Clear existing index
+	// If forceReindex is true, delete the buckets and recreate them
+	if forceReindex {
+		log.Printf("Force reindexing requested, clearing existing index")
+		err := idx.db.Update(func(tx *bbolt.Tx) error {
+			// Delete existing buckets
+			if err := tx.DeleteBucket(classesBucket); err != nil && err != errors.ErrBucketNotFound {
+				return fmt.Errorf("failed to delete classes bucket: %w", err)
+			}
+			if err := tx.DeleteBucket(fileHashBucket); err != nil && err != errors.ErrBucketNotFound {
+				return fmt.Errorf("failed to delete file hash bucket: %w", err)
+			}
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("failed to clear index: %w", err)
+		}
+	}
+
+	// Create buckets if they don't exist
 	err := idx.db.Update(func(tx *bbolt.Tx) error {
 		if _, err := tx.CreateBucketIfNotExists(classesBucket); err != nil {
 			return fmt.Errorf("failed to create classes bucket: %w", err)
+		}
+		if _, err := tx.CreateBucketIfNotExists(fileHashBucket); err != nil {
+			return fmt.Errorf("failed to create file hash bucket: %w", err)
 		}
 		return nil
 	})

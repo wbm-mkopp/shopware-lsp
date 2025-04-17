@@ -29,7 +29,8 @@ type IndexerProvider interface {
 	// Name returns a human-readable name for this indexer
 	Name() string
 	// Index builds or updates the index
-	Index() error
+	// If forceReindex is true, it will clear the existing index before rebuilding
+	Index(forceReindex bool) error
 	// Close cleans up resources used by the indexer
 	Close() error
 

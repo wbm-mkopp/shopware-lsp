@@ -93,13 +93,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     // Register notification handlers
     client.start().then(() => {
-      // Handler for service counts
-      client!.onNotification('shopware/serviceCount', (params: { serviceCount: number, aliasCount: number, total: number }) => {
-        // Update status bar with service count
-        outputChannel.appendLine(`Found ${params.serviceCount} services, ${params.aliasCount} aliases (${params.total} total}`); 
-        vscode.window.setStatusBarMessage(`Shopware: ${params.total} services`, 10000);
-      });
-      
       // Handler for indexing started
       client!.onNotification('shopware/indexingStarted', () => {
         outputChannel.appendLine('Shopware indexing started');
@@ -130,6 +123,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(vscode.commands.registerCommand('shopwareLSP.restart', async () => {
     await startClient();
     vscode.window.showInformationMessage('Shopware LSP restarted');
+  }));
+
+  // Register force reindex command
+  context.subscriptions.push(vscode.commands.registerCommand('shopwareLSP.forceReindex', async () => {
+    if (!client) {
+      vscode.window.showErrorMessage('Shopware LSP is not running');
+      return;
+    }
+    
+    try {
+      const result = await client.sendRequest('shopware/forceReindex');
+      vscode.window.showInformationMessage('Shopware LSP: Force reindexing started');
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to trigger force reindexing: ${error}`);
+    }
   }));
 }
 

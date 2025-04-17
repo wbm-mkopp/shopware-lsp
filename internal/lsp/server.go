@@ -81,7 +81,8 @@ func (s *Server) GetAllIndexers() []IndexerProvider {
 }
 
 // IndexAll builds or updates all registered indexes
-func (s *Server) IndexAll() error {
+// If forceReindex is true, it will clear the existing index before rebuilding
+func (s *Server) IndexAll(forceReindex bool) error {
 	startTime := time.Now()
 
 	// Send notification that indexing has started
@@ -109,7 +110,7 @@ func (s *Server) IndexAll() error {
 	for i := range indexers {
 		indexer := indexers[i] // Create a new variable in this scope
 		eg.Go(func() error {
-			return indexer.Index()
+			return indexer.Index(forceReindex)
 		})
 	}
 
@@ -196,7 +197,7 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 		// Build the index when the client is initialized
 		go func() {
 			// Index all registered indexers
-			if err := s.IndexAll(); err != nil {
+			if err := s.IndexAll(false); err != nil {
 				log.Printf("Error indexing: %v", err)
 			}
 		}()
@@ -273,6 +274,17 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 			return nil, err
 		}
 		return s.resolveCodeLens(ctx, &codeLens)
+
+	case "shopware/forceReindex":
+		// Force reindex all indexers
+		go func() {
+			if err := s.IndexAll(true); err != nil {
+				log.Printf("Error force reindexing: %v", err)
+			}
+		}()
+		return map[string]interface{}{
+			"message": "Force reindexing started",
+		}, nil
 
 	case "shutdown":
 		// Clean up resources

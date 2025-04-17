@@ -56,7 +56,7 @@ func TestSkipNodeModulesAndVarFolders(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Run the indexer
-	err = index.Index()
+	err = index.Index(false)
 	assert.NoError(t, err)
 
 	// Get all class names from the index

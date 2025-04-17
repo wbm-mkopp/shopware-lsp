@@ -16,6 +16,7 @@ import (
 	"github.com/cespare/xxhash/v2"
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
 	"go.etcd.io/bbolt"
+	"go.etcd.io/bbolt/errors"
 )
 
 // Bucket names for bbolt
@@ -111,13 +112,30 @@ func (idx *ServiceIndex) Name() string {
 }
 
 // Index scans the project for XML files and builds the service index
-func (idx *ServiceIndex) Index() error {
+func (idx *ServiceIndex) Index(forceReindex bool) error {
 	startTime := time.Now()
+
+	// If forceReindex is true, delete the buckets and recreate them
+	if forceReindex {
+		log.Printf("Force reindexing requested, clearing existing service index")
+		err := idx.db.Update(func(tx *bbolt.Tx) error {
+			// Delete existing buckets
+			buckets := [][]byte{servicesBucket, aliasesBucket, tagsBucket, parametersBucket, filesBucket, fileHashBucket}
+			for _, bucket := range buckets {
+				if err := tx.DeleteBucket(bucket); err != nil && err != errors.ErrBucketNotFound {
+					return fmt.Errorf("failed to delete bucket: %w", err)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("failed to clear index: %w", err)
+		}
+	}
 
 	// Ensure all buckets exist (without holding the global lock yet)
 	err := idx.db.Update(func(tx *bbolt.Tx) error {
-		// Instead of deleting buckets, just ensure they exist
-		// This keeps existing data and allows incremental updates
+		// Create buckets if they don't exist
 		if _, err := tx.CreateBucketIfNotExists(servicesBucket); err != nil {
 			return fmt.Errorf("failed to create services bucket: %w", err)
 		}
@@ -320,7 +338,7 @@ func (idx *ServiceIndex) Index() error {
 	})
 
 	log.Printf("Processed %d XML files in %v", len(xmlFiles), time.Since(processingStart))
-	log.Printf("Finished indexing %d services in %v total", serviceCount, time.Since(startTime))
+	log.Printf("Finished indexing %d services in %v", serviceCount, time.Since(startTime))
 
 	return nil
 }
