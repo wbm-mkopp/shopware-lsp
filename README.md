@@ -4,9 +4,14 @@ A Language Server Protocol (LSP) implementation for Shopware development.
 
 ## Features
 
-- Service ID completion in PHP
+### Symfony Service Support
+- Service ID completion in PHP and XML files
 - Navigation to service definitions from PHP and XML
-- Service code lens in PHP files
+- Service code lens in PHP files showing service usage
+- Parameter reference completion and navigation in XML files
+- Service tag completion in XML files
+- Service class completion in XML files
+- Tag-based service lookup and navigation
 
 ## Development
 
