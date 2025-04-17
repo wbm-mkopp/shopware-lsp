@@ -4,8 +4,12 @@ go 1.24
 
 replace github.com/tree-sitter-grammars/tree-sitter-xml => github.com/justinMBullard/tree-sitter-xml v0.0.0-20250305015746-03d1af911bbd
 
+replace github.com/kaermorchen/tree-sitter-twig => github.com/shyim/tree-sitter-twig v0.0.0-20250417090942-eedd3077c16c
+
 require (
 	github.com/cespare/xxhash/v2 v2.3.0
+	github.com/fsnotify/fsnotify v1.9.0
+	github.com/kaermorchen/tree-sitter-twig v0.0.0-00010101000000-000000000000
 	github.com/sourcegraph/jsonrpc2 v0.2.0
 	github.com/stretchr/testify v1.10.0
 	github.com/tree-sitter-grammars/tree-sitter-xml v0.7.0
@@ -17,7 +21,6 @@ require (
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	golang.org/x/sys v0.29.0 // indirect
