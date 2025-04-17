@@ -9,8 +9,8 @@ import (
 	"sync"
 
 	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
-	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 	tree_sitter_xml "github.com/tree-sitter-grammars/tree-sitter-xml/bindings/go"
+	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 // Service represents a Symfony service definition
@@ -52,50 +52,53 @@ var xmlParserPool = sync.Pool{
 func ParseXMLServices(pathOrContent interface{}, optionalPath ...string) ([]Service, []ServiceAlias, []Parameter, error) {
 	var data []byte
 	var path string
-	
+
 	// Determine if we're given a file path or content
 	switch v := pathOrContent.(type) {
 	case string:
 		// We were given a file path
 		path = v
-		
+
 		// Quick check of file before reading - if not a Symfony service config file, skip it
 		f, err := os.Open(path)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		
+
 		// Read first 1024 bytes to quickly check for Symfony XML patterns
 		peek := make([]byte, 1024)
 		n, _ := f.Read(peek)
-		f.Close()
-		
+
+		if err := f.Close(); err != nil {
+			return nil, nil, nil, err
+		}
+
 		if n > 0 {
 			content := string(peek[:n])
-			if !strings.Contains(content, "<container") && 
-			   !strings.Contains(content, "<services") && 
-			   !strings.Contains(content, "<service") {
+			if !strings.Contains(content, "<container") &&
+				!strings.Contains(content, "<services") &&
+				!strings.Contains(content, "<service") {
 				// Return empty results instead of error for non-service XML files
 				// This maintains compatibility with previous behavior for tests
 				return []Service{}, []ServiceAlias{}, []Parameter{}, nil
 			}
 		}
-		
+
 		// Now read the full file
 		data, err = os.ReadFile(path)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		
+
 	case []byte:
 		// We were given content directly
 		data = v
-		
+
 		// Use optional path if provided
 		if len(optionalPath) > 0 {
 			path = optionalPath[0]
 		}
-		
+
 		// Quick check if this looks like a Symfony service file
 		if len(data) > 0 {
 			// Check a portion of the content for service patterns
@@ -103,11 +106,11 @@ func ParseXMLServices(pathOrContent interface{}, optionalPath ...string) ([]Serv
 			if checkSize > 1024 {
 				checkSize = 1024
 			}
-			
+
 			content := string(data[:checkSize])
-			if !strings.Contains(content, "<container") && 
-			   !strings.Contains(content, "<services") && 
-			   !strings.Contains(content, "<service") {
+			if !strings.Contains(content, "<container") &&
+				!strings.Contains(content, "<services") &&
+				!strings.Contains(content, "<service") {
 				// Return empty results instead of error for non-service XML files
 				return []Service{}, []ServiceAlias{}, []Parameter{}, nil
 			}
@@ -140,7 +143,7 @@ func ParseXMLServices(pathOrContent interface{}, optionalPath ...string) ([]Serv
 	}
 
 	// Pre-allocate with reasonable capacity
-	services := make([]Service, 0, 50)  
+	services := make([]Service, 0, 50)
 	aliases := make([]ServiceAlias, 0, 20)
 	parameters := make([]Parameter, 0, 20)
 
@@ -203,7 +206,7 @@ func ParseXMLServices(pathOrContent interface{}, optionalPath ...string) ([]Serv
 			return services, aliases, parameters, nil
 		}
 	}
-	
+
 	// Fall back to the original approach if needed
 	for i := 0; i < int(containerNode.NamedChildCount()); i++ {
 		child := containerNode.NamedChild(uint(i))
@@ -320,7 +323,7 @@ func processServiceNode(node *tree_sitter.Node, data []byte, path string, conten
 				if child.Kind() != "element" {
 					continue
 				}
-				
+
 				// Get tag's STag or EmptyElemTag
 				tagElement := child.NamedChild(0)
 				if tagElement == nil {
@@ -406,7 +409,7 @@ func processServicesNode(node *tree_sitter.Node, data []byte, path string, conte
 		if child.Kind() != "element" {
 			continue
 		}
-		
+
 		// Get element's STag or EmptyElemTag
 		elementTag := child.NamedChild(0)
 		if elementTag == nil {
@@ -447,7 +450,7 @@ func processParameterNode(node *tree_sitter.Node, data []byte, path string, cont
 	// Get attributes
 	attrs := getXmlAttributeValues(startTag, data)
 	param.Name = attrs["key"] // In Symfony XML, parameters use "key" as attribute
-	
+
 	// Skip if missing required name attribute
 	if param.Name == "" {
 		return param
@@ -500,7 +503,7 @@ func processParametersNode(node *tree_sitter.Node, data []byte, path string, con
 		if child.Kind() != "element" {
 			continue
 		}
-		
+
 		// Get element's STag or EmptyElemTag
 		elementTag := child.NamedChild(0)
 		if elementTag == nil {

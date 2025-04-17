@@ -55,7 +55,9 @@ func NewServiceIndex(projectRoot string, configDir string) (*ServiceIndex, error
 			return nil, fmt.Errorf("failed to create temp db file: %w", err)
 		}
 		dbPath = tempFile.Name()
-		tempFile.Close()
+		if err := tempFile.Close(); err != nil {
+			return nil, fmt.Errorf("failed to close temp db file: %w", err)
+		}
 
 		// Make sure it's deleted when the program exits
 		options.Timeout = 1
@@ -198,7 +200,9 @@ func (idx *ServiceIndex) Index() error {
 			if err != nil {
 				return nil // Skip if we can't open
 			}
-			defer f.Close()
+			defer func() {
+				_ = f.Close()
+			}()
 
 			// Read the first 1024 bytes to check for typical Symfony XML patterns
 			buffer := make([]byte, 1024)
@@ -369,7 +373,7 @@ func (idx *ServiceIndex) processFile(path string) {
 
 	// If file hasn't changed, just make sure it's tracked but don't reprocess
 	if !fileChanged {
-		idx.db.Update(func(tx *bbolt.Tx) error {
+		_ = idx.db.Update(func(tx *bbolt.Tx) error {
 			b := tx.Bucket(filesBucket)
 			if b != nil {
 				return b.Put([]byte(path), []byte{1})
@@ -532,7 +536,7 @@ func (idx *ServiceIndex) removeServicesFromFile(path string) {
 	err := idx.db.View(func(tx *bbolt.Tx) error {
 		// Find services from this file
 		servicesBucket := tx.Bucket(servicesBucket)
-		servicesBucket.ForEach(func(k, v []byte) error {
+		_ = servicesBucket.ForEach(func(k, v []byte) error {
 			var service Service
 			if err := json.Unmarshal(v, &service); err != nil {
 				return nil // Skip invalid entries
@@ -553,7 +557,7 @@ func (idx *ServiceIndex) removeServicesFromFile(path string) {
 
 		// Find aliases from this file
 		aliasesBucket := tx.Bucket(aliasesBucket)
-		aliasesBucket.ForEach(func(k, v []byte) error {
+		_ = aliasesBucket.ForEach(func(k, v []byte) error {
 			var alias ServiceAlias
 			if err := json.Unmarshal(v, &alias); err != nil {
 				return nil // Skip invalid entries
@@ -566,7 +570,7 @@ func (idx *ServiceIndex) removeServicesFromFile(path string) {
 
 		// Find parameters from this file
 		parametersBucket := tx.Bucket(parametersBucket)
-		parametersBucket.ForEach(func(k, v []byte) error {
+		return parametersBucket.ForEach(func(k, v []byte) error {
 			var param Parameter
 			if err := json.Unmarshal(v, &param); err != nil {
 				return nil // Skip invalid entries
@@ -576,8 +580,6 @@ func (idx *ServiceIndex) removeServicesFromFile(path string) {
 			}
 			return nil
 		})
-
-		return nil
 	})
 
 	if err != nil {
@@ -672,17 +674,17 @@ func (idx *ServiceIndex) GetAllServices() []string {
 
 	var serviceIDs []string
 
-	idx.db.View(func(tx *bbolt.Tx) error {
+	_ = idx.db.View(func(tx *bbolt.Tx) error {
 		// Get service IDs
 		servicesBucket := tx.Bucket(servicesBucket)
-		servicesBucket.ForEach(func(k, v []byte) error {
+		_ = servicesBucket.ForEach(func(k, v []byte) error {
 			serviceIDs = append(serviceIDs, string(k))
 			return nil
 		})
 
 		// Get alias IDs
 		aliasesBucket := tx.Bucket(aliasesBucket)
-		aliasesBucket.ForEach(func(k, v []byte) error {
+		_ = aliasesBucket.ForEach(func(k, v []byte) error {
 			serviceIDs = append(serviceIDs, string(k))
 			return nil
 		})
@@ -701,7 +703,7 @@ func (idx *ServiceIndex) GetServiceByID(id string) (Service, bool) {
 	var service Service
 	var found bool
 
-	idx.db.View(func(tx *bbolt.Tx) error {
+	_ = idx.db.View(func(tx *bbolt.Tx) error {
 		// Check for direct service
 		servicesBucket := tx.Bucket(servicesBucket)
 		serviceData := servicesBucket.Get([]byte(id))
@@ -742,7 +744,9 @@ func (idx *ServiceIndex) Close() error {
 
 		// If this is a temporary database (not in configDir), delete it
 		if strings.Contains(idx.dbPath, "symfony-test-") {
-			os.Remove(idx.dbPath)
+			if err := os.Remove(idx.dbPath); err != nil {
+				return err
+			}
 		}
 
 		return err
@@ -799,7 +803,7 @@ func (idx *ServiceIndex) GetCounts() (int, int) {
 
 	var serviceCount, aliasCount int
 
-	idx.db.View(func(tx *bbolt.Tx) error {
+	_ = idx.db.View(func(tx *bbolt.Tx) error {
 		serviceCount = tx.Bucket(servicesBucket).Stats().KeyN
 		aliasCount = tx.Bucket(aliasesBucket).Stats().KeyN
 		return nil
@@ -815,13 +819,12 @@ func (idx *ServiceIndex) GetAllTags() []string {
 
 	var tags []string
 
-	idx.db.View(func(tx *bbolt.Tx) error {
+	_ = idx.db.View(func(tx *bbolt.Tx) error {
 		tagsBucket := tx.Bucket(tagsBucket)
-		tagsBucket.ForEach(func(k, v []byte) error {
+		return tagsBucket.ForEach(func(k, v []byte) error {
 			tags = append(tags, string(k))
 			return nil
 		})
-		return nil
 	})
 
 	return tags
@@ -834,11 +837,13 @@ func (idx *ServiceIndex) GetServicesByTag(tagName string) []string {
 
 	var serviceIDs []string
 
-	idx.db.View(func(tx *bbolt.Tx) error {
+	_ = idx.db.View(func(tx *bbolt.Tx) error {
 		tagsBucket := tx.Bucket(tagsBucket)
 		tagData := tagsBucket.Get([]byte(tagName))
 		if tagData != nil {
-			json.Unmarshal(tagData, &serviceIDs)
+			if err := json.Unmarshal(tagData, &serviceIDs); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -853,7 +858,7 @@ func (idx *ServiceIndex) GetTagCount() int {
 
 	var tagCount int
 
-	idx.db.View(func(tx *bbolt.Tx) error {
+	_ = idx.db.View(func(tx *bbolt.Tx) error {
 		tagCount = tx.Bucket(tagsBucket).Stats().KeyN
 		return nil
 	})
@@ -869,7 +874,7 @@ func (idx *ServiceIndex) GetAliasByID(id string) (ServiceAlias, bool) {
 	var alias ServiceAlias
 	var found bool
 
-	idx.db.View(func(tx *bbolt.Tx) error {
+	_ = idx.db.View(func(tx *bbolt.Tx) error {
 		aliasesBucket := tx.Bucket(aliasesBucket)
 		aliasData := aliasesBucket.Get([]byte(id))
 		if aliasData != nil {
@@ -890,16 +895,15 @@ func (idx *ServiceIndex) GetAllParameters() []Parameter {
 
 	var parameters []Parameter
 
-	idx.db.View(func(tx *bbolt.Tx) error {
+	_ = idx.db.View(func(tx *bbolt.Tx) error {
 		parametersBucket := tx.Bucket(parametersBucket)
-		parametersBucket.ForEach(func(k, v []byte) error {
+		return parametersBucket.ForEach(func(k, v []byte) error {
 			var param Parameter
 			if err := json.Unmarshal(v, &param); err == nil {
 				parameters = append(parameters, param)
 			}
 			return nil
 		})
-		return nil
 	})
 
 	return parameters
@@ -913,7 +917,7 @@ func (idx *ServiceIndex) GetParameterByName(name string) (Parameter, bool) {
 	var parameter Parameter
 	var found bool
 
-	idx.db.View(func(tx *bbolt.Tx) error {
+	_ = idx.db.View(func(tx *bbolt.Tx) error {
 		parametersBucket := tx.Bucket(parametersBucket)
 		paramData := parametersBucket.Get([]byte(name))
 		if paramData != nil {
@@ -934,7 +938,7 @@ func (idx *ServiceIndex) GetParameterCount() int {
 
 	var parameterCount int
 
-	idx.db.View(func(tx *bbolt.Tx) error {
+	_ = idx.db.View(func(tx *bbolt.Tx) error {
 		parameterCount = tx.Bucket(parametersBucket).Stats().KeyN
 		return nil
 	})
@@ -953,10 +957,10 @@ func (idx *ServiceIndex) GetServicesUsageByClassName(className string) []Locatio
 
 	var locations []Location
 
-	idx.db.View(func(tx *bbolt.Tx) error {
+	_ = idx.db.View(func(tx *bbolt.Tx) error {
 		// Check services with matching class
 		servicesBucket := tx.Bucket(servicesBucket)
-		servicesBucket.ForEach(func(k, v []byte) error {
+		err := servicesBucket.ForEach(func(k, v []byte) error {
 			var service Service
 			if err := json.Unmarshal(v, &service); err == nil {
 				if service.Class == className {
@@ -968,6 +972,9 @@ func (idx *ServiceIndex) GetServicesUsageByClassName(className string) []Locatio
 			}
 			return nil
 		})
+		if err != nil {
+			return err
+		}
 
 		// Check if an alias exists with this name
 		aliasesBucket := tx.Bucket(aliasesBucket)

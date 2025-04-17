@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
 	"github.com/sourcegraph/jsonrpc2"
@@ -81,16 +82,28 @@ func (s *Server) GetAllIndexers() []IndexerProvider {
 
 // IndexAll builds or updates all registered indexes
 func (s *Server) IndexAll() error {
+	startTime := time.Now()
+
+	// Send notification that indexing has started
+	if s.conn != nil {
+		if err := s.conn.Notify(context.Background(), "shopware/indexingStarted", map[string]interface{}{
+			"message": "Indexing started",
+		}); err != nil {
+			return err
+		}
+	}
+
 	s.indexerMu.RLock()
-	defer s.indexerMu.RUnlock()
-
-	var eg errgroup.Group
-
-	// Create a slice to avoid the loop variable capture issue
 	indexers := make([]IndexerProvider, 0, len(s.indexers))
+
+	// Create a slice of indexers to avoid holding the lock during indexing
 	for _, indexer := range s.indexers {
 		indexers = append(indexers, indexer)
 	}
+	s.indexerMu.RUnlock()
+
+	// Use errgroup to run indexers in parallel
+	eg := errgroup.Group{}
 
 	// Now launch goroutines with proper variable scoping
 	for i := range indexers {
@@ -100,7 +113,23 @@ func (s *Server) IndexAll() error {
 		})
 	}
 
-	return eg.Wait()
+	// Wait for all indexers to complete
+	err := eg.Wait()
+
+	elapsedTime := time.Since(startTime)
+
+	// Send notification that indexing has completed
+	if s.conn != nil {
+		if err := s.conn.Notify(context.Background(), "shopware/indexingCompleted", map[string]interface{}{
+			"message":       "Indexing completed",
+			"error":         err != nil,
+			"timeInSeconds": elapsedTime.Seconds(),
+		}); err != nil {
+			return err
+		}
+	}
+
+	return err
 }
 
 // CloseAll closes all registered indexers and resources

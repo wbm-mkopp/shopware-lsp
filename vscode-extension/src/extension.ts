@@ -10,11 +10,17 @@ import {
 } from 'vscode-languageclient/node';
 
 let client: LanguageClient | undefined;
+// Add a status bar item for indexing status
+let indexingStatusBarItem: vscode.StatusBarItem;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // Create output channel for the language server
   const outputChannel = vscode.window.createOutputChannel("Shopware LSP");
   context.subscriptions.push(outputChannel);
+  
+  // Create status bar item for indexing status
+  indexingStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  context.subscriptions.push(indexingStatusBarItem);
 
   async function startClient() {
     if (client) {
@@ -85,12 +91,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       clientOptions
     );
 
+    // Register notification handlers
     client.start().then(() => {
+      // Handler for service counts
+      client!.onNotification('shopware/serviceCount', (params: { serviceCount: number, aliasCount: number, total: number }) => {
+        // Update status bar with service count
+        outputChannel.appendLine(`Found ${params.serviceCount} services, ${params.aliasCount} aliases (${params.total} total}`); 
+        vscode.window.setStatusBarMessage(`Shopware: ${params.total} services`, 10000);
+      });
+      
+      // Handler for indexing started
+      client!.onNotification('shopware/indexingStarted', () => {
+        outputChannel.appendLine('Shopware indexing started');
+        indexingStatusBarItem.text = '$(sync~spin) Shopware: Indexing...';
+        indexingStatusBarItem.tooltip = 'Shopware language server is currently indexing';
+        indexingStatusBarItem.show();
+      });
+      
+      // Handler for indexing completed
+      client!.onNotification('shopware/indexingCompleted', (params: { timeInSeconds: number }) => {
+        indexingStatusBarItem.text = `$(check) Shopware: Indexed`;
+        indexingStatusBarItem.tooltip = `Indexing completed in ${params.timeInSeconds} seconds`;
+        
+        // Hide the status bar message after 10 seconds
+        setTimeout(() => {
+          indexingStatusBarItem.hide();
+        }, 10000);
+      });
     }).catch((err: Error) => {
       outputChannel.appendLine(`Error registering notification handler: ${err}`);
     });
-
-    vscode.window.showInformationMessage('Shopware LSP activated');
   }
 
   // Start client on activation and await it
