@@ -42,7 +42,7 @@ func TestServiceIndex(t *testing.T) {
 	require.NoError(t, err, "Failed to write test file")
 
 	// Create the service index
-	index, err := NewServiceIndex(tempDir)
+	index, err := NewServiceIndex(tempDir, t.TempDir())
 	require.NoError(t, err, "Failed to create service index")
 	defer func() {
 		if err := index.Close(); err != nil {

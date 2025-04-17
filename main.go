@@ -27,7 +27,7 @@ func main() {
 		log.Fatalf("Failed to get project config directory: %v", err)
 	}
 
-	server.RegisterIndexer(symfony.NewServiceIndex(projectRoot))
+	server.RegisterIndexer(symfony.NewServiceIndex(projectRoot, configDir))
 	server.RegisterIndexer(php.NewPHPIndex(projectRoot, configDir))
 
 	server.RegisterCompletionProvider(completion.NewServiceCompletionProvider(server))
