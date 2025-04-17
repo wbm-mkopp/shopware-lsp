@@ -9,7 +9,7 @@ import (
 func TestTwigParse(t *testing.T) {
 	content := []byte(`{% block foo %}{% endblock %}`)
 
-	file, err := ParseTwig(content, "test")
+	file, err := ParseTwig(nil, content, "test")
 	assert.NoError(t, err)
 
 	assert.Equal(t, "test", file.Path)
