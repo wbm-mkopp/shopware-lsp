@@ -31,7 +31,7 @@ func (p *serviceXMLDefinitionProvider) GetDefinition(ctx context.Context, params
 		return []protocol.Location{}
 	}
 
-	// Check if we're in a service ID context
+	// <argument type="service" id="<caret>"/>
 	if treesitterhelper.SymfonyServiceIsServiceTag(params.Node, params.DocumentContent) {
 		// Get the service ID at the current position
 		serviceID := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
@@ -84,6 +84,7 @@ func (p *serviceXMLDefinitionProvider) GetDefinition(ctx context.Context, params
 		}
 	}
 
+	// <argument type="tagged" tag="x"/>
 	if treesitterhelper.SymfonyServiceIsArgumentTag(params.Node, params.DocumentContent) {
 		serviceID := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
 		if serviceID == "" {
@@ -117,7 +118,7 @@ func (p *serviceXMLDefinitionProvider) GetDefinition(ctx context.Context, params
 		return locations
 	}
 
-	// Handle parameter references in the format %parameter_name%
+	// <argument>%<caret>%</argument>
 	if treesitterhelper.SymfonyServiceIsParameterReference(params.Node, params.DocumentContent) {
 		nodeText := params.Node.Utf8Text([]byte(params.DocumentContent))
 

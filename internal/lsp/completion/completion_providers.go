@@ -2,6 +2,7 @@ package completion
 
 import (
 	"context"
+	"log"
 	"strings"
 
 	"github.com/shopware/shopware-lsp/internal/lsp"
@@ -128,6 +129,24 @@ func (p *SymfonyCompletionProvider) GetCompletions(ctx context.Context, params *
 		return items
 	}
 
+	// <tag name="<caret>"/>
+	if treesitterhelper.SymfonyServiceIsTagElement(params.Node, params.DocumentContent) {
+		tags := p.serviceIndex.GetAllTags()
+		items := make([]protocol.CompletionItem, 0)
+		for _, tag := range tags {
+			item := protocol.CompletionItem{
+				Label: tag,
+				Kind:  6, // 6 = Class
+			}
+			items = append(items, item)
+		}
+
+		log.Printf("Items: %v", items)
+
+		return items
+	}
+
+	// <service id="<caret>">
 	if treesitterhelper.SymfonyServiceIsServiceId(params.Node, params.DocumentContent) {
 		classNames := p.phpIndex.GetClassNames()
 

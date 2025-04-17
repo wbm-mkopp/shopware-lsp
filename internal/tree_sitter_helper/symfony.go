@@ -219,3 +219,32 @@ func SymfonyGetCurrentServiceIdFromArgument(node *tree_sitter.Node, docText stri
 
 	return attrValues["id"]
 }
+
+// <tag name="<caret>"/>
+func SymfonyServiceIsTagElement(node *tree_sitter.Node, docText string) bool {
+	if node.Kind() != "AttValue" {
+		return false
+	}
+
+	nameNode := GetFirstNodeOfKind(node.Parent(), "Name")
+
+	if nameNode == nil {
+		return false
+	}
+
+	if nameNode.Utf8Text([]byte(docText)) != "name" {
+		return false
+	}
+
+	elementNameNode := GetFirstNodeOfKind(node.Parent().Parent(), "Name")
+
+	if elementNameNode == nil {
+		return false
+	}
+
+	if elementNameNode.Utf8Text([]byte(docText)) != "tag" {
+		return false
+	}
+
+	return true
+}
