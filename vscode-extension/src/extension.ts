@@ -68,10 +68,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const clientOptions: LanguageClientOptions = {
       documentSelector: [
         { scheme: 'file', language: 'php' },
-        { scheme: 'file', language: 'xml' }
+        { scheme: 'file', language: 'xml' },
+        { scheme: 'file', language: 'twig' }
       ],
       synchronize: {
-        fileEvents: vscode.workspace.createFileSystemWatcher('**/*.{php,xml}')
+        fileEvents: vscode.workspace.createFileSystemWatcher('**/*.{php,xml,twig}')
       },
       // Add output configuration
       outputChannel: outputChannel,

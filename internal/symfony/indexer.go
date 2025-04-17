@@ -31,10 +31,11 @@ var (
 
 // ServiceIndex maintains an index of all service IDs from XML files
 type ServiceIndex struct {
-	projectRoot string
-	db          *bbolt.DB
-	dbPath      string
-	mu          sync.RWMutex
+	projectRoot      string
+	db               *bbolt.DB
+	dbPath           string
+	mu               sync.RWMutex
+	containerWatcher *ContainerWatcher
 }
 
 // NewServiceIndex creates a new service indexer for the given project root
@@ -98,6 +99,16 @@ func NewServiceIndex(projectRoot string, configDir string) (*ServiceIndex, error
 		projectRoot: projectRoot,
 		db:          db,
 		dbPath:      dbPath,
+	}
+
+	// Initialize the container watcher after the index is created
+	containerWatcher, err := NewContainerWatcher(projectRoot)
+	if err != nil {
+		log.Printf("Failed to initialize container watcher: %v", err)
+		// Continue without the container watcher
+	} else {
+		idx.containerWatcher = containerWatcher
+		log.Printf("Symfony container watcher initialized")
 	}
 
 	return idx, nil
@@ -690,27 +701,50 @@ func (idx *ServiceIndex) GetAllServices() []string {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
-	var serviceIDs []string
+	// Get services from database
+	var dbServiceIDs []string
 
 	_ = idx.db.View(func(tx *bbolt.Tx) error {
 		// Get service IDs
 		servicesBucket := tx.Bucket(servicesBucket)
-		_ = servicesBucket.ForEach(func(k, v []byte) error {
-			serviceIDs = append(serviceIDs, string(k))
-			return nil
-		})
+		if servicesBucket != nil {
+			_ = servicesBucket.ForEach(func(k, v []byte) error {
+				dbServiceIDs = append(dbServiceIDs, string(k))
+				return nil
+			})
+		}
 
 		// Get alias IDs
 		aliasesBucket := tx.Bucket(aliasesBucket)
-		_ = aliasesBucket.ForEach(func(k, v []byte) error {
-			serviceIDs = append(serviceIDs, string(k))
-			return nil
-		})
+		if aliasesBucket != nil {
+			_ = aliasesBucket.ForEach(func(k, v []byte) error {
+				dbServiceIDs = append(dbServiceIDs, string(k))
+				return nil
+			})
+		}
 
 		return nil
 	})
 
-	return serviceIDs
+	// If container watcher is available, add any services that aren't in the database
+	if idx.containerWatcher != nil && idx.containerWatcher.ContainerExists() {
+		cwServices := idx.containerWatcher.GetAllServices()
+		
+		// Create a map of existing database service IDs for quick lookup
+		dbServiceMap := make(map[string]struct{}, len(dbServiceIDs))
+		for _, id := range dbServiceIDs {
+			dbServiceMap[id] = struct{}{}
+		}
+		
+		// Add container watcher services that aren't in the database
+		for _, id := range cwServices {
+			if _, exists := dbServiceMap[id]; !exists {
+				dbServiceIDs = append(dbServiceIDs, id)
+			}
+		}
+	}
+
+	return dbServiceIDs
 }
 
 // GetServiceByID returns a specific service by its ID
@@ -718,12 +752,18 @@ func (idx *ServiceIndex) GetServiceByID(id string) (Service, bool) {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
+	// First check the database
 	var service Service
 	var found bool
 
+	// Use a read-only transaction
 	_ = idx.db.View(func(tx *bbolt.Tx) error {
 		// Check for direct service
 		servicesBucket := tx.Bucket(servicesBucket)
+		if servicesBucket == nil {
+			return errors.ErrBucketNotFound
+		}
+
 		serviceData := servicesBucket.Get([]byte(id))
 		if serviceData != nil {
 			if err := json.Unmarshal(serviceData, &service); err == nil {
@@ -734,6 +774,10 @@ func (idx *ServiceIndex) GetServiceByID(id string) (Service, bool) {
 
 		// Check if it's an alias and resolve it
 		aliasesBucket := tx.Bucket(aliasesBucket)
+		if aliasesBucket == nil {
+			return nil
+		}
+
 		aliasData := aliasesBucket.Get([]byte(id))
 		if aliasData != nil {
 			var alias ServiceAlias
@@ -752,24 +796,42 @@ func (idx *ServiceIndex) GetServiceByID(id string) (Service, bool) {
 		return nil
 	})
 
+	// If not found in database, fallback to container watcher
+	if !found && idx.containerWatcher != nil && idx.containerWatcher.ContainerExists() {
+		service, found = idx.containerWatcher.GetServiceByID(id)
+	}
+
 	return service, found
 }
 
 // Close shuts down the database and cleans up temporary files
 func (idx *ServiceIndex) Close() error {
-	if idx.db != nil {
-		err := idx.db.Close()
+	var err error
 
-		// If this is a temporary database (not in configDir), delete it
-		if strings.Contains(idx.dbPath, "symfony-test-") {
-			if err := os.Remove(idx.dbPath); err != nil {
-				return err
-			}
+	// Close the container watcher if it exists
+	if idx.containerWatcher != nil {
+		if watcherErr := idx.containerWatcher.Close(); watcherErr != nil {
+			log.Printf("Error closing container watcher: %v", watcherErr)
+			err = watcherErr
 		}
-
-		return err
+		idx.containerWatcher = nil
 	}
-	return nil
+
+	// Close the database
+	if idx.db != nil {
+		dbErr := idx.db.Close()
+		if dbErr != nil && err == nil {
+			err = dbErr
+		}
+		idx.db = nil
+
+		// If this was a temporary database, delete the file
+		if strings.Contains(idx.dbPath, "symfony-test") {
+			_ = os.Remove(idx.dbPath)
+		}
+	}
+
+	return err
 }
 
 func (idx *ServiceIndex) FileCreated(ctx context.Context, params *protocol.CreateFilesParams) error {
@@ -889,11 +951,15 @@ func (idx *ServiceIndex) GetAliasByID(id string) (ServiceAlias, bool) {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
+	// First check the database
 	var alias ServiceAlias
 	var found bool
 
 	_ = idx.db.View(func(tx *bbolt.Tx) error {
 		aliasesBucket := tx.Bucket(aliasesBucket)
+		if aliasesBucket == nil {
+			return nil
+		}
 		aliasData := aliasesBucket.Get([]byte(id))
 		if aliasData != nil {
 			if err := json.Unmarshal(aliasData, &alias); err == nil {
@@ -902,6 +968,11 @@ func (idx *ServiceIndex) GetAliasByID(id string) (ServiceAlias, bool) {
 		}
 		return nil
 	})
+
+	// If not found in database, fallback to container watcher
+	if !found && idx.containerWatcher != nil && idx.containerWatcher.ContainerExists() {
+		alias, found = idx.containerWatcher.GetAliasByID(id)
+	}
 
 	return alias, found
 }
@@ -932,11 +1003,15 @@ func (idx *ServiceIndex) GetParameterByName(name string) (Parameter, bool) {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
+	// First check the database
 	var parameter Parameter
 	var found bool
 
 	_ = idx.db.View(func(tx *bbolt.Tx) error {
 		parametersBucket := tx.Bucket(parametersBucket)
+		if parametersBucket == nil {
+			return nil
+		}
 		paramData := parametersBucket.Get([]byte(name))
 		if paramData != nil {
 			if err := json.Unmarshal(paramData, &parameter); err == nil {
@@ -945,6 +1020,11 @@ func (idx *ServiceIndex) GetParameterByName(name string) (Parameter, bool) {
 		}
 		return nil
 	})
+
+	// If not found in database, fallback to container watcher
+	if !found && idx.containerWatcher != nil && idx.containerWatcher.ContainerExists() {
+		parameter, found = idx.containerWatcher.GetParameterByName(name)
+	}
 
 	return parameter, found
 }

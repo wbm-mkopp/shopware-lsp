@@ -13,7 +13,8 @@
   ],
   "activationEvents": [
     "onLanguage:php",
-    "onLanguage:xml"
+    "onLanguage:xml",
+    "onLanguage:twig"
   ],
   "main": "./out/extension.js",
   "contributes": {
