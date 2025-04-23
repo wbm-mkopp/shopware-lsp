@@ -252,6 +252,8 @@ func (fs *FileScanner) IndexFiles(files []string) error {
 					}
 				}
 
+				tree.Close()
+
 				// Update the file hash
 				if err := fs.updateFileHash(path, content); err != nil {
 					errChan <- err
