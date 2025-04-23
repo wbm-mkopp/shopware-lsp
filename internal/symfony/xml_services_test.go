@@ -287,10 +287,10 @@ func TestParseXMLServices(t *testing.T) {
 			require.NoError(t, err, "ParseXMLServices failed")
 
 			// Check service count
-			assert.Len(t, serviceAmount, tc.expectedServices, "Expected %d services, got %d", tc.expectedServices, serviceAmount)
+			assert.Equal(t, tc.expectedServices, serviceAmount, "Expected %d services, got %d", tc.expectedServices, serviceAmount)
 
 			// Check alias count
-			assert.Len(t, aliasAmount, tc.expectedAliases, "Expected %d aliases, got %d", tc.expectedAliases, aliasAmount)
+			assert.Equal(t, tc.expectedAliases, aliasAmount, "Expected %d aliases, got %d", tc.expectedAliases, aliasAmount)
 
 			// Check parameter count
 			assert.Len(t, parameters, tc.expectedParameters, "Expected %d parameters, got %d", tc.expectedParameters, len(parameters))

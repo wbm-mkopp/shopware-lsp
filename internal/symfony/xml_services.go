@@ -192,7 +192,8 @@ func processServiceNode(node *tree_sitter.Node, data []byte, path string, conten
 	attrs := getXmlAttributeValues(startTag, data)
 	service.ID = attrs["id"]
 
-	if strings.Contains(service.ID, " ") {
+	// Skip processing if missing ID or ID contains spaces
+	if service.ID == "" || strings.Contains(service.ID, " ") {
 		return Service{}
 	}
 
@@ -201,11 +202,6 @@ func processServiceNode(node *tree_sitter.Node, data []byte, path string, conten
 	// If service has no class, use ID as class (Symfony default behavior)
 	if service.Class == "" {
 		service.Class = service.ID
-	}
-
-	// Skip processing if no ID (required for a valid service)
-	if service.ID == "" {
-		return service
 	}
 
 	// Fast line number calculation - just count newlines in the byte range
@@ -273,7 +269,7 @@ func processAliasNode(node *tree_sitter.Node, data []byte, path string, contentL
 
 	// Skip if missing required attributes
 	if alias.ID == "" || alias.AliasTarget == "" {
-		return alias
+		return Service{} // Return empty service if missing required attributes
 	}
 
 	// Fast line number calculation
