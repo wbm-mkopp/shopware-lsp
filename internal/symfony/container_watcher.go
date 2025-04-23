@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	tree_sitter_xml "github.com/tree-sitter-grammars/tree-sitter-xml/bindings/go"
+	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 // ContainerWatcher watches the Symfony container XML file and keeps services in memory
@@ -17,7 +19,6 @@ type ContainerWatcher struct {
 	containerPath   string
 	watcher         *fsnotify.Watcher
 	services        map[string]Service
-	aliases         map[string]ServiceAlias
 	parameters      map[string]Parameter
 	mu              sync.RWMutex
 	lastUpdated     time.Time
@@ -32,11 +33,10 @@ func NewContainerWatcher(projectRoot string) (*ContainerWatcher, error) {
 	}
 
 	cw := &ContainerWatcher{
-		projectRoot:  projectRoot,
-		watcher:      watcher,
-		services:     make(map[string]Service),
-		aliases:      make(map[string]ServiceAlias),
-		parameters:   make(map[string]Parameter),
+		projectRoot: projectRoot,
+		watcher:     watcher,
+		services:    make(map[string]Service),
+		parameters:  make(map[string]Parameter),
 	}
 
 	// Find and load the container file initially
@@ -56,11 +56,11 @@ func (cw *ContainerWatcher) findAndLoadContainer() error {
 	containerPath, err := cw.findContainerFile()
 	if err != nil {
 		cw.containerExists = false
-		
+
 		// Even if we can't find the container file, watch the var/cache directory
 		// for when it might be created later
 		cacheDir := filepath.Join(cw.projectRoot, "var", "cache")
-		
+
 		// Check if the cache directory exists
 		if _, err := os.Stat(cacheDir); err == nil {
 			// Watch the cache directory
@@ -69,7 +69,7 @@ func (cw *ContainerWatcher) findAndLoadContainer() error {
 			} else {
 				log.Printf("Watching cache directory for container file creation")
 			}
-			
+
 			// Also try to watch dev subdirectories if they exist
 			entries, err := os.ReadDir(cacheDir)
 			if err == nil {
@@ -85,7 +85,7 @@ func (cw *ContainerWatcher) findAndLoadContainer() error {
 				}
 			}
 		}
-		
+
 		return err
 	}
 
@@ -105,7 +105,7 @@ func (cw *ContainerWatcher) findAndLoadContainer() error {
 // findContainerFile searches for the Symfony container XML file
 func (cw *ContainerWatcher) findContainerFile() (string, error) {
 	cacheDir := filepath.Join(cw.projectRoot, "var", "cache")
-	
+
 	// Check if the cache directory exists
 	if _, err := os.Stat(cacheDir); os.IsNotExist(err) {
 		return "", err
@@ -113,7 +113,7 @@ func (cw *ContainerWatcher) findContainerFile() (string, error) {
 
 	// Pattern to match Shopware_Core_KernelDevDebugContainer.xml
 	pattern := filepath.Join(cacheDir, "dev*", "Shopware_Core_KernelDevDebugContainer.xml")
-	
+
 	// Find matching files
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
@@ -136,8 +136,13 @@ func (cw *ContainerWatcher) loadContainer() error {
 		return err
 	}
 
+	parser := tree_sitter.NewParser()
+	_ = parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_xml.LanguageXML()))
+
+	rootNode := parser.Parse(content, nil)
+
 	// Parse the XML
-	services, aliases, params, err := ParseXMLServices(content, cw.containerPath)
+	services, params, err := ParseXMLServices(cw.containerPath, rootNode.RootNode(), content)
 	if err != nil {
 		return err
 	}
@@ -148,7 +153,6 @@ func (cw *ContainerWatcher) loadContainer() error {
 
 	// Clear existing data
 	cw.services = make(map[string]Service, len(services))
-	cw.aliases = make(map[string]ServiceAlias, len(aliases))
 	cw.parameters = make(map[string]Parameter, len(params))
 
 	// Store the new data
@@ -156,17 +160,13 @@ func (cw *ContainerWatcher) loadContainer() error {
 		cw.services[service.ID] = service
 	}
 
-	for _, alias := range aliases {
-		cw.aliases[alias.ID] = alias
-	}
-
 	for _, param := range params {
 		cw.parameters[param.Name] = param
 	}
 
 	cw.lastUpdated = time.Now()
-	log.Printf("Loaded %d services, %d aliases, and %d parameters from container XML", 
-		len(services), len(aliases), len(params))
+	log.Printf("Loaded %d services and %d parameters from container XML",
+		len(services), len(params))
 
 	return nil
 }
@@ -213,14 +213,6 @@ func (cw *ContainerWatcher) GetServiceByID(id string) (Service, bool) {
 	return service, found
 }
 
-// GetAliasByID returns an alias by ID from memory
-func (cw *ContainerWatcher) GetAliasByID(id string) (ServiceAlias, bool) {
-	cw.mu.RLock()
-	defer cw.mu.RUnlock()
-	alias, found := cw.aliases[id]
-	return alias, found
-}
-
 // GetParameterByName returns a parameter by name from memory
 func (cw *ContainerWatcher) GetParameterByName(name string) (Parameter, bool) {
 	cw.mu.RLock()
@@ -233,7 +225,7 @@ func (cw *ContainerWatcher) GetParameterByName(name string) (Parameter, bool) {
 func (cw *ContainerWatcher) GetAllServices() []string {
 	cw.mu.RLock()
 	defer cw.mu.RUnlock()
-	
+
 	result := make([]string, 0, len(cw.services))
 	for id := range cw.services {
 		result = append(result, id)

@@ -1,18 +1,15 @@
 package symfony
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	tree_sitter_xml "github.com/tree-sitter-grammars/tree-sitter-xml/bindings/go"
+	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 func TestParseXMLServices(t *testing.T) {
-	// Create a temporary directory for test files
-	tempDir := t.TempDir()
-
 	// Test cases
 	testCases := []struct {
 		name               string
@@ -107,7 +104,7 @@ func TestParseXMLServices(t *testing.T) {
 			expectedServices:   2,
 			expectedAliases:    2,
 			expectedParameters: 0,
-			expectedTags:       map[string][]string{
+			expectedTags: map[string][]string{
 				"app.service1": {"app.tag1", "app.tag2"},
 				"app.service2": {"app.tag3"},
 			},
@@ -263,27 +260,38 @@ func TestParseXMLServices(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Create a temporary XML file
-			testFile := filepath.Join(tempDir, "test.xml")
-			err := os.WriteFile(testFile, []byte(tc.xmlContent), 0644)
-			require.NoError(t, err, "Failed to write test file")
+			parser := tree_sitter.NewParser()
+			_ = parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_xml.LanguageXML()))
+
+			rootNode := parser.Parse([]byte(tc.xmlContent), nil)
 
 			// Parse the XML file
-			services, aliases, parameters, err := ParseXMLServices(testFile)
-			
+			services, parameters, err := ParseXMLServices("test.xml", rootNode.RootNode(), []byte(tc.xmlContent))
+
 			if tc.expectError {
 				require.Error(t, err, "Expected ParseXMLServices to fail")
 				return
 			}
-			
+
+			serviceAmount := 0
+			aliasAmount := 0
+
+			for _, service := range services {
+				if service.AliasTarget != "" {
+					aliasAmount++
+				} else {
+					serviceAmount++
+				}
+			}
+
 			require.NoError(t, err, "ParseXMLServices failed")
 
 			// Check service count
-			assert.Len(t, services, tc.expectedServices, "Expected %d services, got %d", tc.expectedServices, len(services))
+			assert.Len(t, serviceAmount, tc.expectedServices, "Expected %d services, got %d", tc.expectedServices, serviceAmount)
 
 			// Check alias count
-			assert.Len(t, aliases, tc.expectedAliases, "Expected %d aliases, got %d", tc.expectedAliases, len(aliases))
-			
+			assert.Len(t, aliasAmount, tc.expectedAliases, "Expected %d aliases, got %d", tc.expectedAliases, aliasAmount)
+
 			// Check parameter count
 			assert.Len(t, parameters, tc.expectedParameters, "Expected %d parameters, got %d", tc.expectedParameters, len(parameters))
 
