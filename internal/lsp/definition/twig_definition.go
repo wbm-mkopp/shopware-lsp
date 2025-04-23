@@ -28,7 +28,7 @@ func (p *TwigDefinitionProvider) GetDefinition(ctx context.Context, params *prot
 	}
 
 	if treesitterhelper.IsTwigTag(params.Node, []byte(params.DocumentContent), "extends", "sw_extends", "include", "sw_include") {
-		itemValue := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
+		itemValue := twig.CleanupTemplatePath(treesitterhelper.GetNodeText(params.Node, params.DocumentContent))
 
 		files, _ := p.twigIndexer.GetTwigFilesByRelPath(itemValue)
 

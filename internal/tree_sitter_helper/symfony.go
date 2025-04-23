@@ -118,7 +118,7 @@ func SymfonyServiceIsArgumentTag(node *tree_sitter.Node, docText []byte) bool {
 }
 
 func GetNodeText(node *tree_sitter.Node, docText []byte) string {
-	return strings.Trim(node.Utf8Text(docText), "\"")
+	return strings.Trim(strings.Trim(node.Utf8Text(docText), "\""), "'")
 }
 
 // SymfonyServiceIsParameterReference checks if the node is inside a parameter reference (like %parameter.name%)

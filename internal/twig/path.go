@@ -28,3 +28,7 @@ func getBundleNameByPath(twigPath string) string {
 
 	return "unknown"
 }
+
+func CleanupTemplatePath(templatePath string) string {
+	return strings.TrimPrefix(templatePath, "@Storefront/")
+}
