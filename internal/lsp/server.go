@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shopware/shopware-lsp/internal/indexer"
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
 	"github.com/sourcegraph/jsonrpc2"
-	"golang.org/x/sync/errgroup"
 )
 
 // Server represents the LSP server
@@ -22,19 +22,21 @@ type Server struct {
 	completionProviders []CompletionProvider
 	definitionProviders []GotoDefinitionProvider
 	codeLensProviders   []CodeLensProvider
-	indexers            map[string]IndexerProvider
+	indexers            map[string]indexer.Indexer
 	indexerMu           sync.RWMutex
 	documentManager     *DocumentManager
+	FileScanner         *indexer.FileScanner
 }
 
 // NewServer creates a new LSP server
-func NewServer() *Server {
+func NewServer(filescanner *indexer.FileScanner) *Server {
 	return &Server{
 		completionProviders: make([]CompletionProvider, 0),
 		definitionProviders: make([]GotoDefinitionProvider, 0),
 		codeLensProviders:   make([]CodeLensProvider, 0),
-		indexers:            make(map[string]IndexerProvider),
+		indexers:            make(map[string]indexer.Indexer),
 		documentManager:     NewDocumentManager(),
+		FileScanner:         filescanner,
 	}
 }
 
@@ -54,83 +56,57 @@ func (s *Server) RegisterCodeLensProvider(provider CodeLensProvider) {
 }
 
 // RegisterIndexer adds an indexer to the registry
-func (s *Server) RegisterIndexer(indexer IndexerProvider, err error) {
+func (s *Server) RegisterIndexer(indexer indexer.Indexer, err error) {
 	s.indexerMu.Lock()
 	defer s.indexerMu.Unlock()
 	s.indexers[indexer.ID()] = indexer
 }
 
 // GetIndexer retrieves an indexer by ID
-func (s *Server) GetIndexer(id string) (IndexerProvider, bool) {
+func (s *Server) GetIndexer(id string) (indexer.Indexer, bool) {
 	s.indexerMu.RLock()
 	defer s.indexerMu.RUnlock()
 	indexer, ok := s.indexers[id]
 	return indexer, ok
 }
 
-// GetAllIndexers returns all registered indexers
-func (s *Server) GetAllIndexers() []IndexerProvider {
-	s.indexerMu.RLock()
-	defer s.indexerMu.RUnlock()
-
-	indexers := make([]IndexerProvider, 0, len(s.indexers))
-	for _, indexer := range s.indexers {
-		indexers = append(indexers, indexer)
-	}
-	return indexers
-}
-
-// IndexAll builds or updates all registered indexes
+// indexAll builds or updates all registered indexes
 // If forceReindex is true, it will clear the existing index before rebuilding
-func (s *Server) IndexAll(forceReindex bool) error {
+func (s *Server) indexAll(ctx context.Context, forceReindex bool) error {
 	startTime := time.Now()
 
 	// Send notification that indexing has started
 	if s.conn != nil {
-		if err := s.conn.Notify(context.Background(), "shopware/indexingStarted", map[string]interface{}{
+		if err := s.conn.Notify(ctx, "shopware/indexingStarted", map[string]interface{}{
 			"message": "Indexing started",
 		}); err != nil {
 			return err
 		}
 	}
 
-	s.indexerMu.RLock()
-	indexers := make([]IndexerProvider, 0, len(s.indexers))
-
-	// Create a slice of indexers to avoid holding the lock during indexing
-	for _, indexer := range s.indexers {
-		indexers = append(indexers, indexer)
-	}
-	s.indexerMu.RUnlock()
-
-	// Use errgroup to run indexers in parallel
-	eg := errgroup.Group{}
-
-	// Now launch goroutines with proper variable scoping
-	for i := range indexers {
-		indexer := indexers[i] // Create a new variable in this scope
-		eg.Go(func() error {
-			return indexer.Index(forceReindex)
-		})
+	if forceReindex {
+		if err := s.FileScanner.ClearHashes(); err != nil {
+			return err
+		}
 	}
 
-	// Wait for all indexers to complete
-	err := eg.Wait()
+	if err := s.FileScanner.IndexAll(); err != nil {
+		return err
+	}
 
 	elapsedTime := time.Since(startTime)
 
 	// Send notification that indexing has completed
 	if s.conn != nil {
-		if err := s.conn.Notify(context.Background(), "shopware/indexingCompleted", map[string]interface{}{
+		if err := s.conn.Notify(ctx, "shopware/indexingCompleted", map[string]interface{}{
 			"message":       "Indexing completed",
-			"error":         err != nil,
 			"timeInSeconds": elapsedTime.Seconds(),
 		}); err != nil {
 			return err
 		}
 	}
 
-	return err
+	return nil
 }
 
 // CloseAll closes all registered indexers and resources
@@ -197,7 +173,7 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 		// Build the index when the client is initialized
 		go func() {
 			// Index all registered indexers
-			if err := s.IndexAll(false); err != nil {
+			if err := s.indexAll(ctx, false); err != nil {
 				log.Printf("Error indexing: %v", err)
 			}
 		}()
@@ -278,7 +254,7 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 	case "shopware/forceReindex":
 		// Force reindex all indexers
 		go func() {
-			if err := s.IndexAll(true); err != nil {
+			if err := s.indexAll(ctx, true); err != nil {
 				log.Printf("Error force reindexing: %v", err)
 			}
 		}()
@@ -300,7 +276,12 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 		if err := json.Unmarshal(*req.Params, &params); err != nil {
 			return nil, err
 		}
-		s.handleFileCreation(ctx, &params)
+
+		files := make([]string, len(params.Files))
+		for i, file := range params.Files {
+			files[i] = file.URI
+		}
+		s.FileScanner.IndexFiles(files)
 		return nil, nil
 
 	case "workspace/didRenameFiles":
@@ -308,7 +289,21 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 		if err := json.Unmarshal(*req.Params, &params); err != nil {
 			return nil, err
 		}
-		s.handleFileRename(ctx, &params)
+
+		oldFiles := make([]string, len(params.Files))
+		newFiles := make([]string, len(params.Files))
+		for i, file := range params.Files {
+			oldFiles[i] = file.OldURI
+			newFiles[i] = file.NewURI
+		}
+
+		if err := s.FileScanner.IndexFiles(newFiles); err != nil {
+			log.Printf("Error indexing new files: %v", err)
+		}
+		if err := s.FileScanner.RemoveFiles(oldFiles); err != nil {
+			log.Printf("Error removing old files: %v", err)
+		}
+
 		return nil, nil
 
 	case "workspace/didDeleteFiles":
@@ -316,7 +311,12 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 		if err := json.Unmarshal(*req.Params, &params); err != nil {
 			return nil, err
 		}
-		s.handleFileDeletion(ctx, &params)
+
+		files := make([]string, len(params.Files))
+		for i, file := range params.Files {
+			files[i] = file.URI
+		}
+		s.FileScanner.RemoveFiles(files)
 		return nil, nil
 
 	case "workspace/didChangeWatchedFiles":
@@ -341,10 +341,22 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 		}
 
 		if createFiles.Files != nil {
-			s.handleFileCreation(ctx, createFiles)
+			files := make([]string, len(createFiles.Files))
+			for i, file := range createFiles.Files {
+				files[i] = file.URI
+			}
+			if err := s.FileScanner.IndexFiles(files); err != nil {
+				log.Printf("Error indexing new files: %v", err)
+			}
 		}
 		if deleteFiles.Files != nil {
-			s.handleFileDeletion(ctx, deleteFiles)
+			files := make([]string, len(deleteFiles.Files))
+			for i, file := range deleteFiles.Files {
+				files[i] = file.URI
+			}
+			if err := s.FileScanner.RemoveFiles(files); err != nil {
+				log.Printf("Error removing old files: %v", err)
+			}
 		}
 
 		return nil, nil
@@ -477,37 +489,4 @@ func (s *Server) collectTriggerCharacters() []string {
 
 func (s *Server) DocumentManager() *DocumentManager {
 	return s.documentManager
-}
-
-// handleFileCreation handles workspace/didCreateFiles notifications
-func (s *Server) handleFileCreation(ctx context.Context, params *protocol.CreateFilesParams) {
-	for _, indexer := range s.indexers {
-		go func(idx IndexerProvider) {
-			if err := idx.FileCreated(ctx, params); err != nil {
-				log.Printf("Error handling file creation: %v", err)
-			}
-		}(indexer)
-	}
-}
-
-// handleFileRename handles workspace/didRenameFiles notifications
-func (s *Server) handleFileRename(ctx context.Context, params *protocol.RenameFilesParams) {
-	for _, indexer := range s.indexers {
-		go func(idx IndexerProvider) {
-			if err := idx.FileRenamed(ctx, params); err != nil {
-				log.Printf("Error handling file rename: %v", err)
-			}
-		}(indexer)
-	}
-}
-
-// handleFileDeletion handles workspace/didDeleteFiles notifications
-func (s *Server) handleFileDeletion(ctx context.Context, params *protocol.DeleteFilesParams) {
-	for _, indexer := range s.indexers {
-		go func(idx IndexerProvider) {
-			if err := idx.FileDeleted(ctx, params); err != nil {
-				log.Printf("Error handling file deletion: %v", err)
-			}
-		}(indexer)
-	}
 }

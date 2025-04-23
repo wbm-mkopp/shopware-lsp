@@ -33,7 +33,6 @@ var (
 type ServiceIndex struct {
 	projectRoot      string
 	db               *bbolt.DB
-	dbPath           string
 	mu               sync.RWMutex
 	containerWatcher *ContainerWatcher
 }
@@ -47,22 +46,6 @@ func NewServiceIndex(projectRoot string, configDir string) (*ServiceIndex, error
 		Timeout:      1,
 		NoSync:       true,
 		FreelistType: bbolt.FreelistMapType,
-	}
-
-	// For tests, we can use an in-memory database
-	if configDir == "" {
-		// Use a temporary file for testing
-		tempFile, err := os.CreateTemp("", "symfony-test-*.db")
-		if err != nil {
-			return nil, fmt.Errorf("failed to create temp db file: %w", err)
-		}
-		dbPath = tempFile.Name()
-		if err := tempFile.Close(); err != nil {
-			return nil, fmt.Errorf("failed to close temp db file: %w", err)
-		}
-
-		// Make sure it's deleted when the program exits
-		options.Timeout = 1
 	}
 
 	db, err := bbolt.Open(dbPath, 0600, options)
@@ -98,7 +81,6 @@ func NewServiceIndex(projectRoot string, configDir string) (*ServiceIndex, error
 	idx := &ServiceIndex{
 		projectRoot: projectRoot,
 		db:          db,
-		dbPath:      dbPath,
 	}
 
 	// Initialize the container watcher after the index is created
@@ -116,10 +98,6 @@ func NewServiceIndex(projectRoot string, configDir string) (*ServiceIndex, error
 
 func (idx *ServiceIndex) ID() string {
 	return "symfony.service"
-}
-
-func (idx *ServiceIndex) Name() string {
-	return "Symfony Service Indexer"
 }
 
 // Index scans the project for XML files and builds the service index
@@ -729,13 +707,13 @@ func (idx *ServiceIndex) GetAllServices() []string {
 	// If container watcher is available, add any services that aren't in the database
 	if idx.containerWatcher != nil && idx.containerWatcher.ContainerExists() {
 		cwServices := idx.containerWatcher.GetAllServices()
-		
+
 		// Create a map of existing database service IDs for quick lookup
 		dbServiceMap := make(map[string]struct{}, len(dbServiceIDs))
 		for _, id := range dbServiceIDs {
 			dbServiceMap[id] = struct{}{}
 		}
-		
+
 		// Add container watcher services that aren't in the database
 		for _, id := range cwServices {
 			if _, exists := dbServiceMap[id]; !exists {
@@ -824,11 +802,6 @@ func (idx *ServiceIndex) Close() error {
 			err = dbErr
 		}
 		idx.db = nil
-
-		// If this was a temporary database, delete the file
-		if strings.Contains(idx.dbPath, "symfony-test") {
-			_ = os.Remove(idx.dbPath)
-		}
 	}
 
 	return err
