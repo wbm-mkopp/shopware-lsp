@@ -16,18 +16,18 @@ var scannedFileTypes = []string{
 func createTreesitterParsers() map[string]*tree_sitter.Parser {
 	parsers := make(map[string]*tree_sitter.Parser)
 
-	parsers["php"] = tree_sitter.NewParser()
-	if err := parsers["php"].SetLanguage(tree_sitter.NewLanguage(tree_sitter_php.LanguagePHP())); err != nil {
+	parsers[".php"] = tree_sitter.NewParser()
+	if err := parsers[".php"].SetLanguage(tree_sitter.NewLanguage(tree_sitter_php.LanguagePHP())); err != nil {
 		panic(err)
 	}
 
-	parsers["xml"] = tree_sitter.NewParser()
-	if err := parsers["xml"].SetLanguage(tree_sitter.NewLanguage(tree_sitter_xml.LanguageXML())); err != nil {
+	parsers[".xml"] = tree_sitter.NewParser()
+	if err := parsers[".xml"].SetLanguage(tree_sitter.NewLanguage(tree_sitter_xml.LanguageXML())); err != nil {
 		panic(err)
 	}
 
-	parsers["twig"] = tree_sitter.NewParser()
-	if err := parsers["twig"].SetLanguage(tree_sitter.NewLanguage(tree_sitter_twig.Language())); err != nil {
+	parsers[".twig"] = tree_sitter.NewParser()
+	if err := parsers[".twig"].SetLanguage(tree_sitter.NewLanguage(tree_sitter_twig.Language())); err != nil {
 		panic(err)
 	}
 

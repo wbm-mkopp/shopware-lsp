@@ -25,7 +25,7 @@ type Server struct {
 	indexers            map[string]indexer.Indexer
 	indexerMu           sync.RWMutex
 	documentManager     *DocumentManager
-	FileScanner         *indexer.FileScanner
+	fileScanner         *indexer.FileScanner
 }
 
 // NewServer creates a new LSP server
@@ -36,7 +36,7 @@ func NewServer(filescanner *indexer.FileScanner) *Server {
 		codeLensProviders:   make([]CodeLensProvider, 0),
 		indexers:            make(map[string]indexer.Indexer),
 		documentManager:     NewDocumentManager(),
-		FileScanner:         filescanner,
+		fileScanner:         filescanner,
 	}
 }
 
@@ -60,6 +60,7 @@ func (s *Server) RegisterIndexer(indexer indexer.Indexer, err error) {
 	s.indexerMu.Lock()
 	defer s.indexerMu.Unlock()
 	s.indexers[indexer.ID()] = indexer
+	s.fileScanner.AddIndexer(indexer)
 }
 
 // GetIndexer retrieves an indexer by ID
@@ -85,12 +86,12 @@ func (s *Server) indexAll(ctx context.Context, forceReindex bool) error {
 	}
 
 	if forceReindex {
-		if err := s.FileScanner.ClearHashes(); err != nil {
+		if err := s.fileScanner.ClearHashes(); err != nil {
 			return err
 		}
 	}
 
-	if err := s.FileScanner.IndexAll(); err != nil {
+	if err := s.fileScanner.IndexAll(ctx); err != nil {
 		return err
 	}
 
@@ -279,9 +280,9 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 
 		files := make([]string, len(params.Files))
 		for i, file := range params.Files {
-			files[i] = file.URI
+			files[i] = strings.TrimPrefix(file.URI, "file://")
 		}
-		if err := s.FileScanner.IndexFiles(files); err != nil {
+		if err := s.fileScanner.IndexFiles(ctx, files); err != nil {
 			log.Printf("Error indexing new files: %v", err)
 		}
 		return nil, nil
@@ -295,14 +296,14 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 		oldFiles := make([]string, len(params.Files))
 		newFiles := make([]string, len(params.Files))
 		for i, file := range params.Files {
-			oldFiles[i] = file.OldURI
-			newFiles[i] = file.NewURI
+			oldFiles[i] = strings.TrimPrefix(file.OldURI, "file://")
+			newFiles[i] = strings.TrimPrefix(file.NewURI, "file://")
 		}
 
-		if err := s.FileScanner.IndexFiles(newFiles); err != nil {
+		if err := s.fileScanner.IndexFiles(ctx, newFiles); err != nil {
 			log.Printf("Error indexing new files: %v", err)
 		}
-		if err := s.FileScanner.RemoveFiles(oldFiles); err != nil {
+		if err := s.fileScanner.RemoveFiles(ctx, oldFiles); err != nil {
 			log.Printf("Error removing old files: %v", err)
 		}
 
@@ -316,9 +317,9 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 
 		files := make([]string, len(params.Files))
 		for i, file := range params.Files {
-			files[i] = file.URI
+			files[i] = strings.TrimPrefix(file.URI, "file://")
 		}
-		if err := s.FileScanner.RemoveFiles(files); err != nil {
+		if err := s.fileScanner.RemoveFiles(ctx, files); err != nil {
 			log.Printf("Error removing old files: %v", err)
 		}
 		return nil, nil
@@ -329,36 +330,29 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 			return nil, err
 		}
 
-		createFiles := &protocol.CreateFilesParams{}
-		deleteFiles := &protocol.DeleteFilesParams{}
+		createFiles := []string{}
+		deleteFiles := []string{}
 
 		// Handle file change events
 		for _, change := range params.Changes {
 			switch change.Type {
 			case int(protocol.FileCreated):
-				createFiles.Files = append(createFiles.Files, protocol.FileCreate{URI: change.URI})
+				createFiles = append(createFiles, strings.TrimPrefix(change.URI, "file://"))
 			case int(protocol.FileChanged):
-				createFiles.Files = append(createFiles.Files, protocol.FileCreate{URI: change.URI})
+				createFiles = append(createFiles, strings.TrimPrefix(change.URI, "file://"))
 			case int(protocol.FileDeleted):
-				deleteFiles.Files = append(deleteFiles.Files, protocol.FileDelete{URI: change.URI})
+				deleteFiles = append(deleteFiles, strings.TrimPrefix(change.URI, "file://"))
 			}
 		}
 
-		if createFiles.Files != nil {
-			files := make([]string, len(createFiles.Files))
-			for i, file := range createFiles.Files {
-				files[i] = file.URI
-			}
-			if err := s.FileScanner.IndexFiles(files); err != nil {
+		if len(createFiles) > 0 {
+			if err := s.fileScanner.IndexFiles(ctx, createFiles); err != nil {
 				log.Printf("Error indexing new files: %v", err)
 			}
 		}
-		if deleteFiles.Files != nil {
-			files := make([]string, len(deleteFiles.Files))
-			for i, file := range deleteFiles.Files {
-				files[i] = file.URI
-			}
-			if err := s.FileScanner.RemoveFiles(files); err != nil {
+
+		if len(deleteFiles) > 0 {
+			if err := s.fileScanner.RemoveFiles(ctx, deleteFiles); err != nil {
 				log.Printf("Error removing old files: %v", err)
 			}
 		}

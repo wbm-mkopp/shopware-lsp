@@ -64,15 +64,15 @@ func (idx *ServiceIndex) Index(path string, node *tree_sitter.Node, fileContent 
 	parameterWrite := make(map[string]map[string]Parameter)
 
 	for _, service := range services {
-		if _, ok := serviceWrite[service.ID]; !ok {
-			serviceWrite[service.ID] = make(map[string]Service)
+		if _, ok := serviceWrite[service.Path]; !ok {
+			serviceWrite[service.Path] = make(map[string]Service)
 		}
 		serviceWrite[service.Path][service.ID] = service
 	}
 
 	for _, param := range params {
-		if _, ok := parameterWrite[param.Name]; !ok {
-			parameterWrite[param.Name] = make(map[string]Parameter)
+		if _, ok := parameterWrite[param.Path]; !ok {
+			parameterWrite[param.Path] = make(map[string]Parameter)
 		}
 		parameterWrite[param.Path][param.Name] = param
 	}
@@ -180,12 +180,12 @@ func (idx *ServiceIndex) GetAllTags() []string {
 
 	tagMap := make(map[string]struct{})
 	for _, value := range values {
-		for _, tag := range value.Tags {
+		for tag, _ := range value.Tags {
 			tagMap[tag] = struct{}{}
 		}
 	}
 
-	tags := make([]string, 0, len(tagMap))
+	tags := make([]string, 0)
 	for tag := range tagMap {
 		tags = append(tags, tag)
 	}
@@ -204,7 +204,7 @@ func (idx *ServiceIndex) GetServicesByTag(tagName string) []string {
 
 	services := make([]string, 0, len(values))
 	for _, value := range values {
-		for _, tag := range value.Tags {
+		for tag := range value.Tags {
 			if tag == tagName {
 				services = append(services, value.ID)
 			}

@@ -135,6 +135,10 @@ func (idx *PHPIndex) GetClass(className string) *PHPClass {
 		return nil
 	}
 
+	if len(values) == 0 {
+		return nil
+	}
+
 	return &values[0]
 }
 

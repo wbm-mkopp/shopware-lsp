@@ -1,6 +1,7 @@
 package indexer
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"log"
@@ -91,7 +92,7 @@ func (fs *FileScanner) Close() error {
 	return nil
 }
 
-func (fs *FileScanner) IndexAll() error {
+func (fs *FileScanner) IndexAll(ctx context.Context) error {
 	var files []string
 
 	err := filepath.Walk(fs.projectRoot, func(path string, info os.FileInfo, err error) error {
@@ -124,7 +125,7 @@ func (fs *FileScanner) IndexAll() error {
 		return fmt.Errorf("failed to walk project directory: %w", err)
 	}
 
-	return fs.IndexFiles(files)
+	return fs.IndexFiles(ctx, files)
 }
 
 // fileNeedsIndexing checks if a file needs to be indexed
@@ -165,7 +166,7 @@ func (fs *FileScanner) fileNeedsIndexing(path string) (bool, []byte, error) {
 }
 
 // RemoveFile removes a file from the index
-func (fs *FileScanner) RemoveFiles(paths []string) error {
+func (fs *FileScanner) RemoveFiles(ctx context.Context, paths []string) error {
 	for _, indexer := range fs.indexer {
 		if err := indexer.RemovedFiles(paths); err != nil {
 			return err
@@ -196,9 +197,14 @@ func (fs *FileScanner) updateFileHash(path string, content []byte) error {
 }
 
 // IndexFiles processes multiple files in parallel
-func (fs *FileScanner) IndexFiles(files []string) error {
+func (fs *FileScanner) IndexFiles(ctx context.Context, files []string) error {
 	if len(files) == 0 {
 		return nil
+	}
+
+	// Remove current entries from the database
+	if err := fs.RemoveFiles(ctx, files); err != nil {
+		return err
 	}
 
 	// Determine the number of worker goroutines to use

@@ -64,7 +64,7 @@ func (p *serviceXMLDefinitionProvider) GetDefinition(ctx context.Context, params
 	}
 
 	// <argument type="tagged" tag="x"/>
-	if treesitterhelper.SymfonyServiceIsArgumentTag(params.Node, params.DocumentContent) {
+	if treesitterhelper.SymfonyServiceIsArgumentTag(params.Node, params.DocumentContent) || treesitterhelper.SymfonyServiceIsTagElement(params.Node, params.DocumentContent) {
 		serviceID := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
 		if serviceID == "" {
 			return []protocol.Location{}
