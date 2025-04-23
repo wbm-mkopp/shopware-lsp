@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"sort"
 
 	"github.com/shopware/shopware-lsp/internal/indexer"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
@@ -172,22 +173,65 @@ func (idx *ServiceIndex) Close() error {
 
 // GetAllTags returns all tag names in the index
 func (idx *ServiceIndex) GetAllTags() []string {
-	panic("not implemented")
+	values, err := idx.serviceIndex.GetAllValues()
+	if err != nil {
+		panic(err)
+	}
+
+	tagMap := make(map[string]struct{})
+	for _, value := range values {
+		for _, tag := range value.Tags {
+			tagMap[tag] = struct{}{}
+		}
+	}
+
+	tags := make([]string, 0, len(tagMap))
+	for tag := range tagMap {
+		tags = append(tags, tag)
+	}
+
+	sort.Strings(tags)
+
+	return tags
 }
 
 // GetServicesByTag returns all service IDs that have the specified tag
 func (idx *ServiceIndex) GetServicesByTag(tagName string) []string {
-	panic("not implemented")
+	values, err := idx.serviceIndex.GetAllValues()
+	if err != nil {
+		panic(err)
+	}
+
+	services := make([]string, 0, len(values))
+	for _, value := range values {
+		for _, tag := range value.Tags {
+			if tag == tagName {
+				services = append(services, value.ID)
+			}
+		}
+	}
+
+	return services
 }
 
 // GetAllParameters returns all parameter names in the index
 func (idx *ServiceIndex) GetAllParameters() []Parameter {
-	panic("not implemented")
+	values, err := idx.parameterIndex.GetAllValues()
+	if err != nil {
+		panic(err)
+	}
+
+	return values
 }
 
 // GetParameterByName returns a specific parameter value by its name
 func (idx *ServiceIndex) GetParameterByName(name string) (Parameter, bool) {
-	panic("not implemented")
+	values, err := idx.parameterIndex.GetValues(name)
+	if err != nil {
+		panic(err)
+	}
+
+	return values[0], true
 }
 
 type Location struct {
@@ -196,5 +240,18 @@ type Location struct {
 }
 
 func (idx *ServiceIndex) GetServicesUsageByClassName(className string) []Location {
-	panic("not implemented")
+	values, err := idx.serviceIndex.GetAllValues()
+	if err != nil {
+		panic(err)
+	}
+
+	locations := make([]Location, 0)
+
+	for _, value := range values {
+		if value.Class == className {
+			locations = append(locations, Location{Path: value.Path, Line: value.Line})
+		}
+	}
+
+	return locations
 }
