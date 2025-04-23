@@ -3,10 +3,8 @@ package symfony
 import (
 	"bytes"
 	"strings"
-	"sync"
 
 	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
-	tree_sitter_xml "github.com/tree-sitter-grammars/tree-sitter-xml/bindings/go"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
@@ -26,15 +24,6 @@ type Parameter struct {
 	Value string // Parameter value
 	Path  string // Source file path
 	Line  int    // Line number in source file
-}
-
-// xmlParserPool is a pool of reusable XML parsers
-var xmlParserPool = sync.Pool{
-	New: func() interface{} {
-		parser := tree_sitter.NewParser()
-		_ = parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_xml.LanguageXML()))
-		return parser
-	},
 }
 
 // ParseXMLServices parses Symfony XML service definitions and returns a list of services, aliases, and parameters.

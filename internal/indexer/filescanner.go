@@ -257,6 +257,8 @@ func (fs *FileScanner) IndexFiles(files []string) error {
 					errChan <- err
 				}
 			}
+
+			closeTreesitterParsers(parsers)
 		}()
 	}
 

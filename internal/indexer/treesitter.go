@@ -17,13 +17,25 @@ func createTreesitterParsers() map[string]*tree_sitter.Parser {
 	parsers := make(map[string]*tree_sitter.Parser)
 
 	parsers["php"] = tree_sitter.NewParser()
-	parsers["php"].SetLanguage(tree_sitter.NewLanguage(tree_sitter_php.LanguagePHP()))
+	if err := parsers["php"].SetLanguage(tree_sitter.NewLanguage(tree_sitter_php.LanguagePHP())); err != nil {
+		panic(err)
+	}
 
 	parsers["xml"] = tree_sitter.NewParser()
-	parsers["xml"].SetLanguage(tree_sitter.NewLanguage(tree_sitter_xml.LanguageXML()))
+	if err := parsers["xml"].SetLanguage(tree_sitter.NewLanguage(tree_sitter_xml.LanguageXML())); err != nil {
+		panic(err)
+	}
 
 	parsers["twig"] = tree_sitter.NewParser()
-	parsers["twig"].SetLanguage(tree_sitter.NewLanguage(tree_sitter_twig.Language()))
+	if err := parsers["twig"].SetLanguage(tree_sitter.NewLanguage(tree_sitter_twig.Language())); err != nil {
+		panic(err)
+	}
 
 	return parsers
+}
+
+func closeTreesitterParsers(parsers map[string]*tree_sitter.Parser) {
+	for _, parser := range parsers {
+		parser.Close()
+	}
 }

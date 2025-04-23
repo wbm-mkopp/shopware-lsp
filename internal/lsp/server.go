@@ -281,7 +281,9 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 		for i, file := range params.Files {
 			files[i] = file.URI
 		}
-		s.FileScanner.IndexFiles(files)
+		if err := s.FileScanner.IndexFiles(files); err != nil {
+			log.Printf("Error indexing new files: %v", err)
+		}
 		return nil, nil
 
 	case "workspace/didRenameFiles":
@@ -316,7 +318,9 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 		for i, file := range params.Files {
 			files[i] = file.URI
 		}
-		s.FileScanner.RemoveFiles(files)
+		if err := s.FileScanner.RemoveFiles(files); err != nil {
+			log.Printf("Error removing old files: %v", err)
+		}
 		return nil, nil
 
 	case "workspace/didChangeWatchedFiles":
