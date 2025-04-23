@@ -34,7 +34,7 @@ func (p *TwigCodeLensProvider) GetCodeLenses(ctx context.Context, params *protoc
 		return []protocol.CodeLens{}
 	}
 
-	twigFile, _ := twig.ParseTwig(strings.TrimPrefix(params.TextDocument.URI, "file://"), document.Tree.RootNode(), []byte(document.Text))
+	twigFile, _ := twig.ParseTwig(strings.TrimPrefix(params.TextDocument.URI, "file://"), document.Tree.RootNode(), document.Text)
 
 	if twigFile == nil {
 		return []protocol.CodeLens{}

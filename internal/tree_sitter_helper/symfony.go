@@ -7,7 +7,7 @@ import (
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
-func SymfonyServiceIsServiceId(node *tree_sitter.Node, docText string) bool {
+func SymfonyServiceIsServiceId(node *tree_sitter.Node, docText []byte) bool {
 	if node.Kind() == "AttValue" && node.Parent() != nil && node.Parent().Kind() == "Attribute" {
 		attrNode := node.Parent()
 
@@ -28,14 +28,14 @@ func SymfonyServiceIsServiceId(node *tree_sitter.Node, docText string) bool {
 			return false
 		}
 
-		tagNameText := tagName.Utf8Text([]byte(docText))
+		tagNameText := tagName.Utf8Text(docText)
 		return tagNameText == "service"
 	}
 
 	return false
 }
 
-func SymfonyServiceIsServiceTag(node *tree_sitter.Node, docText string) bool {
+func SymfonyServiceIsServiceTag(node *tree_sitter.Node, docText []byte) bool {
 	if node.Kind() == "AttValue" && node.Parent() != nil && node.Parent().Kind() == "Attribute" {
 		attrNode := node.Parent()
 
@@ -45,7 +45,7 @@ func SymfonyServiceIsServiceTag(node *tree_sitter.Node, docText string) bool {
 			return false
 		}
 
-		attrName := nameNode.Utf8Text([]byte(docText))
+		attrName := nameNode.Utf8Text(docText)
 		if attrName != "id" {
 			return false
 		}
@@ -68,7 +68,7 @@ func SymfonyServiceIsServiceTag(node *tree_sitter.Node, docText string) bool {
 			return false
 		}
 
-		elementName := elementNameNode.Utf8Text([]byte(docText))
+		elementName := elementNameNode.Utf8Text(docText)
 		return elementName == "argument"
 	}
 
@@ -77,7 +77,7 @@ func SymfonyServiceIsServiceTag(node *tree_sitter.Node, docText string) bool {
 
 var possibleTaggedTypes = []string{"tagged_iterator", "tagged_locator", "tagged"}
 
-func SymfonyServiceIsArgumentTag(node *tree_sitter.Node, docText string) bool {
+func SymfonyServiceIsArgumentTag(node *tree_sitter.Node, docText []byte) bool {
 	if node.Kind() == "AttValue" && node.Parent() != nil && node.Parent().Kind() == "Attribute" {
 		attrNode := node.Parent()
 
@@ -117,12 +117,12 @@ func SymfonyServiceIsArgumentTag(node *tree_sitter.Node, docText string) bool {
 	return false
 }
 
-func GetNodeText(node *tree_sitter.Node, docText string) string {
-	return strings.Trim(node.Utf8Text([]byte(docText)), "\"")
+func GetNodeText(node *tree_sitter.Node, docText []byte) string {
+	return strings.Trim(node.Utf8Text(docText), "\"")
 }
 
 // SymfonyServiceIsParameterReference checks if the node is inside a parameter reference (like %parameter.name%)
-func SymfonyServiceIsParameterReference(node *tree_sitter.Node, docText string) bool {
+func SymfonyServiceIsParameterReference(node *tree_sitter.Node, docText []byte) bool {
 	if node.Kind() == "ETag" {
 		parentNode := node.Parent()
 
@@ -153,7 +153,7 @@ func SymfonyServiceIsParameterReference(node *tree_sitter.Node, docText string) 
 			return false
 		}
 
-		nodeText := charTag.Utf8Text([]byte(docText))
+		nodeText := charTag.Utf8Text(docText)
 
 		return strings.Contains(nodeText, "%") && (!strings.HasPrefix(nodeText, "%") || len(nodeText) == 1)
 	}
@@ -184,7 +184,7 @@ func SymfonyServiceIsParameterReference(node *tree_sitter.Node, docText string) 
 	return false
 }
 
-func SymfonyGetCurrentServiceIdFromArgument(node *tree_sitter.Node, docText string) string {
+func SymfonyGetCurrentServiceIdFromArgument(node *tree_sitter.Node, docText []byte) string {
 	argumentNode := node.Parent().Parent()
 
 	if argumentNode == nil {
@@ -208,7 +208,7 @@ func SymfonyGetCurrentServiceIdFromArgument(node *tree_sitter.Node, docText stri
 		return ""
 	}
 
-	if elementNameNode.Utf8Text([]byte(docText)) != "service" {
+	if elementNameNode.Utf8Text(docText) != "service" {
 		return ""
 	}
 
@@ -221,7 +221,7 @@ func SymfonyGetCurrentServiceIdFromArgument(node *tree_sitter.Node, docText stri
 }
 
 // <tag name="<caret>"/>
-func SymfonyServiceIsTagElement(node *tree_sitter.Node, docText string) bool {
+func SymfonyServiceIsTagElement(node *tree_sitter.Node, docText []byte) bool {
 	if node.Kind() != "AttValue" {
 		return false
 	}
@@ -242,7 +242,7 @@ func SymfonyServiceIsTagElement(node *tree_sitter.Node, docText string) bool {
 		return false
 	}
 
-	if elementNameNode.Utf8Text([]byte(docText)) != "tag" {
+	if elementNameNode.Utf8Text(docText) != "tag" {
 		return false
 	}
 

@@ -6,14 +6,13 @@ import (
 	"sync"
 
 	"github.com/shopware/shopware-lsp/internal/indexer"
-	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 // TextDocument represents a document open in the editor
 type TextDocument struct {
 	URI     string
-	Text    string
+	Text    []byte
 	Version int
 	Tree    *tree_sitter.Tree
 }
@@ -40,14 +39,14 @@ func (m *DocumentManager) OpenDocument(uri string, text string, version int) {
 
 	doc := &TextDocument{
 		URI:     uri,
-		Text:    text,
+		Text:    []byte(text),
 		Version: version,
 	}
 
 	fileType := strings.ToLower(filepath.Ext(uri))
 
 	if parser, ok := m.parsers[fileType]; ok {
-		doc.Tree = parser.Parse([]byte(text), nil)
+		doc.Tree = parser.Parse(doc.Text, nil)
 	}
 
 	m.documents[uri] = doc
@@ -59,26 +58,26 @@ func (m *DocumentManager) UpdateDocument(uri string, text string, version int) {
 	defer m.mu.Unlock()
 
 	if doc, ok := m.documents[uri]; ok {
-		doc.Text = text
+		doc.Text = []byte(text)
 		doc.Version = version
 
 		fileType := strings.ToLower(filepath.Ext(uri))
 
 		if parser, ok := m.parsers[fileType]; ok {
-			doc.Tree = parser.Parse([]byte(text), nil)
+			doc.Tree = parser.Parse(doc.Text, nil)
 		}
 	} else {
 		// If the document doesn't exist, create it
 		doc := &TextDocument{
 			URI:     uri,
-			Text:    text,
+			Text:    []byte(text),
 			Version: version,
 		}
 
 		fileType := strings.ToLower(filepath.Ext(uri))
 
 		if parser, ok := m.parsers[fileType]; ok {
-			doc.Tree = parser.Parse([]byte(text), nil)
+			doc.Tree = parser.Parse(doc.Text, nil)
 		}
 
 		m.documents[uri] = doc
@@ -108,54 +107,14 @@ func (m *DocumentManager) GetDocument(uri string) (*TextDocument, bool) {
 }
 
 // GetDocumentText returns the text of a document by URI
-func (m *DocumentManager) GetDocumentText(uri string) (string, bool) {
+func (m *DocumentManager) GetDocumentText(uri string) ([]byte, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	if doc, ok := m.documents[uri]; ok {
 		return doc.Text, true
 	}
-	return "", false
-}
-
-// GetLineAtPosition returns the line of text at the given position
-func (m *DocumentManager) GetLineAtPosition(uri string, line int) (string, bool) {
-	text, ok := m.GetDocumentText(uri)
-	if !ok {
-		return "", false
-	}
-
-	// Split the text into lines
-	lines := splitLines(text)
-
-	// Check if the line is valid
-	if line < 0 || line >= len(lines) {
-		return "", false
-	}
-
-	return lines[line], true
-}
-
-// splitLines splits text into lines
-func splitLines(text string) []string {
-	var lines []string
-	var line string
-
-	for _, r := range text {
-		if r == '\n' {
-			lines = append(lines, line)
-			line = ""
-		} else {
-			line += string(r)
-		}
-	}
-
-	// Add the last line if it doesn't end with a newline
-	if line != "" {
-		lines = append(lines, line)
-	}
-
-	return lines
+	return nil, false
 }
 
 func (m *DocumentManager) GetNodeAtPosition(uri string, line int, character int) (*tree_sitter.Node, *TextDocument, bool) {
@@ -178,70 +137,6 @@ func (m *DocumentManager) GetNodeAtPosition(uri string, line int, character int)
 	node := doc.Tree.RootNode().NamedDescendantForPointRange(treeSitterPos, treeSitterPos)
 
 	return node, doc, true
-}
-
-// IsServiceIDContext checks if the position is in a service ID attribute context
-func (m *DocumentManager) IsServiceIDContext(uri string, line int, character int) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	// Check if the document exists
-	doc, ok := m.documents[uri]
-	if !ok || doc.Tree == nil {
-		return false
-	}
-
-	// Find the closest element to our cursor position
-	treeSitterPos := tree_sitter.Point{
-		Row:    uint(line),
-		Column: uint(character),
-	}
-
-	// Find the node at the cursor position
-	node := doc.Tree.RootNode().NamedDescendantForPointRange(treeSitterPos, treeSitterPos)
-
-	if node == nil {
-		return false
-	}
-
-	// Check if we're in an attribute value
-	if node.Kind() == "AttValue" && node.Parent() != nil && node.Parent().Kind() == "Attribute" {
-		attrNode := node.Parent()
-
-		// Get the attribute name
-		nameNode := treesitterhelper.GetFirstNodeOfKind(attrNode, "Name")
-		if nameNode == nil {
-			return false
-		}
-
-		attrName := nameNode.Utf8Text([]byte(doc.Text))
-		if attrName != "id" {
-			return false
-		}
-
-		// Get the parent element
-		parentElement := attrNode.Parent()
-		if parentElement == nil {
-			return false
-		}
-
-		// Check if the parent element has a type="service" attribute
-		attrValues := treesitterhelper.GetXmlAttributeValues(parentElement, doc.Text)
-		if attrValues == nil || attrValues["type"] != "service" {
-			return false
-		}
-
-		// Check if the parent element is an argument element
-		elementNameNode := treesitterhelper.GetFirstNodeOfKind(parentElement, "Name")
-		if elementNameNode == nil {
-			return false
-		}
-
-		elementName := elementNameNode.Utf8Text([]byte(doc.Text))
-		return elementName == "argument"
-	}
-
-	return false
 }
 
 // Close closes the document manager and frees resources

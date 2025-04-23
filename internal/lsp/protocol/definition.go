@@ -13,7 +13,7 @@ type DefinitionParams struct {
 	} `json:"position"`
 	// Custom fields for internal use (not part of LSP spec)
 	// These fields are used to pass document content to definition providers
-	DocumentContent string            `json:"-"`
+	DocumentContent []byte            `json:"-"`
 	Node            *tree_sitter.Node `json:"-"`
 }
 

@@ -16,7 +16,7 @@ func GetFirstNodeOfKind(node *tree_sitter.Node, kind string) *tree_sitter.Node {
 	return nil
 }
 
-func GetXmlAttributeValues(node *tree_sitter.Node, documentText string) map[string]string {
+func GetXmlAttributeValues(node *tree_sitter.Node, documentText []byte) map[string]string {
 	result := make(map[string]string)
 
 	for i := 0; i < int(node.NamedChildCount()); i++ {
@@ -26,8 +26,8 @@ func GetXmlAttributeValues(node *tree_sitter.Node, documentText string) map[stri
 			valueNode := GetFirstNodeOfKind(child, "AttValue")
 
 			if nameNode != nil && valueNode != nil {
-				name := nameNode.Utf8Text([]byte(documentText))
-				value := valueNode.Utf8Text([]byte(documentText))
+				name := nameNode.Utf8Text(documentText)
+				value := valueNode.Utf8Text(documentText)
 				result[name] = strings.Trim(value, "\"")
 			}
 		}
