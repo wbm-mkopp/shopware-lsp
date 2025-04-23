@@ -180,7 +180,7 @@ func (idx *ServiceIndex) GetAllTags() []string {
 
 	tagMap := make(map[string]struct{})
 	for _, value := range values {
-		for tag, _ := range value.Tags {
+		for tag := range value.Tags {
 			tagMap[tag] = struct{}{}
 		}
 	}
