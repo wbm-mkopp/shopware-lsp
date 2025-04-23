@@ -1,0 +1,47 @@
+package completion
+
+import (
+	"context"
+	"strings"
+
+	"github.com/shopware/shopware-lsp/internal/lsp"
+	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
+	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
+	"github.com/shopware/shopware-lsp/internal/twig"
+)
+
+type TwigCompletionProvider struct {
+	twigIndexer *twig.TwigIndexer
+}
+
+func NewTwigCompletionProvider(lspServer *lsp.Server) *TwigCompletionProvider {
+	twigIndexer, _ := lspServer.GetIndexer("twig.indexer")
+	return &TwigCompletionProvider{
+		twigIndexer: twigIndexer.(*twig.TwigIndexer),
+	}
+}
+
+func (p *TwigCompletionProvider) GetCompletions(ctx context.Context, params *protocol.CompletionParams) []protocol.CompletionItem {
+	if !strings.HasSuffix(strings.ToLower(params.TextDocument.URI), ".twig") || params.Node == nil {
+		return []protocol.CompletionItem{}
+	}
+
+	if treesitterhelper.IsTwigTag(params.Node, []byte(params.DocumentContent), "extends", "sw_extends", "include", "sw_include") {
+		files, _ := p.twigIndexer.GetAllTemplateFiles()
+
+		var completionItems []protocol.CompletionItem
+		for _, file := range files {
+			completionItems = append(completionItems, protocol.CompletionItem{
+				Label: file,
+			})
+		}
+
+		return completionItems
+	}
+
+	return []protocol.CompletionItem{}
+}
+
+func (p *TwigCompletionProvider) GetTriggerCharacters() []string {
+	return []string{"\"", "'"}
+}

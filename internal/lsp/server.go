@@ -229,6 +229,7 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 		if err := json.Unmarshal(*req.Params, &params); err != nil {
 			return nil, err
 		}
+
 		return s.completion(ctx, &params), nil
 
 	case "textDocument/definition":

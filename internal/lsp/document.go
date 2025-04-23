@@ -1,14 +1,13 @@
 package lsp
 
 import (
-	"log"
+	"path/filepath"
 	"strings"
 	"sync"
 
+	"github.com/shopware/shopware-lsp/internal/indexer"
 	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
-	tree_sitter_xml "github.com/tree-sitter-grammars/tree-sitter-xml/bindings/go"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
-	tree_sitter_php "github.com/tree-sitter/tree-sitter-php/bindings/go"
 )
 
 // TextDocument represents a document open in the editor
@@ -16,33 +15,21 @@ type TextDocument struct {
 	URI     string
 	Text    string
 	Version int
-	tree    *tree_sitter.Tree
+	Tree    *tree_sitter.Tree
 }
 
 // DocumentManager manages text documents
 type DocumentManager struct {
 	documents map[string]*TextDocument
 	mu        sync.RWMutex
-	xmlParser *tree_sitter.Parser
-	phpParser *tree_sitter.Parser
+	parsers   map[string]*tree_sitter.Parser
 }
 
 // NewDocumentManager creates a new document manager
 func NewDocumentManager() *DocumentManager {
-	xmlParser := tree_sitter.NewParser()
-	if err := xmlParser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_xml.LanguageXML())); err != nil {
-		log.Panicf("failed to set XML language: %v", err)
-	}
-
-	phpParser := tree_sitter.NewParser()
-	if err := phpParser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_php.LanguagePHP())); err != nil {
-		log.Panicf("failed to set PHP language: %v", err)
-	}
-
 	return &DocumentManager{
 		documents: make(map[string]*TextDocument),
-		xmlParser: xmlParser,
-		phpParser: phpParser,
+		parsers:   indexer.CreateTreesitterParsers(),
 	}
 }
 
@@ -57,9 +44,10 @@ func (m *DocumentManager) OpenDocument(uri string, text string, version int) {
 		Version: version,
 	}
 
-	// Parse XML document if it's an XML file
-	if isXMLFile(uri) {
-		doc.tree = m.xmlParser.Parse([]byte(text), nil)
+	fileType := strings.ToLower(filepath.Ext(uri))
+
+	if parser, ok := m.parsers[fileType]; ok {
+		doc.Tree = parser.Parse([]byte(text), nil)
 	}
 
 	m.documents[uri] = doc
@@ -74,13 +62,10 @@ func (m *DocumentManager) UpdateDocument(uri string, text string, version int) {
 		doc.Text = text
 		doc.Version = version
 
-		// Update the tree if it's an XML file
-		if isXMLFile(uri) {
-			// Close the old tree if it exists
-			if doc.tree != nil {
-				doc.tree.Close()
-			}
-			doc.tree = m.xmlParser.Parse([]byte(text), nil)
+		fileType := strings.ToLower(filepath.Ext(uri))
+
+		if parser, ok := m.parsers[fileType]; ok {
+			doc.Tree = parser.Parse([]byte(text), nil)
 		}
 	} else {
 		// If the document doesn't exist, create it
@@ -90,9 +75,10 @@ func (m *DocumentManager) UpdateDocument(uri string, text string, version int) {
 			Version: version,
 		}
 
-		// Parse XML document if it's an XML file
-		if isXMLFile(uri) {
-			doc.tree = m.xmlParser.Parse([]byte(text), nil)
+		fileType := strings.ToLower(filepath.Ext(uri))
+
+		if parser, ok := m.parsers[fileType]; ok {
+			doc.Tree = parser.Parse([]byte(text), nil)
 		}
 
 		m.documents[uri] = doc
@@ -105,8 +91,8 @@ func (m *DocumentManager) CloseDocument(uri string) {
 	defer m.mu.Unlock()
 
 	// Close the tree if it exists
-	if doc, ok := m.documents[uri]; ok && doc.tree != nil {
-		doc.tree.Close()
+	if doc, ok := m.documents[uri]; ok && doc.Tree != nil {
+		doc.Tree.Close()
 	}
 
 	delete(m.documents, uri)
@@ -178,7 +164,7 @@ func (m *DocumentManager) GetNodeAtPosition(uri string, line int, character int)
 
 	// Check if the document exists
 	doc, ok := m.documents[uri]
-	if !ok || doc.tree == nil {
+	if !ok || doc.Tree == nil {
 		return nil, nil, false
 	}
 
@@ -189,14 +175,9 @@ func (m *DocumentManager) GetNodeAtPosition(uri string, line int, character int)
 	}
 
 	// Find the node at the cursor position
-	node := doc.tree.RootNode().NamedDescendantForPointRange(treeSitterPos, treeSitterPos)
+	node := doc.Tree.RootNode().NamedDescendantForPointRange(treeSitterPos, treeSitterPos)
 
 	return node, doc, true
-}
-
-// isXMLFile checks if a URI points to an XML file
-func isXMLFile(uri string) bool {
-	return strings.HasSuffix(strings.ToLower(uri), ".xml")
 }
 
 // IsServiceIDContext checks if the position is in a service ID attribute context
@@ -206,7 +187,7 @@ func (m *DocumentManager) IsServiceIDContext(uri string, line int, character int
 
 	// Check if the document exists
 	doc, ok := m.documents[uri]
-	if !ok || doc.tree == nil {
+	if !ok || doc.Tree == nil {
 		return false
 	}
 
@@ -217,7 +198,7 @@ func (m *DocumentManager) IsServiceIDContext(uri string, line int, character int
 	}
 
 	// Find the node at the cursor position
-	node := doc.tree.RootNode().NamedDescendantForPointRange(treeSitterPos, treeSitterPos)
+	node := doc.Tree.RootNode().NamedDescendantForPointRange(treeSitterPos, treeSitterPos)
 
 	if node == nil {
 		return false
@@ -270,15 +251,11 @@ func (m *DocumentManager) Close() {
 
 	// Close all trees
 	for _, doc := range m.documents {
-		if doc.tree != nil {
-			doc.tree.Close()
-			doc.tree = nil
+		if doc.Tree != nil {
+			doc.Tree.Close()
+			doc.Tree = nil
 		}
 	}
 
-	// Close the parser
-	if m.xmlParser != nil {
-		m.xmlParser.Close()
-		m.xmlParser = nil
-	}
+	indexer.CloseTreesitterParsers(m.parsers)
 }

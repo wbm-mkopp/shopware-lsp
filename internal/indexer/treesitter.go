@@ -13,7 +13,7 @@ var scannedFileTypes = []string{
 	".twig",
 }
 
-func createTreesitterParsers() map[string]*tree_sitter.Parser {
+func CreateTreesitterParsers() map[string]*tree_sitter.Parser {
 	parsers := make(map[string]*tree_sitter.Parser)
 
 	parsers[".php"] = tree_sitter.NewParser()
@@ -34,7 +34,7 @@ func createTreesitterParsers() map[string]*tree_sitter.Parser {
 	return parsers
 }
 
-func closeTreesitterParsers(parsers map[string]*tree_sitter.Parser) {
+func CloseTreesitterParsers(parsers map[string]*tree_sitter.Parser) {
 	for _, parser := range parsers {
 		parser.Close()
 	}

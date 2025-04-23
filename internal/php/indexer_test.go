@@ -7,7 +7,7 @@ import (
 )
 
 func TestGetClassesOfFile(t *testing.T) {
-	index, err := NewPHPIndex("testdata", t.TempDir())
+	index, err := NewPHPIndex(t.TempDir())
 	assert.NoError(t, err)
 
 	classes := index.GetClassesOfFile("testdata/01.php")

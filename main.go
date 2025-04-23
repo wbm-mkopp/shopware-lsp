@@ -12,6 +12,7 @@ import (
 	"github.com/shopware/shopware-lsp/internal/lsp/definition"
 	"github.com/shopware/shopware-lsp/internal/php"
 	"github.com/shopware/shopware-lsp/internal/symfony"
+	"github.com/shopware/shopware-lsp/internal/twig"
 )
 
 func main() {
@@ -38,14 +39,18 @@ func main() {
 	server := lsp.NewServer(filescanner)
 
 	server.RegisterIndexer(symfony.NewServiceIndex(projectRoot, cacheDir))
-	server.RegisterIndexer(php.NewPHPIndex(projectRoot, cacheDir))
+	server.RegisterIndexer(php.NewPHPIndex(cacheDir))
+	server.RegisterIndexer(twig.NewTwigIndexer(cacheDir))
 
 	server.RegisterCompletionProvider(completion.NewServiceCompletionProvider(server))
+	server.RegisterCompletionProvider(completion.NewTwigCompletionProvider(server))
 
 	server.RegisterDefinitionProvider(definition.NewServiceXMLPHPDefinitionProvider(server))
 	server.RegisterDefinitionProvider(definition.NewServiceXMLDefinitionProvider(server))
+	server.RegisterDefinitionProvider(definition.NewTwigDefinitionProvider(server))
 
 	server.RegisterCodeLensProvider(codelens.NewPHPCodeLensProvider(server))
+	server.RegisterCodeLensProvider(codelens.NewTwigCodeLensProvider(server))
 
 	if err := server.Start(os.Stdin, os.Stdout); err != nil {
 		log.Fatalf("LSP server error: %v", err)

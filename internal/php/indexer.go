@@ -22,7 +22,7 @@ type PHPIndex struct {
 	dataIndexer *indexer.DataIndexer[PHPClass]
 }
 
-func NewPHPIndex(projectRoot string, configDir string) (*PHPIndex, error) {
+func NewPHPIndex(configDir string) (*PHPIndex, error) {
 	dataIndexer, err := indexer.NewDataIndexer[PHPClass](filepath.Join(configDir, "php.db"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create data indexer: %w", err)

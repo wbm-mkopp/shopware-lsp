@@ -1,17 +1,20 @@
 package twig
 
 import (
-	"errors"
+	"strings"
 
-	tree_sitter_twig "github.com/kaermorchen/tree-sitter-twig/bindings/go"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 type TwigFile struct {
-	Path string
+	// Name of the bundle
+	BundleName string
+	Path       string
 	// Relative Path, used inside of Twig
-	RelPath string
-	Blocks  map[string]TwigBlock
+	RelPath        string
+	Blocks         map[string]TwigBlock
+	ExtendsFile    string
+	ExtendsTagLine int
 }
 
 type TwigBlock struct {
@@ -19,33 +22,15 @@ type TwigBlock struct {
 	Line int
 }
 
-func ParseTwig(filePath string, parser *tree_sitter.Parser, content []byte) (*TwigFile, error) {
-	if parser == nil {
-		parser = tree_sitter.NewParser()
-
-		if err := parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_twig.Language())); err != nil {
-			return nil, err
-		}
-	}
-
-	tree := parser.Parse(content, nil)
-	if tree == nil {
-		return nil, errors.New("failed to parse Twig")
-	}
-	defer tree.Close()
-
-	rootNode := tree.RootNode()
-	if rootNode == nil {
-		return nil, errors.New("failed to get root node")
-	}
-
+func ParseTwig(filePath string, node *tree_sitter.Node, content []byte) (*TwigFile, error) {
 	file := &TwigFile{
-		Path:    filePath,
-		RelPath: convertToRelativePath(filePath),
-		Blocks:  make(map[string]TwigBlock),
+		Path:       filePath,
+		BundleName: getBundleNameByPath(filePath),
+		RelPath:    convertToRelativePath(filePath),
+		Blocks:     make(map[string]TwigBlock),
 	}
 
-	var cursor = rootNode.Walk()
+	var cursor = node.Walk()
 	defer cursor.Close()
 
 	if cursor.GotoFirstChild() {
@@ -62,6 +47,30 @@ func ParseTwig(filePath string, parser *tree_sitter.Parser, content []byte) (*Tw
 							Line: int(child.Range().StartPoint.Row) + 1,
 						}
 						break
+					}
+				}
+			}
+
+			if node.Kind() == "tag" {
+				// Check if this is an extends tag by examining the tag text
+				tagText := string(node.Utf8Text(content))
+				isExtendsTag := false
+
+				// Check if the tag contains "extends" or "sw_extends"
+				if strings.Contains(tagText, "extends") || strings.Contains(tagText, "sw_extends") {
+					isExtendsTag = true
+				}
+
+				// If it's an extends tag, look for the string parameter
+				if isExtendsTag {
+					for i := 0; i < int(node.NamedChildCount()); i++ {
+						child := node.NamedChild(uint(i))
+
+						if child.Kind() == "string" {
+							file.ExtendsFile = strings.Trim(string(child.Utf8Text(content)), "\"")
+							file.ExtendsTagLine = int(node.Range().StartPoint.Row) + 1
+							break
+						}
 					}
 				}
 			}

@@ -235,7 +235,7 @@ func (fs *FileScanner) IndexFiles(ctx context.Context, files []string) error {
 		go func() {
 			defer wg.Done()
 
-			parsers := createTreesitterParsers()
+			parsers := CreateTreesitterParsers()
 
 			for path := range fileChan {
 				// Check if file needs indexing
@@ -273,7 +273,7 @@ func (fs *FileScanner) IndexFiles(ctx context.Context, files []string) error {
 				}
 			}
 
-			closeTreesitterParsers(parsers)
+			CloseTreesitterParsers(parsers)
 		}()
 	}
 
