@@ -39,5 +39,29 @@ func TestTwigParseSwExtends(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.Equal(t, "test", file.Path)
-	assert.Equal(t, "'@Storefront/storefront/base.html.twig'", file.ExtendsFile)
+	assert.Equal(t, "storefront/base.html.twig", file.ExtendsFile)
+}
+
+func TestNestedBlock(t *testing.T) {
+	tpl := `
+{% block a %}
+	{% block b %}
+		{% block c %}
+		{% endblock %}
+	{% endblock %}
+{% endblock %}
+`
+
+	parser := tree_sitter.NewParser()
+
+	assert.NoError(t, parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_twig.Language())))
+
+	tree := parser.Parse([]byte(tpl), nil)
+	defer tree.Close()
+
+	file, err := ParseTwig("test", tree.RootNode(), []byte(tpl))
+	assert.NoError(t, err)
+
+	assert.Equal(t, "test", file.Path)
+	assert.Equal(t, map[string]TwigBlock{"a": {Name: "a", Line: 2}, "b": {Name: "b", Line: 3}, "c": {Name: "c", Line: 4}}, file.Blocks)
 }

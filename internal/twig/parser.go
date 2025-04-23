@@ -22,6 +22,28 @@ type TwigBlock struct {
 	Line int
 }
 
+// findBlocks recursively traverses the tree to find all blocks
+func findBlocks(node *tree_sitter.Node, content []byte, file *TwigFile) {
+	if node.Kind() == "block" {
+		for i := 0; i < int(node.NamedChildCount()); i++ {
+			child := node.NamedChild(uint(i))
+			if child.Kind() == "identifier" {
+				blockName := string(child.Utf8Text(content))
+				file.Blocks[blockName] = TwigBlock{
+					Name: blockName,
+					Line: int(child.Range().StartPoint.Row) + 1,
+				}
+				break
+			}
+		}
+	}
+
+	// Recursively process all named children
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		findBlocks(node.NamedChild(uint(i)), content, file)
+	}
+}
+
 func ParseTwig(filePath string, node *tree_sitter.Node, content []byte) (*TwigFile, error) {
 	file := &TwigFile{
 		Path:       filePath,
@@ -30,26 +52,16 @@ func ParseTwig(filePath string, node *tree_sitter.Node, content []byte) (*TwigFi
 		Blocks:     make(map[string]TwigBlock),
 	}
 
+	// Find all blocks recursively
+	findBlocks(node, content, file)
+
+	// Find extends tag
 	var cursor = node.Walk()
 	defer cursor.Close()
 
 	if cursor.GotoFirstChild() {
 		for {
 			node := cursor.Node()
-
-			if node.Kind() == "block" {
-				for i := 0; i < int(node.NamedChildCount()); i++ {
-					child := node.NamedChild(uint(i))
-					if child.Kind() == "identifier" {
-						blockName := string(child.Utf8Text(content))
-						file.Blocks[blockName] = TwigBlock{
-							Name: blockName,
-							Line: int(child.Range().StartPoint.Row) + 1,
-						}
-						break
-					}
-				}
-			}
 
 			if node.Kind() == "tag" {
 				// Check if this is an extends tag by examining the tag text
