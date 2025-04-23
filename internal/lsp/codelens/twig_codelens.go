@@ -36,12 +36,48 @@ func (p *TwigCodeLensProvider) GetCodeLenses(ctx context.Context, params *protoc
 
 	twigFile, _ := twig.ParseTwig(strings.TrimPrefix(params.TextDocument.URI, "file://"), document.Tree.RootNode(), document.Text)
 
-	if twigFile == nil {
+	if twigFile == nil || twigFile.ExtendsFile == "" {
 		return []protocol.CodeLens{}
 	}
 
-	if twigFile.ExtendsFile == "" {
-		return []protocol.CodeLens{}
+	if twigFile.ExtendsFile != twigFile.RelPath {
+		allOtherFiles, _ := p.twigIndexer.GetTwigFilesByRelPath(twigFile.RelPath)
+
+		blockOverwrites := make(map[string]int)
+
+		for _, file := range allOtherFiles {
+			if file.Path == twigFile.Path {
+				continue
+			}
+
+			for _, block := range file.Blocks {
+				blockOverwrites[block.Name]++
+			}
+		}
+
+		var lenses []protocol.CodeLens
+
+		for _, block := range twigFile.Blocks {
+			if blockOverwrites[block.Name] > 0 {
+				lenses = append(lenses, protocol.CodeLens{
+					Range: protocol.Range{
+						Start: protocol.Position{
+							Line:      block.Line - 1,
+							Character: 0,
+						},
+						End: protocol.Position{
+							Line:      block.Line - 1,
+							Character: 0,
+						},
+					},
+					Command: &protocol.Command{
+						Title: fmt.Sprintf("%d block overwrites", blockOverwrites[block.Name]),
+					},
+				})
+			}
+		}
+
+		return lenses
 	}
 
 	extendedFiles, _ := p.twigIndexer.GetTwigFilesByRelPath(twigFile.ExtendsFile)

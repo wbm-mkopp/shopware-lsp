@@ -48,7 +48,7 @@ func ParseTwig(filePath string, node *tree_sitter.Node, content []byte) (*TwigFi
 	file := &TwigFile{
 		Path:       filePath,
 		BundleName: getBundleNameByPath(filePath),
-		RelPath:    convertToRelativePath(filePath),
+		RelPath:    ConvertToRelativePath(filePath),
 		Blocks:     make(map[string]TwigBlock),
 	}
 
