@@ -26,8 +26,6 @@ type CodeLensProvider interface {
 type IndexerProvider interface {
 	// ID returns a unique identifier for this indexer
 	ID() string
-	// Name returns a human-readable name for this indexer
-	Name() string
 	// Index builds or updates the index
 	// If forceReindex is true, it will clear the existing index before rebuilding
 	Index(forceReindex bool) error

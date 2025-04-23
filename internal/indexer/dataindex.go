@@ -207,6 +207,47 @@ func (idx *DataIndexer[T]) GetValues(key string) ([]T, error) {
 	return items, nil
 }
 
+// GetAllValues returns all items stored in the data bucket
+func (idx *DataIndexer[T]) GetAllValues() ([]T, error) {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	var items []T
+	if err := idx.db.View(func(tx *bbolt.Tx) error {
+		dataBucket := tx.Bucket(idx.dataBucket)
+		if dataBucket == nil {
+			// Bucket doesn't exist, return empty slice
+			return nil
+		}
+
+		// Get bucket stats to pre-allocate slice capacity
+		stats := dataBucket.Stats()
+		items = make([]T, 0, stats.KeyN)
+
+		// Iterate over all key-value pairs in the data bucket
+		c := dataBucket.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var item T
+			// Ensure v is not nil or empty before unmarshalling
+			if len(v) == 0 {
+				// Skip empty values or handle as needed
+				continue
+			}
+			if err := msgpack.Unmarshal(v, &item); err != nil {
+				// Potentially log the error or handle corrupted data
+				// For now, returning the error stops the whole operation
+				return fmt.Errorf("failed to unmarshal item with key %s: %w", string(k), err)
+			}
+			items = append(items, item)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
 // GetAllKeys returns all unique keys in the database
 func (idx *DataIndexer[T]) GetAllKeys() ([]string, error) {
 	idx.mu.RLock()

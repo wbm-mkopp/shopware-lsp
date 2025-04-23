@@ -8,8 +8,8 @@ import (
 	"strings"
 )
 
-func getProjectConfigFolder(projectRoot string) (string, error) {
-	configDir, err := getUserConfigDir()
+func getProjectCacheFolder(projectRoot string) (string, error) {
+	configDir, err := getUserCacheDir()
 	if err != nil {
 		return "", err
 	}
@@ -34,8 +34,8 @@ func getProjectConfigFolder(projectRoot string) (string, error) {
 	return expectedDir, nil
 }
 
-func getUserConfigDir() (string, error) {
-	configDir, err := os.UserConfigDir()
+func getUserCacheDir() (string, error) {
+	configDir, err := os.UserCacheDir()
 	if err != nil {
 		usr, err := user.Current()
 		if err != nil {

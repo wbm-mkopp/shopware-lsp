@@ -2,7 +2,6 @@ package completion
 
 import (
 	"context"
-	"log"
 	"strings"
 
 	"github.com/shopware/shopware-lsp/internal/lsp"
@@ -140,8 +139,6 @@ func (p *SymfonyCompletionProvider) GetCompletions(ctx context.Context, params *
 			}
 			items = append(items, item)
 		}
-
-		log.Printf("Items: %v", items)
 
 		return items
 	}

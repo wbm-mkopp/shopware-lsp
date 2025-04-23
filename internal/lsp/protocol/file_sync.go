@@ -7,7 +7,7 @@ type FileOperationRegistrationOptions struct {
 
 // FileOperationFilter represents a filter for file operations
 type FileOperationFilter struct {
-	Scheme string           `json:"scheme,omitempty"`
+	Scheme  string               `json:"scheme,omitempty"`
 	Pattern FileOperationPattern `json:"pattern"`
 }
 

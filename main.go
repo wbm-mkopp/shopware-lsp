@@ -3,7 +3,9 @@ package main
 import (
 	"log"
 	"os"
+	"path/filepath"
 
+	"github.com/shopware/shopware-lsp/internal/indexer"
 	"github.com/shopware/shopware-lsp/internal/lsp"
 	"github.com/shopware/shopware-lsp/internal/lsp/codelens"
 	"github.com/shopware/shopware-lsp/internal/lsp/completion"
@@ -14,7 +16,6 @@ import (
 
 func main() {
 	log.SetFlags(0)
-	server := lsp.NewServer()
 
 	// Get the current working directory as project root
 	projectRoot, err := os.Getwd()
@@ -22,13 +23,22 @@ func main() {
 		log.Fatalf("Failed to get working directory: %v", err)
 	}
 
-	configDir, err := getProjectConfigFolder(projectRoot)
+	cacheDir, err := getProjectCacheFolder(projectRoot)
 	if err != nil {
 		log.Fatalf("Failed to get project config directory: %v", err)
 	}
 
-	server.RegisterIndexer(symfony.NewServiceIndex(projectRoot, configDir))
-	server.RegisterIndexer(php.NewPHPIndex(projectRoot, configDir))
+	log.Printf("Using cache directory: %s", cacheDir)
+
+	filescanner, err := indexer.NewFileScanner(projectRoot, filepath.Join(cacheDir, "file_scanner.db"))
+	if err != nil {
+		log.Fatalf("Failed to create file scanner: %v", err)
+	}
+
+	server := lsp.NewServer(filescanner)
+
+	server.RegisterIndexer(symfony.NewServiceIndex(projectRoot, cacheDir))
+	server.RegisterIndexer(php.NewPHPIndex(projectRoot, cacheDir))
 
 	server.RegisterCompletionProvider(completion.NewServiceCompletionProvider(server))
 

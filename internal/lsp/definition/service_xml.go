@@ -42,28 +42,7 @@ func (p *serviceXMLDefinitionProvider) GetDefinition(ctx context.Context, params
 		// Try to find the service definition
 		service, found := p.serviceIndex.GetServiceByID(serviceID)
 		if !found {
-			// Check if it's an alias
-			alias, aliasFound := p.serviceIndex.GetAliasByID(serviceID)
-			if !aliasFound {
-				return []protocol.Location{}
-			}
-
-			// Create a location for the alias
-			return []protocol.Location{
-				{
-					URI: "file://" + alias.Path,
-					Range: protocol.Range{
-						Start: protocol.Position{
-							Line:      alias.Line - 1, // LSP uses 0-based line numbers
-							Character: 0,
-						},
-						End: protocol.Position{
-							Line:      alias.Line - 1,
-							Character: 0,
-						},
-					},
-				},
-			}
+			return []protocol.Location{}
 		}
 
 		// Create a location for the service
@@ -85,7 +64,7 @@ func (p *serviceXMLDefinitionProvider) GetDefinition(ctx context.Context, params
 	}
 
 	// <argument type="tagged" tag="x"/>
-	if treesitterhelper.SymfonyServiceIsArgumentTag(params.Node, params.DocumentContent) {
+	if treesitterhelper.SymfonyServiceIsArgumentTag(params.Node, params.DocumentContent) || treesitterhelper.SymfonyServiceIsTagElement(params.Node, params.DocumentContent) {
 		serviceID := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
 		if serviceID == "" {
 			return []protocol.Location{}

@@ -2,32 +2,20 @@ package symfony
 
 import (
 	"bytes"
-	"errors"
-	"fmt"
-	"os"
 	"strings"
-	"sync"
 
 	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
-	tree_sitter_xml "github.com/tree-sitter-grammars/tree-sitter-xml/bindings/go"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 // Service represents a Symfony service definition
 type Service struct {
-	ID    string            // Service ID
-	Class string            // Service class
-	Tags  map[string]string // Service tags
-	Path  string            // Source file path
-	Line  int               // Line number in source file
-}
-
-// ServiceAlias represents a Symfony service alias
-type ServiceAlias struct {
-	ID     string // Alias ID
-	Target string // Target service ID
-	Path   string // Source file path
-	Line   int    // Line number in source file
+	ID          string            // Service ID
+	Class       string            // Service class
+	AliasTarget string            // Service alias target
+	Tags        map[string]string // Service tags
+	Path        string            // Source file path
+	Line        int               // Line number in source file
 }
 
 // Parameter represents a Symfony container parameter
@@ -38,119 +26,17 @@ type Parameter struct {
 	Line  int    // Line number in source file
 }
 
-// xmlParserPool is a pool of reusable XML parsers
-var xmlParserPool = sync.Pool{
-	New: func() interface{} {
-		parser := tree_sitter.NewParser()
-		_ = parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_xml.LanguageXML()))
-		return parser
-	},
-}
-
 // ParseXMLServices parses Symfony XML service definitions and returns a list of services, aliases, and parameters.
 // It can accept either a file path or direct content with a path.
-func ParseXMLServices(pathOrContent interface{}, optionalPath ...string) ([]Service, []ServiceAlias, []Parameter, error) {
-	var data []byte
-	var path string
-
-	// Determine if we're given a file path or content
-	switch v := pathOrContent.(type) {
-	case string:
-		// We were given a file path
-		path = v
-
-		// Quick check of file before reading - if not a Symfony service config file, skip it
-		f, err := os.Open(path)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-
-		// Read first 1024 bytes to quickly check for Symfony XML patterns
-		peek := make([]byte, 1024)
-		n, _ := f.Read(peek)
-
-		if err := f.Close(); err != nil {
-			return nil, nil, nil, err
-		}
-
-		if n > 0 {
-			content := string(peek[:n])
-			if !strings.Contains(content, "<container") &&
-				!strings.Contains(content, "<services") &&
-				!strings.Contains(content, "<service") {
-				// Return empty results instead of error for non-service XML files
-				// This maintains compatibility with previous behavior for tests
-				return []Service{}, []ServiceAlias{}, []Parameter{}, nil
-			}
-		}
-
-		// Now read the full file
-		data, err = os.ReadFile(path)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-
-	case []byte:
-		// We were given content directly
-		data = v
-
-		// Use optional path if provided
-		if len(optionalPath) > 0 {
-			path = optionalPath[0]
-		}
-
-		// Quick check if this looks like a Symfony service file
-		if len(data) > 0 {
-			// Check a portion of the content for service patterns
-			checkSize := len(data)
-			if checkSize > 1024 {
-				checkSize = 1024
-			}
-
-			content := string(data[:checkSize])
-			if !strings.Contains(content, "<container") &&
-				!strings.Contains(content, "<services") &&
-				!strings.Contains(content, "<service") {
-				// Return empty results instead of error for non-service XML files
-				return []Service{}, []ServiceAlias{}, []Parameter{}, nil
-			}
-		}
-	default:
-		return nil, nil, nil, fmt.Errorf("expected string path or []byte content, got %T", pathOrContent)
-	}
-
-	// Get parser from pool and return it when done
-	parserInterface := xmlParserPool.Get()
-	parser, ok := parserInterface.(*tree_sitter.Parser)
-	if !ok || parser == nil {
-		parser = tree_sitter.NewParser()
-		if err := parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_xml.LanguageXML())); err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to set XML language: %w", err)
-		}
-	}
-	defer xmlParserPool.Put(parser)
-
-	// Parse the XML content
-	tree := parser.Parse(data, nil)
-	if tree == nil {
-		return nil, nil, nil, errors.New("failed to parse XML")
-	}
-	defer tree.Close()
-
-	rootNode := tree.RootNode()
-	if rootNode == nil {
-		return nil, nil, nil, errors.New("failed to get root node")
-	}
-
+func ParseXMLServices(path string, rootNode *tree_sitter.Node, data []byte) ([]Service, []Parameter, error) {
 	// Pre-allocate with reasonable capacity
 	services := make([]Service, 0, 50)
-	aliases := make([]ServiceAlias, 0, 20)
 	parameters := make([]Parameter, 0, 20)
 
 	// Process container node
 	containerNode := findContainerNode(rootNode, data)
 	if containerNode == nil {
-		return []Service{}, []ServiceAlias{}, []Parameter{}, nil
+		return []Service{}, []Parameter{}, nil
 	}
 
 	// Process content node directly for better handling of different XML structures
@@ -183,8 +69,8 @@ func ParseXMLServices(pathOrContent interface{}, optionalPath ...string) ([]Serv
 						}
 					case "alias":
 						alias := processAliasNode(child, data, path, nil)
-						if alias.ID != "" && alias.Target != "" {
-							aliases = append(aliases, alias)
+						if alias.ID != "" {
+							services = append(services, alias)
 						}
 					case "services":
 						// Process services inside the services tag
@@ -203,7 +89,7 @@ func ParseXMLServices(pathOrContent interface{}, optionalPath ...string) ([]Serv
 				}
 			}
 
-			return services, aliases, parameters, nil
+			return services, parameters, nil
 		}
 	}
 
@@ -237,8 +123,8 @@ func ParseXMLServices(pathOrContent interface{}, optionalPath ...string) ([]Serv
 			}
 		case "alias":
 			alias := processAliasNode(child, data, path, nil)
-			if alias.ID != "" && alias.Target != "" {
-				aliases = append(aliases, alias)
+			if alias.ID != "" && alias.AliasTarget != "" {
+				services = append(services, alias)
 			}
 		case "services":
 			// Process services inside the services tag
@@ -256,7 +142,7 @@ func ParseXMLServices(pathOrContent interface{}, optionalPath ...string) ([]Serv
 		}
 	}
 
-	return services, aliases, parameters, nil
+	return services, parameters, nil
 }
 
 // findContainerNode finds the container node in the XML tree
@@ -295,7 +181,8 @@ func processServiceNode(node *tree_sitter.Node, data []byte, path string, conten
 	attrs := getXmlAttributeValues(startTag, data)
 	service.ID = attrs["id"]
 
-	if strings.Contains(service.ID, " ") {
+	// Skip processing if missing ID or ID contains spaces
+	if service.ID == "" || strings.Contains(service.ID, " ") {
 		return Service{}
 	}
 
@@ -304,11 +191,6 @@ func processServiceNode(node *tree_sitter.Node, data []byte, path string, conten
 	// If service has no class, use ID as class (Symfony default behavior)
 	if service.Class == "" {
 		service.Class = service.ID
-	}
-
-	// Skip processing if no ID (required for a valid service)
-	if service.ID == "" {
-		return service
 	}
 
 	// Fast line number calculation - just count newlines in the byte range
@@ -358,8 +240,8 @@ func processServiceNode(node *tree_sitter.Node, data []byte, path string, conten
 }
 
 // processAliasNode extracts alias information from an alias element node
-func processAliasNode(node *tree_sitter.Node, data []byte, path string, contentLines []string) ServiceAlias {
-	alias := ServiceAlias{
+func processAliasNode(node *tree_sitter.Node, data []byte, path string, contentLines []string) Service {
+	alias := Service{
 		Path: path,
 	}
 
@@ -372,11 +254,11 @@ func processAliasNode(node *tree_sitter.Node, data []byte, path string, contentL
 	// Get attributes
 	attrs := getXmlAttributeValues(startTag, data)
 	alias.ID = attrs["id"]
-	alias.Target = attrs["service"]
+	alias.AliasTarget = attrs["service"]
 
 	// Skip if missing required attributes
-	if alias.ID == "" || alias.Target == "" {
-		return alias
+	if alias.ID == "" || alias.AliasTarget == "" {
+		return Service{} // Return empty service if missing required attributes
 	}
 
 	// Fast line number calculation
@@ -535,7 +417,7 @@ func processParametersNode(node *tree_sitter.Node, data []byte, path string, con
 }
 
 // GetServiceIDs extracts just the service IDs from a list of services
-func GetServiceIDs(services []Service, aliases []ServiceAlias) []string {
+func GetServiceIDs(services []Service, aliases []Service) []string {
 	result := make([]string, 0, len(services)+len(aliases))
 
 	// Add service IDs
