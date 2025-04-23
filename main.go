@@ -23,20 +23,22 @@ func main() {
 		log.Fatalf("Failed to get working directory: %v", err)
 	}
 
-	configDir, err := getProjectConfigFolder(projectRoot)
+	cacheDir, err := getProjectCacheFolder(projectRoot)
 	if err != nil {
 		log.Fatalf("Failed to get project config directory: %v", err)
 	}
 
-	filescanner, err := indexer.NewFileScanner(projectRoot, filepath.Join(configDir, "file_scanner.db"))
+	log.Printf("Using cache directory: %s", cacheDir)
+
+	filescanner, err := indexer.NewFileScanner(projectRoot, filepath.Join(cacheDir, "file_scanner.db"))
 	if err != nil {
 		log.Fatalf("Failed to create file scanner: %v", err)
 	}
 
 	server := lsp.NewServer(filescanner)
 
-	server.RegisterIndexer(symfony.NewServiceIndex(projectRoot, configDir))
-	server.RegisterIndexer(php.NewPHPIndex(projectRoot, configDir))
+	server.RegisterIndexer(symfony.NewServiceIndex(projectRoot, cacheDir))
+	server.RegisterIndexer(php.NewPHPIndex(projectRoot, cacheDir))
 
 	server.RegisterCompletionProvider(completion.NewServiceCompletionProvider(server))
 

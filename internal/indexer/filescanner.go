@@ -93,6 +93,7 @@ func (fs *FileScanner) Close() error {
 }
 
 func (fs *FileScanner) IndexAll(ctx context.Context) error {
+	startTime := time.Now()
 	var files []string
 
 	err := filepath.Walk(fs.projectRoot, func(path string, info os.FileInfo, err error) error {
@@ -125,7 +126,13 @@ func (fs *FileScanner) IndexAll(ctx context.Context) error {
 		return fmt.Errorf("failed to walk project directory: %w", err)
 	}
 
-	return fs.IndexFiles(ctx, files)
+	if err := fs.IndexFiles(ctx, files); err != nil {
+		return fmt.Errorf("failed to index files: %w", err)
+	}
+
+	log.Printf("Indexing took %s", time.Since(startTime))
+
+	return nil
 }
 
 // fileNeedsIndexing checks if a file needs to be indexed
