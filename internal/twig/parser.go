@@ -19,7 +19,7 @@ type TwigBlock struct {
 	Line int
 }
 
-func ParseTwig(parser *tree_sitter.Parser, content []byte, filePath string) (*TwigFile, error) {
+func ParseTwig(filePath string, parser *tree_sitter.Parser, content []byte) (*TwigFile, error) {
 	if parser == nil {
 		parser = tree_sitter.NewParser()
 
