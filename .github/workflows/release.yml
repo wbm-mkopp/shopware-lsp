@@ -39,4 +39,3 @@ jobs:
         run: make release-build-extension VERSION=${{ github.ref_name }} OS=${{ matrix.os }} ARCH=${{ matrix.arch }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    
