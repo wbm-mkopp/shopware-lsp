@@ -176,7 +176,7 @@ func (fs *FileScanner) fileNeedsIndexing(path string) (bool, []byte, error) {
 	return fileChanged, content, nil
 }
 
-// RemoveFile removes a file from the index
+// RemoveFiles removes multiple files from the index
 func (fs *FileScanner) RemoveFiles(ctx context.Context, paths []string) error {
 	for _, indexer := range fs.indexer {
 		if err := indexer.RemovedFiles(paths); err != nil {
@@ -195,6 +195,16 @@ func (fs *FileScanner) RemoveFiles(ctx context.Context, paths []string) error {
 	})
 }
 
+// removeFileFromIndexers removes a single file from all indexers without affecting the hash database
+func (fs *FileScanner) removeFileFromIndexers(path string) error {
+	for _, indexer := range fs.indexer {
+		if err := indexer.RemovedFiles([]string{path}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // updateFileHash updates the stored hash for a file
 func (fs *FileScanner) updateFileHash(path string, content []byte) error {
 	hash := xxhash.Sum64(content)
@@ -211,11 +221,6 @@ func (fs *FileScanner) updateFileHash(path string, content []byte) error {
 func (fs *FileScanner) IndexFiles(ctx context.Context, files []string) error {
 	if len(files) == 0 {
 		return nil
-	}
-
-	// Remove current entries from the database
-	if err := fs.RemoveFiles(ctx, files); err != nil {
-		return err
 	}
 
 	// Determine the number of worker goroutines to use
@@ -249,10 +254,14 @@ func (fs *FileScanner) IndexFiles(ctx context.Context, files []string) error {
 					continue
 				}
 
-				log.Printf("Indexing %s", path)
-
 				// If file hasn't changed, skip it
 				if !needsIndexing {
+					continue
+				}
+
+				// Remove the file from all indexers since we're reindexing it
+				if err := fs.removeFileFromIndexers(path); err != nil {
+					errChan <- err
 					continue
 				}
 
