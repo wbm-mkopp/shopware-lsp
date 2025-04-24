@@ -17,7 +17,7 @@ func IsPHPRenderStorefrontCall(node *tree_sitter.Node, content []byte) bool {
 			4, // Maximum depth to search up for ancestor
 		),
 	)
-	
+
 	return pattern.Matches(node, content)
 }
 
@@ -28,6 +28,7 @@ func IsPHPRenderStorefrontCallEdit(node *tree_sitter.Node, content []byte) bool 
 		Or(
 			NodeKind("string_content"),
 			NodeKind("encapsed_string"),
+			NodeKind("string"),
 		),
 		Ancestor(
 			And(
@@ -40,6 +41,6 @@ func IsPHPRenderStorefrontCallEdit(node *tree_sitter.Node, content []byte) bool 
 			4, // Maximum depth to search up for ancestor
 		),
 	)
-	
+
 	return pattern.Matches(node, content)
 }
