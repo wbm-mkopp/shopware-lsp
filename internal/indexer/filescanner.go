@@ -25,6 +25,10 @@ var defaultSkipDirs = map[string]bool{
 	"cache":        true,
 	".git":         true,
 	".github":      true,
+	".gitlab":      true,
+	".run":         true,
+	".idea":        true,
+	".vscode":      true,
 	"tests":        true,
 	"public":       true,
 }
@@ -244,6 +248,8 @@ func (fs *FileScanner) IndexFiles(ctx context.Context, files []string) error {
 					// We'll just skip file errors to reduce noise
 					continue
 				}
+
+				log.Printf("Indexing %s", path)
 
 				// If file hasn't changed, skip it
 				if !needsIndexing {
