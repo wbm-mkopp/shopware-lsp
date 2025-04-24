@@ -2,50 +2,45 @@ package treesitterhelper
 
 import tree_sitter "github.com/tree-sitter/go-tree-sitter"
 
+// Pattern-based implementation
 func IsPHPRenderStorefrontCall(node *tree_sitter.Node, content []byte) bool {
-	if node.Kind() != "string_content" {
-		return false
-	}
+	pattern := And(
+		NodeKind("string_content"),
+		Ancestor(
+			And(
+				NodeKind("member_call_expression"),
+				HasChild(And(
+					NodeKind("name"),
+					NodeText("renderStorefront"),
+				)),
+			),
+			4, // Maximum depth to search up for ancestor
+		),
+	)
 
-	methodCall := node.Parent().Parent().Parent().Parent()
-
-	if methodCall.Kind() != "member_call_expression" {
-		return false
-	}
-
-	nameNode := GetFirstNodeOfKind(methodCall, "name")
-
-	if nameNode == nil {
-		return false
-	}
-
-	if string(nameNode.Utf8Text(content)) != "renderStorefront" {
-		return false
-	}
-
-	return true
+	return pattern.Matches(node, content)
 }
 
+// Pattern-based implementation for editor completion
 func IsPHPRenderStorefrontCallEdit(node *tree_sitter.Node, content []byte) bool {
-	if node.Kind() != "string" {
-		return false
-	}
+	// For PHP editor, handle both raw string and string_content nodes
+	pattern := And(
+		Or(
+			NodeKind("string_content"),
+			NodeKind("encapsed_string"),
+			NodeKind("string"),
+		),
+		Ancestor(
+			And(
+				NodeKind("member_call_expression"),
+				HasChild(And(
+					NodeKind("name"),
+					NodeText("renderStorefront"),
+				)),
+			),
+			4, // Maximum depth to search up for ancestor
+		),
+	)
 
-	methodCall := node.Parent().Parent().Parent()
-
-	if methodCall.Kind() != "member_call_expression" {
-		return false
-	}
-
-	nameNode := GetFirstNodeOfKind(methodCall, "name")
-
-	if nameNode == nil {
-		return false
-	}
-
-	if string(nameNode.Utf8Text(content)) != "renderStorefront" {
-		return false
-	}
-
-	return true
+	return pattern.Matches(node, content)
 }

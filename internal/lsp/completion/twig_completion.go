@@ -37,7 +37,7 @@ func (p *TwigCompletionProvider) GetCompletions(ctx context.Context, params *pro
 		return []protocol.CompletionItem{}
 	}
 
-	if treesitterhelper.IsTwigTag(params.Node, params.DocumentContent, "extends", "sw_extends", "include", "sw_include") {
+	if treesitterhelper.TwigStringInTagPattern("extends", "sw_extends", "include", "sw_include").Matches(params.Node, params.DocumentContent) {
 		files, _ := p.twigIndexer.GetAllTemplateFiles()
 
 		var completionItems []protocol.CompletionItem
