@@ -19,7 +19,7 @@ var (
 		)
 	}
 
-	PHPStringLiteralPattern = AnyNodeKind("string", "string_content")
+	PHPStringLiteralPattern = AnyNodeKind("string_content", "encapsed_string")
 
 	PHPRenderStorefrontCallPattern = And(
 		PHPStringLiteralPattern,

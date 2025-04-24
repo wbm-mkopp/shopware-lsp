@@ -3,14 +3,14 @@ package treesitterhelper
 import (
 	"testing"
 
-	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 	"github.com/stretchr/testify/assert"
+	tree_sitter "github.com/tree-sitter/go-tree-sitter"
+	tree_sitter_php "github.com/tree-sitter/tree-sitter-php/bindings/go"
 )
 
 func TestPHPPatterns(t *testing.T) {
 	parser := tree_sitter.NewParser()
-	// Skip test if PHP language not available
-	t.Skip("Skipping test that requires tree-sitter-php")
+	assert.NoError(t, parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_php.LanguagePHP())))
 
 	phpCode := []byte(`<?php
 	// PHP renderStorefront example
@@ -25,7 +25,12 @@ func TestPHPPatterns(t *testing.T) {
 
 	// Define our pattern for renderStorefront
 	renderStorefrontPattern := And(
-		NodeKind("string"),
+		NodeKind("string_content"),
+		FuncPattern(func(node *tree_sitter.Node, content []byte) bool {
+			// Check if the text contains the template path
+			text := string(node.Utf8Text(content))
+			return text == "some/template.html.twig"
+		}),
 		Ancestor(
 			And(
 				NodeKind("member_call_expression"),
@@ -40,15 +45,20 @@ func TestPHPPatterns(t *testing.T) {
 
 	// Find all matches in the parsed tree
 	matches := FindAll(tree.RootNode(), renderStorefrontPattern, phpCode)
-	
+
 	// Verify we found just the renderStorefront string node
 	assert.Equal(t, 1, len(matches), "Should find exactly one renderStorefront call")
 	assert.Contains(t, string(matches[0].Utf8Text(phpCode)), "some/template.html.twig",
 		"Found string node should contain template path")
-	
+
 	// Test logical operator patterns
 	nonRenderStorefrontPattern := And(
-		NodeKind("string"),
+		NodeKind("string_content"),
+		FuncPattern(func(node *tree_sitter.Node, content []byte) bool {
+			// Check if the text contains the non-renderStorefront template path
+			text := string(node.Utf8Text(content))
+			return text == "other/template.html.twig"
+		}),
 		Not(
 			Ancestor(
 				And(
@@ -62,7 +72,7 @@ func TestPHPPatterns(t *testing.T) {
 			),
 		),
 	)
-	
+
 	nonRenderMatches := FindAll(tree.RootNode(), nonRenderStorefrontPattern, phpCode)
 	assert.Equal(t, 1, len(nonRenderMatches), "Should find non-renderStorefront string node")
 	assert.Contains(t, string(nonRenderMatches[0].Utf8Text(phpCode)), "other/template.html.twig",
@@ -107,12 +117,12 @@ func TestTwigPatterns(t *testing.T) {
 	blockNames := []string{}
 	for _, blockNode := range blocks {
 		nameCapture := Capture("blockName", NodeKind("string"))
-		
+
 		blockWithNamePattern := And(
 			blockPattern,
 			HasChild(nameCapture),
 		)
-		
+
 		if blockWithNamePattern.Matches(blockNode, twigCode) {
 			nameNode := nameCapture.GetCapturedNode()
 			if nameNode != nil {
@@ -120,7 +130,7 @@ func TestTwigPatterns(t *testing.T) {
 			}
 		}
 	}
-	
+
 	assert.ElementsMatch(t, []string{"content", "nested", "footer"}, blockNames,
 		"Should extract all block names correctly")
 }
@@ -130,22 +140,22 @@ func TestPatternComposition(t *testing.T) {
 	pattern1 := NodeKind("tag")
 	pattern2 := NodeText("test")
 	pattern3 := HasChild(NodeKind("string"))
-	
+
 	// Test AND composition
 	andPattern := And(pattern1, pattern2, pattern3)
-	
+
 	assert.NotNil(t, andPattern, "AND pattern should be properly constructed")
-	
-	// Test OR composition  
+
+	// Test OR composition
 	orPattern := Or(pattern1, pattern2, pattern3)
-	
+
 	assert.NotNil(t, orPattern, "OR pattern should be properly constructed")
-	
+
 	// Test NOT composition
 	notPattern := Not(pattern1)
-	
+
 	assert.NotNil(t, notPattern, "NOT pattern should be properly constructed")
-	
+
 	// Test complex composition
 	complexPattern := And(
 		NodeKind("tag"),
@@ -155,7 +165,7 @@ func TestPatternComposition(t *testing.T) {
 		),
 		Not(HasChild(NodeText("raw"))),
 	)
-	
+
 	assert.NotNil(t, complexPattern, "Complex pattern should be properly constructed")
 }
 
@@ -164,18 +174,18 @@ func TestPatternsLibrary(t *testing.T) {
 	// PHP patterns
 	phpMethodCallPattern := PHPMethodCallPattern("renderStorefront")
 	assert.NotNil(t, phpMethodCallPattern, "PHP method call pattern should be constructed")
-	
-	// XML patterns  
+
+	// XML patterns
 	xmlServicePattern := XMLServicePattern
 	assert.NotNil(t, xmlServicePattern, "XML service pattern should be constructed")
-	
+
 	xmlServiceWithIdPattern := XMLServiceWithIdPattern("myService")
 	assert.NotNil(t, xmlServiceWithIdPattern, "XML service with ID pattern should be constructed")
-	
+
 	// Twig patterns
 	twigBlockPattern := TwigBlockPattern
 	assert.NotNil(t, twigBlockPattern, "Twig block pattern should be constructed")
-	
+
 	twigExtendsPattern := TwigExtendsPattern
 	assert.NotNil(t, twigExtendsPattern, "Twig extends pattern should be constructed")
 }

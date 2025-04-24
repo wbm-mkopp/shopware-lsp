@@ -6,7 +6,6 @@ import tree_sitter "github.com/tree-sitter/go-tree-sitter"
 func IsPHPRenderStorefrontCall(node *tree_sitter.Node, content []byte) bool {
 	pattern := And(
 		NodeKind("string_content"),
-		ParentOfKind("member_call_expression", 4),
 		Ancestor(
 			And(
 				NodeKind("member_call_expression"),
@@ -15,18 +14,21 @@ func IsPHPRenderStorefrontCall(node *tree_sitter.Node, content []byte) bool {
 					NodeText("renderStorefront"),
 				)),
 			),
-			4,
+			4, // Maximum depth to search up for ancestor
 		),
 	)
 	
 	return pattern.Matches(node, content)
 }
 
-// Pattern-based implementation
+// Pattern-based implementation for editor completion
 func IsPHPRenderStorefrontCallEdit(node *tree_sitter.Node, content []byte) bool {
+	// For PHP editor, handle both raw string and string_content nodes
 	pattern := And(
-		NodeKind("string"),
-		ParentOfKind("member_call_expression", 3),
+		Or(
+			NodeKind("string_content"),
+			NodeKind("encapsed_string"),
+		),
 		Ancestor(
 			And(
 				NodeKind("member_call_expression"),
@@ -35,7 +37,7 @@ func IsPHPRenderStorefrontCallEdit(node *tree_sitter.Node, content []byte) bool 
 					NodeText("renderStorefront"),
 				)),
 			),
-			3,
+			4, // Maximum depth to search up for ancestor
 		),
 	)
 	
