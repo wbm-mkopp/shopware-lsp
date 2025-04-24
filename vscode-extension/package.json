@@ -16,6 +16,11 @@
     "onLanguage:xml",
     "onLanguage:twig"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shopwareLabs/shopware-lsp.git"
+  },
+  "pricing": "Free",
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
