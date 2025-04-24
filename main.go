@@ -39,6 +39,7 @@ func main() {
 	server := lsp.NewServer(filescanner)
 
 	server.RegisterIndexer(symfony.NewServiceIndex(projectRoot, cacheDir))
+	server.RegisterIndexer(symfony.NewRouteIndexer(cacheDir))
 	server.RegisterIndexer(php.NewPHPIndex(cacheDir))
 	server.RegisterIndexer(twig.NewTwigIndexer(cacheDir))
 

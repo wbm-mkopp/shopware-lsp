@@ -1,6 +1,7 @@
 package treesitterhelper
 
 import (
+	"slices"
 	"strings"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
@@ -195,6 +196,26 @@ var (
 
 				return false
 			}),
+		)
+	}
+
+	TwigStringInFunctionPattern = func(funcNames ...string) Pattern {
+		return And(
+			NodeKind("string"),
+			Ancestor(
+				And(
+					NodeKind("call_expression"),
+					HasChild(And(
+						NodeKind("function"),
+						FuncPattern(func(node *tree_sitter.Node, content []byte) bool {
+							funcName := string(node.Utf8Text(content))
+
+							return slices.Contains(funcNames, funcName)
+						}),
+					)),
+				),
+				2,
+			),
 		)
 	}
 )

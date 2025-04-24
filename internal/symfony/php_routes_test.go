@@ -14,7 +14,7 @@ func TestExtractRoutesFromFile(t *testing.T) {
 	filePath := "testdata/controller.php"
 	node, content := parsePHPFile(filePath)
 
-	routes := extractRoutes(filePath, node, content)
+	routes := parsePHPRoutes(filePath, node, content)
 
 	// Verify we found only the method route
 	assert.Len(t, routes, 1)
@@ -36,7 +36,7 @@ func TestExtractRoutesWithBasePathFromFile(t *testing.T) {
 	filePath := "testdata/controller_base.php"
 	node, content := parsePHPFile(filePath)
 
-	routes := extractRoutes(filePath, node, content)
+	routes := parsePHPRoutes(filePath, node, content)
 
 	// Verify we found only the method route
 	assert.Len(t, routes, 1)
@@ -51,6 +51,41 @@ func TestExtractRoutesWithBasePathFromFile(t *testing.T) {
 	}
 
 	assert.Equal(t, expectedRouteMethod, routes[0])
+}
+
+func TestExtractRoutesStorefrontController(t *testing.T) {
+	// Extract routes from the test file with base path
+	filePath := "testdata/wishlist.php"
+	node, content := parsePHPFile(filePath)
+
+	// Run the actual test
+	routes := parsePHPRoutes(filePath, node, content)
+
+	// Verify we found routes (should find at least one)
+	assert.NotEmpty(t, routes)
+
+	// Find the route we're interested in (frontend.wishlist.page)
+	var wishlistPageRoute *Route
+	for _, route := range routes {
+		if route.Name == "frontend.wishlist.page" {
+			wishlistPageRoute = &route
+			break
+		}
+	}
+
+	// Verify we found the route
+	assert.NotNil(t, wishlistPageRoute)
+
+	// Verify route data
+	expectedRouteMethod := Route{
+		Name:       "frontend.wishlist.page",
+		Path:       "/wishlist",
+		FilePath:   filePath,
+		Line:       55, // Line number of the Route attribute in the wishlist.php file
+		Controller: "Shopware\\Storefront\\Controller\\WishlistController::index",
+	}
+
+	assert.Equal(t, expectedRouteMethod, *wishlistPageRoute)
 }
 
 func parsePHPFile(filePath string) (*tree_sitter.Node, []byte) {
