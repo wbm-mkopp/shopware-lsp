@@ -31,6 +31,7 @@ release-build-extension:
 	@cp "${tmpDir}/shopware-lsp" ./vscode-extension/shopware-lsp
 	@rm -rf "${tmpDir}"
 	$(eval RELEASE_ARCH := $(if $(filter amd64,$(ARCH)),x64,$(ARCH)))
+	npm install --prefix ./vscode-extension
 	cd vscode-extension && jq '.version = "${VERSION}"' package.json > package.json.tmp && mv package.json.tmp package.json
 	cd vscode-extension && npx @vscode/vsce package --target ${OS}-${RELEASE_ARCH} -o ../dist/shopware-lsp-${VERSION}-${OS}-${RELEASE_ARCH}.vsix
 	rm -rf ./vscode-extension/shopware-lsp
