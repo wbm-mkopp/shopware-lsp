@@ -16,18 +16,19 @@ func TestExtractRoutesFromFile(t *testing.T) {
 
 	routes := extractRoutes(filePath, node, content)
 
-	// Verify we found the route
+	// Verify we found only the method route
 	assert.Len(t, routes, 1)
 
-	// Verify route data
-	expectedRoute := Route{
-		Name:     "frontend.account.address.page",
-		Path:     "/account/address",
-		FilePath: filePath,
-		Line:     6, // Line number of the Route attribute in the test file
+	// Verify method route data
+	expectedRouteMethod := Route{
+		Name:       "frontend.account.address.create",
+		Path:       "/account/address/create", // Combined path
+		FilePath:   filePath,
+		Line:       14, // Line number of the Route attribute in the test file
+		Controller: "App\\Controller\\Frontend\\Account\\AddressController::createAddress",
 	}
 
-	assert.Equal(t, expectedRoute, routes[0])
+	assert.Equal(t, expectedRouteMethod, routes[0])
 }
 
 func TestExtractRoutesWithBasePathFromFile(t *testing.T) {
@@ -37,18 +38,19 @@ func TestExtractRoutesWithBasePathFromFile(t *testing.T) {
 
 	routes := extractRoutes(filePath, node, content)
 
-	// Verify we found the route
+	// Verify we found only the method route
 	assert.Len(t, routes, 1)
 
-	// Verify route data with combined path
-	expectedRoute := Route{
-		Name:     "foo",
-		Path:     "/api/foo", // Base path + route path
-		FilePath: filePath,
-		Line:     6, // Line number of the Route attribute in the test file
+	// Verify method route data with combined path
+	expectedRouteMethod := Route{
+		Name:       "foo",
+		Path:       "/api/foo", // Base path + route path
+		FilePath:   filePath,
+		Line:       11, // Line number of the Route attribute in the test file
+		Controller: "Shopware\\Core\\Api\\ApiController::foo",
 	}
 
-	assert.Equal(t, expectedRoute, routes[0])
+	assert.Equal(t, expectedRouteMethod, routes[0])
 }
 
 func parsePHPFile(filePath string) (*tree_sitter.Node, []byte) {

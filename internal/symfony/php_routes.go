@@ -25,8 +25,20 @@ func extractRoutes(filePath string, node *tree_sitter.Node, content []byte) []Ro
 	classNodes := treesitterhelper.FindAll(node, classPattern, content)
 
 	for _, classNode := range classNodes {
-		// Get class route base path (if any)
-		basePath := extractClassBasePath(classNode, content)
+		// Get namespace from file
+		namespace := extractNamespace(classNode.Parent(), content)
+
+		// Get the class name
+		className := extractClassName(classNode, content)
+
+		// Get class-level Route attribute (if any) - but only to extract base path
+		classRoutes := extractClassRoutes(classNode, content, namespace, className)
+
+		// Get the base path from class route (if any) for method routes
+		basePath := ""
+		if len(classRoutes) > 0 {
+			basePath = classRoutes[0].Path
+		}
 
 		// Find all method route attributes within the class
 		methodRoutes := extractMethodRoutes(classNode, content, basePath)
@@ -52,12 +64,14 @@ func extractRoutes(filePath string, node *tree_sitter.Node, content []byte) []Ro
 	return routes
 }
 
-// extractClassBasePath extracts the base path from a class-level Route attribute
-func extractClassBasePath(classNode *tree_sitter.Node, content []byte) string {
+// extractClassRoutes extracts routes from a class-level Route attribute
+func extractClassRoutes(classNode *tree_sitter.Node, content []byte, namespace, className string) []Route {
+	var routes []Route
+
 	// Look for attribute_list in class
 	attrListNode := treesitterhelper.GetFirstNodeOfKind(classNode, "attribute_list")
 	if attrListNode == nil {
-		return ""
+		return routes
 	}
 
 	// Find Route attribute
@@ -71,39 +85,40 @@ func extractClassBasePath(classNode *tree_sitter.Node, content []byte) string {
 
 	attrNodes := treesitterhelper.FindAll(attrListNode, routeAttributePattern, content)
 	if len(attrNodes) == 0 {
-		return ""
+		return routes
 	}
 
-	// Extract path from attribute
+	// Extract route info from attribute
 	for _, attrNode := range attrNodes {
-		args := treesitterhelper.GetFirstNodeOfKind(attrNode, "arguments")
-		if args == nil {
-			continue
-		}
+		route := extractRouteFromAttribute(attrNode, content)
 
-		for i := 0; i < int(args.NamedChildCount()); i++ {
-			argNode := args.NamedChild(uint(i))
-
-			if argNode.Kind() == "argument" {
-				nameNode := treesitterhelper.GetFirstNodeOfKind(argNode, "name")
-				stringNode := treesitterhelper.GetFirstNodeOfKind(argNode, "string")
-
-				if nameNode != nil && stringNode != nil && string(nameNode.Utf8Text(content)) == "path" {
-					stringContentNode := treesitterhelper.GetFirstNodeOfKind(stringNode, "string_content")
-					if stringContentNode != nil {
-						return string(stringContentNode.Utf8Text(content))
-					}
-				}
+		// Set controller info if provided via "controller" param
+		if route.Controller == "" && className != "" {
+			// Build a default controller string with the class name
+			if namespace != "" {
+				route.Controller = namespace + "\\" + className
+			} else {
+				route.Controller = className
 			}
 		}
+
+		if route.Name != "" || route.Path != "" {
+			routes = append(routes, route)
+		}
 	}
 
-	return ""
+	return routes
 }
 
 // extractMethodRoutes extracts routes from methods within a class
 func extractMethodRoutes(classNode *tree_sitter.Node, content []byte, basePath string) []Route {
 	var routes []Route
+
+	// Get namespace from file
+	namespace := extractNamespace(classNode.Parent(), content)
+
+	// Get the class name
+	className := extractClassName(classNode, content)
 
 	// Get the declaration list (methods are inside here)
 	declList := treesitterhelper.GetFirstNodeOfKind(classNode, "declaration_list")
@@ -117,6 +132,12 @@ func extractMethodRoutes(classNode *tree_sitter.Node, content []byte, basePath s
 	// Find all methods
 	methodNodes := treesitterhelper.FindAll(declList, methodPattern, content)
 	for _, methodNode := range methodNodes {
+		// Get method name
+		methodName := extractMethodName(methodNode, content)
+		if methodName == "" {
+			continue
+		}
+
 		// Get attribute list
 		attrListNode := treesitterhelper.GetFirstNodeOfKind(methodNode, "attribute_list")
 		if attrListNode == nil {
@@ -146,6 +167,13 @@ func extractMethodRoutes(classNode *tree_sitter.Node, content []byte, basePath s
 				}
 			}
 
+			// Build controller string in format "Namespace\ClassName::methodName"
+			controllerString := className + "::" + methodName
+			if namespace != "" {
+				controllerString = namespace + "\\" + controllerString
+			}
+			route.Controller = controllerString
+
 			if route.Name != "" || route.Path != "" {
 				routes = append(routes, route)
 			}
@@ -168,6 +196,46 @@ func isTopLevelAttribute(node *tree_sitter.Node) bool {
 	return true
 }
 
+// extractNamespace extracts the namespace from a PHP file
+func extractNamespace(rootNode *tree_sitter.Node, content []byte) string {
+	namespacePattern := treesitterhelper.And(
+		treesitterhelper.NodeKind("namespace_definition"),
+		treesitterhelper.HasChild(treesitterhelper.NodeKind("namespace_name")),
+	)
+
+	namespaceNodes := treesitterhelper.FindAll(rootNode, namespacePattern, content)
+	if len(namespaceNodes) == 0 {
+		return ""
+	}
+
+	// Get namespace name node
+	namespaceNode := namespaceNodes[0]
+	namespaceNameNode := treesitterhelper.GetFirstNodeOfKind(namespaceNode, "namespace_name")
+	if namespaceNameNode == nil {
+		return ""
+	}
+
+	return string(namespaceNameNode.Utf8Text(content))
+}
+
+// extractClassName extracts the name of a class
+func extractClassName(classNode *tree_sitter.Node, content []byte) string {
+	nameNode := treesitterhelper.GetFirstNodeOfKind(classNode, "name")
+	if nameNode == nil {
+		return ""
+	}
+	return string(nameNode.Utf8Text(content))
+}
+
+// extractMethodName extracts the name of a method
+func extractMethodName(methodNode *tree_sitter.Node, content []byte) string {
+	nameNode := treesitterhelper.GetFirstNodeOfKind(methodNode, "name")
+	if nameNode == nil {
+		return ""
+	}
+	return string(nameNode.Utf8Text(content))
+}
+
 // extractRouteFromAttribute extracts route data from an attribute node
 func extractRouteFromAttribute(node *tree_sitter.Node, content []byte) Route {
 	var route Route
@@ -188,7 +256,9 @@ func extractRouteFromAttribute(node *tree_sitter.Node, content []byte) Route {
 		// Check if it's a named argument
 		if argNode.Kind() == "argument" {
 			nameNode := treesitterhelper.GetFirstNodeOfKind(argNode, "name")
-			stringNode := treesitterhelper.GetFirstNodeOfKind(argNode, "string")
+
+			// Try to get a string node (encapsed_string in PHP tree-sitter)
+			stringNode := treesitterhelper.GetFirstNodeOfKind(argNode, "encapsed_string")
 
 			if nameNode != nil && stringNode != nil {
 				argName := string(nameNode.Utf8Text(content))
@@ -204,6 +274,8 @@ func extractRouteFromAttribute(node *tree_sitter.Node, content []byte) Route {
 						route.Name = stringValue
 					case "path":
 						route.Path = stringValue
+					case "controller":
+						route.Controller = stringValue
 					}
 				}
 			}

@@ -42,12 +42,6 @@ app_product_create:
 	routes, err := ParseYAMLRoutes("test.yaml", tree.RootNode(), []byte(yamlContent))
 	assert.NoError(t, err)
 
-	// Debug the routes found
-	t.Logf("Found %d routes", len(routes))
-	for i, route := range routes {
-		t.Logf("Route %d: %+v", i, route)
-	}
-
 	// Verify the parsed routes
 	if assert.Len(t, routes, 3, "Expected 3 routes from tree-sitter YAML parsing") {
 		// Check the first route

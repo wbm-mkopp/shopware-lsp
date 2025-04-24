@@ -70,21 +70,21 @@ var (
 			)),
 		),
 	)
-	
+
 	// Generic Twig tag pattern builder
 	TwigTagPattern = func(tagNames ...string) Pattern {
 		// Handle different possible node structures for tag types
 		tagPatterns := []Pattern{}
-		
+
 		for _, tagName := range tagNames {
 			switch tagName {
 			case "block":
 				// Block is a direct node type
 				tagPatterns = append(tagPatterns, NodeKind("block"))
-			
+
 			case "extends":
 				// Extends could be a direct node type or a tag
-				tagPatterns = append(tagPatterns, 
+				tagPatterns = append(tagPatterns,
 					Or(
 						NodeKind("extends"),
 						And(
@@ -96,10 +96,10 @@ var (
 						),
 					),
 				)
-			
+
 			case "include":
 				// Include could be a direct node type or a tag
-				tagPatterns = append(tagPatterns, 
+				tagPatterns = append(tagPatterns,
 					Or(
 						NodeKind("include"),
 						And(
@@ -111,7 +111,7 @@ var (
 						),
 					),
 				)
-			
+
 			default:
 				// For other tags like sw_extends, sw_include, etc.
 				// They could be direct node types or inside tags with keywords
@@ -131,10 +131,10 @@ var (
 				)
 			}
 		}
-		
+
 		return Or(tagPatterns...)
 	}
-	
+
 	// Pattern for a string or identifier inside a specific Twig construct
 	TwigStringInTagPattern = func(tagNames ...string) Pattern {
 		return And(
@@ -146,10 +146,10 @@ var (
 				if parent == nil {
 					return false
 				}
-				
+
 				// Handle various tag types
 				parentKind := parent.Kind()
-				
+
 				// Special case for block (direct relationship)
 				if parentKind == "block" {
 					for _, tagName := range tagNames {
@@ -158,7 +158,7 @@ var (
 						}
 					}
 				}
-				
+
 				// Special case for extends (direct relationship)
 				if parentKind == "extends" {
 					for _, tagName := range tagNames {
@@ -167,7 +167,7 @@ var (
 						}
 					}
 				}
-				
+
 				// Special case for include (direct relationship)
 				if parentKind == "include" {
 					for _, tagName := range tagNames {
@@ -176,7 +176,7 @@ var (
 						}
 					}
 				}
-				
+
 				// Generic tag with keyword or tag_name
 				if parentKind == "tag" {
 					// Find the keyword/tag_name child and check its text
@@ -192,7 +192,7 @@ var (
 						}
 					}
 				}
-				
+
 				return false
 			}),
 		)
@@ -475,7 +475,7 @@ func (p *capturePattern) GetCapturedNode() *tree_sitter.Node {
 
 // Utility function to match a pattern and return the first matching node
 func FindFirst(root *tree_sitter.Node, pattern Pattern, content []byte) *tree_sitter.Node {
-	// Simple traversal implementation 
+	// Simple traversal implementation
 	if pattern.Matches(root, content) {
 		return root
 	}
@@ -486,25 +486,25 @@ func FindFirst(root *tree_sitter.Node, pattern Pattern, content []byte) *tree_si
 			return result
 		}
 	}
-	
+
 	return nil
 }
 
 // Utility function to find all nodes matching a pattern
 func FindAll(root *tree_sitter.Node, pattern Pattern, content []byte) []*tree_sitter.Node {
 	var results []*tree_sitter.Node
-	
+
 	var visit func(node *tree_sitter.Node)
 	visit = func(node *tree_sitter.Node) {
 		if pattern.Matches(node, content) {
 			results = append(results, node)
 		}
-		
+
 		for i := 0; i < int(node.NamedChildCount()); i++ {
 			visit(node.NamedChild(uint(i)))
 		}
 	}
-	
+
 	visit(root)
 	return results
 }
@@ -524,18 +524,18 @@ func FindAllTwigBlocks(root *tree_sitter.Node, content []byte) []*tree_sitter.No
 // Get the name of a Twig block
 func GetTwigBlockName(blockNode *tree_sitter.Node, content []byte) string {
 	nameCapture := Capture("name", NodeKind("string"))
-	
+
 	blockWithNamePattern := And(
 		TwigBlockPattern,
 		HasChild(nameCapture),
 	)
-	
+
 	if blockWithNamePattern.Matches(blockNode, content) {
 		nameNode := nameCapture.GetCapturedNode()
 		if nameNode != nil {
 			return string(nameNode.Utf8Text(content))
 		}
 	}
-	
+
 	return ""
 }
