@@ -5,6 +5,7 @@ import (
 	"log"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/shopware/shopware-lsp/internal/indexer"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
@@ -53,9 +54,24 @@ func (idx *ServiceIndex) ID() string {
 	return "symfony.service"
 }
 
-// Index scans the project for XML files and builds the service index
+// Index scans the project for XML and YAML files and builds the service index
 func (idx *ServiceIndex) Index(path string, node *tree_sitter.Node, fileContent []byte) error {
-	services, params, err := ParseXMLServices(path, node, fileContent)
+	var services []Service
+	var params []Parameter
+	var err error
+
+	// Determine if this is an XML or YAML file based on extension
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".xml":
+		services, params, err = ParseXMLServices(path, node, fileContent)
+	case ".yaml", ".yml":
+		services, params, err = ParseYAMLServices(path, node, fileContent)
+	default:
+		// Not a file type we're interested in
+		return nil
+	}
+
 	if err != nil {
 		return err
 	}
