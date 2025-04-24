@@ -34,13 +34,15 @@ func CreateTreesitterParsers() map[string]*tree_sitter.Parser {
 		panic(err)
 	}
 
-	yamlParser := tree_sitter.NewParser()
-	if err := yamlParser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_yaml.Language())); err != nil {
+	parsers[".yaml"] = tree_sitter.NewParser()
+	if err := parsers[".yaml"].SetLanguage(tree_sitter.NewLanguage(tree_sitter_yaml.Language())); err != nil {
 		panic(err)
 	}
 
-	parsers[".yaml"] = yamlParser
-	parsers[".yml"] = yamlParser
+	parsers[".yml"] = tree_sitter.NewParser()
+	if err := parsers[".yml"].SetLanguage(tree_sitter.NewLanguage(tree_sitter_yaml.Language())); err != nil {
+		panic(err)
+	}
 
 	return parsers
 }

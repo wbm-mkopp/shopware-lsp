@@ -140,6 +140,61 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       vscode.window.showErrorMessage(`Failed to trigger force reindexing: ${error}`);
     }
   }));
+
+  // Register open references command
+  context.subscriptions.push(vscode.commands.registerCommand('shopware.openReferences', async (references: string[]) => {
+    if (!references || references.length === 0) {
+      vscode.window.showInformationMessage('No references found');
+      return;
+    }
+
+    // Create quick pick items from references
+    const items = references.map(ref => {
+      // Parse the URI and line number from the reference (format: file:///path/to/file.twig#lineNumber)
+      const [uri, lineStr] = ref.split('#');
+      const line = parseInt(lineStr, 10) - 1; // Convert to 0-based line number
+      const filePath = uri.replace('file://', '');
+      
+      // Extract relative path from workspace root if possible
+      let displayPath = filePath;
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (workspaceFolders && workspaceFolders.length > 0) {
+        const workspaceRoot = workspaceFolders[0].uri.fsPath;
+        if (filePath.startsWith(workspaceRoot)) {
+          displayPath = filePath.substring(workspaceRoot.length + 1); // +1 to remove the leading slash
+        }
+      }
+      
+      return {
+        label: `$(file) ${path.basename(filePath)}`,
+        description: displayPath,
+        detail: `Line ${line + 1}`,
+        uri,
+        line
+      };
+    });
+
+    // Show quick pick with references
+    const selected = await vscode.window.showQuickPick(items, {
+      placeHolder: 'Select a reference to open',
+      matchOnDescription: true,
+      matchOnDetail: true
+    });
+
+    if (selected) {
+      // Open the selected file and position at the specified line
+      const document = await vscode.workspace.openTextDocument(vscode.Uri.parse(selected.uri));
+      const editor = await vscode.window.showTextDocument(document);
+      
+      // Position at the specified line
+      const position = new vscode.Position(selected.line, 0);
+      editor.selection = new vscode.Selection(position, position);
+      editor.revealRange(
+        new vscode.Range(position, position),
+        vscode.TextEditorRevealType.InCenter
+      );
+    }
+  }));
 }
 
 export function deactivate(): Thenable<void> | undefined {

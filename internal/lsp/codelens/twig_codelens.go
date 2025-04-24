@@ -43,7 +43,7 @@ func (p *TwigCodeLensProvider) GetCodeLenses(ctx context.Context, params *protoc
 	if twigFile.ExtendsFile != twigFile.RelPath {
 		allOtherFiles, _ := p.twigIndexer.GetTwigFilesByRelPath(twigFile.RelPath)
 
-		blockOverwrites := make(map[string]int)
+		blockOverwrites := make(map[string][]string)
 
 		for _, file := range allOtherFiles {
 			if file.Path == twigFile.Path {
@@ -51,14 +51,18 @@ func (p *TwigCodeLensProvider) GetCodeLenses(ctx context.Context, params *protoc
 			}
 
 			for _, block := range file.Blocks {
-				blockOverwrites[block.Name]++
+				if _, ok := blockOverwrites[block.Name]; !ok {
+					blockOverwrites[block.Name] = []string{}
+				}
+
+				blockOverwrites[block.Name] = append(blockOverwrites[block.Name], fmt.Sprintf("file://%s#%d", file.Path, block.Line))
 			}
 		}
 
 		var lenses []protocol.CodeLens
 
 		for _, block := range twigFile.Blocks {
-			if blockOverwrites[block.Name] > 0 {
+			if len(blockOverwrites[block.Name]) > 0 {
 				lenses = append(lenses, protocol.CodeLens{
 					Range: protocol.Range{
 						Start: protocol.Position{
@@ -71,7 +75,9 @@ func (p *TwigCodeLensProvider) GetCodeLenses(ctx context.Context, params *protoc
 						},
 					},
 					Command: &protocol.Command{
-						Title: fmt.Sprintf("%d block overwrites", blockOverwrites[block.Name]),
+						Title:     fmt.Sprintf("%d block overwrites", len(blockOverwrites[block.Name])),
+						Command:   "shopware.openReferences",
+						Arguments: []any{blockOverwrites[block.Name]},
 					},
 				})
 			}
