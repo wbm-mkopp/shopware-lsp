@@ -3,6 +3,7 @@ package treesitterhelper
 import (
 	"testing"
 
+	tree_sitter_twig "github.com/kaermorchen/tree-sitter-twig/bindings/go"
 	"github.com/stretchr/testify/assert"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 	tree_sitter_php "github.com/tree-sitter/tree-sitter-php/bindings/go"
@@ -81,8 +82,7 @@ func TestPHPPatterns(t *testing.T) {
 
 func TestTwigPatterns(t *testing.T) {
 	parser := tree_sitter.NewParser()
-	// Skip test if Twig language not available
-	t.Skip("Skipping test that requires tree-sitter-twig")
+	assert.NoError(t, parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_twig.Language())))
 
 	twigCode := []byte(`{% block content %}
 	<div>
@@ -101,22 +101,16 @@ func TestTwigPatterns(t *testing.T) {
 	defer tree.Close()
 
 	// Define pattern for Twig blocks
-	blockPattern := And(
-		NodeKind("tag"),
-		HasChild(And(
-			NodeKind("tag_name"),
-			NodeText("block"),
-		)),
-	)
+	blockPattern := NodeKind("block")
 
 	// Find all blocks
 	blocks := FindAll(tree.RootNode(), blockPattern, twigCode)
-	assert.Equal(t, 3, len(blocks), "Should find three block tags")
+	assert.Equal(t, 3, len(blocks), "Should find three block nodes")
 
 	// Test capture pattern to extract block names
 	blockNames := []string{}
 	for _, blockNode := range blocks {
-		nameCapture := Capture("blockName", NodeKind("string"))
+		nameCapture := Capture("blockName", NodeKind("identifier"))
 
 		blockWithNamePattern := And(
 			blockPattern,

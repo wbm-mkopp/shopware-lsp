@@ -53,78 +53,139 @@ var (
 	}
 
 	// Twig patterns
-	TwigBlockPattern = And(
-		NodeKind("tag"),
-		HasChild(And(
-			NodeKind("tag_name"),
-			NodeText("block"),
-		)),
-	)
+	TwigBlockPattern = NodeKind("block")
 
-	TwigExtendsPattern = And(
-		NodeKind("tag"),
-		HasChild(And(
-			NodeKind("tag_name"),
-			NodeText("extends"),
-		)),
+	// Twig extends pattern
+	// Note: The AST may represent this differently based on the parser version
+	// This supports both the tag-based structure and direct extends nodes
+	TwigExtendsPattern = Or(
+		// Direct extends node
+		NodeKind("extends"),
+		// Tag-based extends
+		And(
+			NodeKind("tag"),
+			HasChild(And(
+				AnyNodeKind("keyword", "tag_name"),
+				NodeText("extends"),
+			)),
+		),
 	)
 	
 	// Generic Twig tag pattern builder
 	TwigTagPattern = func(tagNames ...string) Pattern {
-		// Based on the tree structure, we need to check for nodes with specific kinds (extends, include, tag)
-		// and then look for a keyword child with specific text
-		tagKindPatterns := []Pattern{}
+		// Handle different possible node structures for tag types
+		tagPatterns := []Pattern{}
 		
-		// Add patterns for direct tag kinds (extends, include)
 		for _, tagName := range tagNames {
-			// Some tags are represented by their own node kind (extends, include)
-			// Others are generic "tag" nodes with a keyword child
-			if tagName == "extends" || tagName == "include" {
-				tagKindPatterns = append(tagKindPatterns, NodeKind(tagName))
-			} else {
-				// For other tags like sw_extends, sw_include, block, etc.
-				tagKindPatterns = append(tagKindPatterns,
-					And(
-						NodeKind("tag"),
-						HasChild(And(
-							NodeKind("keyword"),
-							NodeText(tagName),
-						)),
+			switch tagName {
+			case "block":
+				// Block is a direct node type
+				tagPatterns = append(tagPatterns, NodeKind("block"))
+			
+			case "extends":
+				// Extends could be a direct node type or a tag
+				tagPatterns = append(tagPatterns, 
+					Or(
+						NodeKind("extends"),
+						And(
+							NodeKind("tag"),
+							HasChild(And(
+								AnyNodeKind("keyword", "tag_name"),
+								NodeText("extends"),
+							)),
+						),
+					),
+				)
+			
+			case "include":
+				// Include could be a direct node type or a tag
+				tagPatterns = append(tagPatterns, 
+					Or(
+						NodeKind("include"),
+						And(
+							NodeKind("tag"),
+							HasChild(And(
+								AnyNodeKind("keyword", "tag_name"),
+								NodeText("include"),
+							)),
+						),
+					),
+				)
+			
+			default:
+				// For other tags like sw_extends, sw_include, etc.
+				// They could be direct node types or inside tags with keywords
+				tagPatterns = append(tagPatterns,
+					Or(
+						// Direct node type (unlikely but for completeness)
+						NodeKind(tagName),
+						// Tag with keyword
+						And(
+							NodeKind("tag"),
+							HasChild(And(
+								AnyNodeKind("keyword", "tag_name"),
+								NodeText(tagName),
+							)),
+						),
 					),
 				)
 			}
 		}
 		
-		return Or(tagKindPatterns...)
+		return Or(tagPatterns...)
 	}
 	
-	// Pattern for a string inside a specific Twig tag
+	// Pattern for a string or identifier inside a specific Twig construct
 	TwigStringInTagPattern = func(tagNames ...string) Pattern {
 		return And(
-			NodeKind("string"),
+			// Match either a string or identifier node
+			AnyNodeKind("string", "identifier"),
+			// Check if it's inside the right tag type
 			FuncPattern(func(node *tree_sitter.Node, content []byte) bool {
 				parent := node.Parent()
 				if parent == nil {
 					return false
 				}
 				
-				// Check if parent is one of our tag kinds directly
+				// Handle various tag types
 				parentKind := parent.Kind()
-				for _, tagName := range tagNames {
-					if parentKind == tagName { // For direct kinds like "extends" or "include"
-						return true
+				
+				// Special case for block (direct relationship)
+				if parentKind == "block" {
+					for _, tagName := range tagNames {
+						if tagName == "block" {
+							return true
+						}
 					}
 				}
 				
-				// Check for generic "tag" with keyword
+				// Special case for extends (direct relationship)
+				if parentKind == "extends" {
+					for _, tagName := range tagNames {
+						if tagName == "extends" {
+							return true
+						}
+					}
+				}
+				
+				// Special case for include (direct relationship)
+				if parentKind == "include" {
+					for _, tagName := range tagNames {
+						if tagName == "include" {
+							return true
+						}
+					}
+				}
+				
+				// Generic tag with keyword or tag_name
 				if parentKind == "tag" {
-					// Find the keyword child and check its text
+					// Find the keyword/tag_name child and check its text
 					for i := 0; i < int(parent.ChildCount()); i++ {
 						child := parent.Child(uint(i))
-						if child != nil && child.Kind() == "keyword" {
-							keywordText := string(child.Utf8Text(content))
+						if child != nil && (child.Kind() == "keyword" || child.Kind() == "tag_name") {
+							childText := string(child.Utf8Text(content))
 							for _, tagName := range tagNames {
-								if keywordText == tagName {
+								if childText == tagName {
 									return true
 								}
 							}
