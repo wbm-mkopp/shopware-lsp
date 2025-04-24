@@ -2,6 +2,7 @@ package definition
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 
 	"github.com/shopware/shopware-lsp/internal/lsp"
@@ -23,7 +24,17 @@ func NewTwigDefinitionProvider(lspServer *lsp.Server) *TwigDefinitionProvider {
 }
 
 func (p *TwigDefinitionProvider) GetDefinition(ctx context.Context, params *protocol.DefinitionParams) []protocol.Location {
-	if !strings.HasSuffix(strings.ToLower(params.TextDocument.URI), ".twig") || params.Node == nil {
+	if params.Node == nil {
+		return []protocol.Location{}
+	}
+
+	fileExt := strings.ToLower(filepath.Ext(params.TextDocument.URI))
+
+	if fileExt == ".php" {
+		return p.phpDefinitions(ctx, params)
+	}
+
+	if fileExt != ".twig" {
 		return []protocol.Location{}
 	}
 
@@ -31,6 +42,33 @@ func (p *TwigDefinitionProvider) GetDefinition(ctx context.Context, params *prot
 		itemValue := twig.CleanupTemplatePath(treesitterhelper.GetNodeText(params.Node, params.DocumentContent))
 
 		files, _ := p.twigIndexer.GetTwigFilesByRelPath(itemValue)
+
+		var locations []protocol.Location
+		for _, file := range files {
+			locations = append(locations, protocol.Location{
+				URI: file.Path,
+				Range: protocol.Range{
+					Start: protocol.Position{
+						Line:      0,
+						Character: 0,
+					},
+					End: protocol.Position{
+						Line:      0,
+						Character: 0,
+					},
+				},
+			})
+		}
+
+		return locations
+	}
+
+	return []protocol.Location{}
+}
+
+func (p *TwigDefinitionProvider) phpDefinitions(ctx context.Context, params *protocol.DefinitionParams) []protocol.Location {
+	if treesitterhelper.IsPHPRenderStorefrontCall(params.Node, params.DocumentContent) {
+		files, _ := p.twigIndexer.GetTwigFilesByRelPath(twig.CleanupTemplatePath(treesitterhelper.GetNodeText(params.Node, params.DocumentContent)))
 
 		var locations []protocol.Location
 		for _, file := range files {
