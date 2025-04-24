@@ -1,4 +1,4 @@
-package php
+package symfony
 
 import (
 	"strings"
@@ -6,14 +6,6 @@ import (
 	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
-
-// Route represents a Symfony route from PHP attribute
-type Route struct {
-	Name     string `json:"name"`
-	Path     string `json:"path"`
-	FilePath string `json:"file_path"`
-	Line     int    `json:"line"`
-}
 
 // extractRoutes extracts routes from a tree-sitter node
 func extractRoutes(filePath string, node *tree_sitter.Node, content []byte) []Route {
