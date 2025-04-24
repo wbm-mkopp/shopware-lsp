@@ -1,11 +1,16 @@
 {
   "name": "shopware-lsp",
   "displayName": "Shopware Language Server",
-  "description": "Provide Shopware 6 language server support for PHP and XML files.",
-  "version": "0.1.0",
+  "description": "Shopware and Symfony Support for Visual Studio Code",
+  "version": "0.0.1",
   "publisher": "shopware",
+  "icon": "icon.png",
+  "galleryBanner": {
+    "color": "#00ADEF",
+    "theme": "light"
+  },
   "engines": {
-    "vscode": "^1.74.0"
+    "vscode": "^1.98.0"
   },
   "categories": [
     "Programming Languages",
@@ -19,6 +24,9 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/shopwareLabs/shopware-lsp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/shopwareLabs/shopware-lsp/issues"
   },
   "pricing": "Free",
   "main": "./out/extension.js",
@@ -48,7 +56,7 @@
     "@types/glob": "^7.2.0",
     "@types/mocha": "^10.0.1",
     "@types/node": "^16.18.34",
-    "@types/vscode": "^1.74.0",
+    "@types/vscode": "^1.98.0",
     "@vscode/test-electron": "^2.3.8",
     "glob": "^7.2.3",
     "minimatch": "^3.1.2",

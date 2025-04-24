@@ -21,3 +21,17 @@ release:
 		-w /go/src/$(PACKAGE_NAME) \
 		ghcr.io/goreleaser/goreleaser-cross:${GOLANG_CROSS_VERSION} \
 		release --clean
+
+.PHONY: release-build-extension
+release-build-extension:
+	mkdir -p dist
+	$(eval tmpDir := $(shell mktemp -d))
+	@curl -q -L -o "${tmpDir}/shopware-lsp.zip" https://github.com/shopwareLabs/shopware-lsp/releases/download/${VERSION}/shopware-lsp_${VERSION}_$(OS)_$(ARCH).zip
+	@unzip -q "${tmpDir}/shopware-lsp.zip" -d "${tmpDir}"
+	@cp "${tmpDir}/shopware-lsp" ./vscode-extension/shopware-lsp
+	@rm -rf "${tmpDir}"
+	$(eval RELEASE_ARCH := $(if $(filter amd64,$(ARCH)),x64,$(ARCH)))
+	cd vscode-extension && jq '.version = "${VERSION}"' package.json > package.json.tmp && mv package.json.tmp package.json
+	cd vscode-extension && npx @vscode/vsce package --target ${OS}-${RELEASE_ARCH} -o ../dist/shopware-lsp-${VERSION}-${OS}-${RELEASE_ARCH}.vsix
+	rm -rf ./vscode-extension/shopware-lsp
+	gh release upload ${VERSION} ./dist/shopware-lsp-${VERSION}-${OS}-${RELEASE_ARCH}.vsix
