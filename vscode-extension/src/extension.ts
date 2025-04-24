@@ -38,7 +38,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
     const possiblePaths = [
       // When installed as extension
-      context.asAbsolutePath(path.join('..', 'shopware-lsp')),
+      context.asAbsolutePath(path.join('.', 'shopware-lsp')),
       // When running from source
       path.join(workspaceRoot, '..', 'shopware-lsp'),
       // When in the same directory
