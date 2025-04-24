@@ -1,86 +1,21 @@
-# Symfony Service Autocompletion for VSCode
+# Shopware Language Server
 
-This VSCode extension provides autocompletion for Symfony service IDs from XML definitions.
+A Language Server Protocol (LSP) implementation for Shopware development.
 
 ## Features
 
-- Autocompletion for Symfony service IDs in PHP and XML files
-- Works with any Symfony project that uses XML service definitions
-- Real-time updates when service definitions change
-- Supports incomplete/broken XML during editing
+### Symfony Service Support
+- Service ID completion in PHP and XML files
+- Navigation to service definitions from PHP and XML
+- Service code lens in PHP files showing service usage
+- Parameter reference completion and navigation in XML files
+- Service tag completion in XML files
+- Service class completion in XML files
+- Tag-based service lookup and navigation
 
-## Requirements
-
-- VSCode 1.74.0 or newer
-- A Symfony project with XML service definitions
-
-## Extension Settings
-
-This extension contributes the following settings:
-
-* `symfonyServiceLSP.enable`: Enable/disable the Symfony Service LSP
-* `symfonyServiceLSP.serverPath`: Path to the Symfony Service LSP server executable. Leave empty to use the bundled server.
-
-## Installation
-
-### From Source
-
-1. Build the language server:
-   ```bash
-   cd /path/to/shopware-lsp
-   go build
-   ```
-
-2. Install extension dependencies:
-   ```bash
-   cd vscode-extension
-   npm install
-   ```
-
-3. Build the extension:
-   ```bash
-   npm run compile
-   ```
-
-4. Create a symlink to your VSCode extensions folder:
-   ```bash
-   ln -s /path/to/shopware-lsp/vscode-extension ~/.vscode/extensions/symfony-service-lsp
-   ```
-
-5. Restart VSCode
-
-### From VSIX (once packaged)
-
-1. Download the VSIX file
-2. In VSCode, go to Extensions view
-3. Click "..." in the top-right corner
-4. Select "Install from VSIX..."
-5. Choose the downloaded VSIX file
-
-## How It Works
-
-The extension uses a Go-based Language Server Protocol (LSP) implementation that:
-
-1. Scans your project for XML files
-2. Parses them using Tree-sitter for robust handling of even incomplete XML
-3. Extracts Symfony service IDs
-4. Provides autocompletion as you type
-
-## Development
-
-To build and test the extension:
-
-```bash
-# Build the language server
-cd /path/to/shopware-lsp
-go build
-
-# Build the extension
-cd vscode-extension
-npm install
-npm run compile
-```
-
-## License
-
-MIT
+### Twig Template Support
+- Template path completion in Twig files (`extends`, `include`, `sw_extends`, `sw_include` tags)
+- Template path completion in PHP files (`renderStorefront` method calls)
+- Go-to-definition for template paths in Twig and PHP files
+- Twig block indexing and tracking
+- Support for Shopware-specific Twig extensions and tags
