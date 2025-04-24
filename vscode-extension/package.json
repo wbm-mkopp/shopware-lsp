@@ -16,6 +16,11 @@
     "Programming Languages",
     "Linters"
   ],
+  "keywords": [
+    "shopware",
+    "symfony",
+    "twig"
+  ],
   "activationEvents": [
     "onLanguage:php",
     "onLanguage:xml",
