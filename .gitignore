@@ -1,3 +1,4 @@
 /shopware-lsp
 node_modules
 /vscode-extension/out
+/dist

@@ -1,0 +1,79 @@
+builds:
+  - id: darwin-amd64
+    main: ./
+    binary: shopware-lsp
+    goos:
+      - darwin
+    goarch:
+      - amd64
+    env:
+      - PKG_CONFIG_SYSROOT_DIR=/sysroot/macos/amd64
+      - PKG_CONFIG_PATH=/sysroot/macos/amd64/usr/local/lib/pkgconfig
+      - CC=o64-clang
+      - CXX=o64-clang++
+    ldflags:
+      - -s -w
+  - id: darwin-arm64
+    main: ./
+    binary: shopware-lsp
+    goos:
+      - darwin
+    goarch:
+      - arm64
+    env:
+      - PKG_CONFIG_SYSROOT_DIR=/sysroot/macos/arm64
+      - PKG_CONFIG_PATH=/sysroot/macos/arm64/usr/local/lib/pkgconfig
+      - CC=oa64-clang
+      - CXX=oa64-clang++
+    ldflags:
+      - -s -w
+  - id: linux-amd64
+    main: ./
+    binary: shopware-lsp
+    goos:
+      - linux
+    goarch:
+      - amd64
+    ldflags:
+      - -s -w -linkmode external -extldflags -static
+    env:
+      - PKG_CONFIG_SYSROOT_DIR=/sysroot/linux/amd64
+      - PKG_CONFIG_PATH=/sysroot/linux/amd64/usr/local/lib/pkgconfig
+      - CC=x86_64-linux-gnu-gcc
+      - CXX=x86_64-linux-gnu-g++
+  - id: linux-arm64
+    main: ./
+    binary: shopware-lsp
+    goos:
+      - linux
+    goarch:
+      - arm64
+    ldflags:
+      - -s -w -linkmode external -extldflags -static
+    env:
+      - PKG_CONFIG_SYSROOT_DIR=/sysroot/linux/arm64
+      - PKG_CONFIG_PATH=/sysroot/linux/arm64/usr/local/lib/pkgconfig
+      - CC=aarch64-linux-gnu-gcc
+      - CXX=aarch64-linux-gnu-g++
+archives:
+  - id: golang-cross
+    ids:
+      - darwin-amd64
+      - darwin-arm64
+      - linux-amd64
+      - linux-arm64
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [ 'zip' ]
+    wrap_in_directory: false
+checksum:
+  name_template: 'checksums.txt'
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+release:
+  github:
+    owner: shopwareLabs
+    name: shopware-lsp

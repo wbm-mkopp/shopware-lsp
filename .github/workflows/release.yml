@@ -1,0 +1,21 @@
+on:
+  push:
+    tags:
+      - "*"
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  release-lsp:
+    name: Release LSP
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Release
+        run: make release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
