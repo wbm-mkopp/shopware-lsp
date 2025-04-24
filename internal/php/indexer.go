@@ -13,8 +13,14 @@ import (
 )
 
 type PHPClass struct {
+	Name    string               `json:"name"`
+	Path    string               `json:"path"`
+	Line    int                  `json:"line"`
+	Methods map[string]PHPMethod `json:"methods"`
+}
+
+type PHPMethod struct {
 	Name string `json:"name"`
-	Path string `json:"path"`
 	Line int    `json:"line"`
 }
 
@@ -103,11 +109,18 @@ func (idx *PHPIndex) GetClassesOfFileWithParser(path string, node *tree_sitter.N
 						className = currentNamespace + "\\" + className
 					}
 
-					classes[className] = PHPClass{
-						Name: className,
-						Path: path,
-						Line: int(classNameNode.Range().StartPoint.Row) + 1,
+					// Create a new class with empty methods map
+					phpClass := PHPClass{
+						Name:    className,
+						Path:    path,
+						Line:    int(classNameNode.Range().StartPoint.Row) + 1,
+						Methods: make(map[string]PHPMethod),
 					}
+
+					// Extract methods from the class
+					phpClass.Methods = idx.extractMethodsFromClass(node, fileContent)
+
+					classes[className] = phpClass
 				}
 			}
 
@@ -150,4 +163,40 @@ func (idx *PHPIndex) GetClassNames() []string {
 	}
 
 	return keys
+}
+
+// extractMethodsFromClass extracts all method definitions from a class declaration node
+func (idx *PHPIndex) extractMethodsFromClass(node *tree_sitter.Node, fileContent []byte) map[string]PHPMethod {
+	methods := make(map[string]PHPMethod)
+
+	// Find the class body node
+	classBodyNode := treesitterhelper.GetFirstNodeOfKind(node, "declaration_list")
+	if classBodyNode == nil {
+		return methods
+	}
+
+	// Iterate through all children of the class body
+	for i := uint(0); i < classBodyNode.NamedChildCount(); i++ {
+		child := classBodyNode.NamedChild(i)
+		if child == nil {
+			continue
+		}
+
+		// Check if the child is a method declaration
+		if child.Kind() == "method_declaration" {
+			// Get the method name
+			methodNameNode := treesitterhelper.GetFirstNodeOfKind(child, "name")
+			if methodNameNode != nil {
+				methodName := string(methodNameNode.Utf8Text(fileContent))
+				
+				// Create a new method and add it to the methods map
+				methods[methodName] = PHPMethod{
+					Name: methodName,
+					Line: int(methodNameNode.Range().StartPoint.Row) + 1,
+				}
+			}
+		}
+	}
+
+	return methods
 }
