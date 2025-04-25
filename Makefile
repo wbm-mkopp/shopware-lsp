@@ -26,20 +26,38 @@ release:
 
 .PHONY: release-build-extension
 release-build-extension:
-	mkdir -p dist
-	$(eval tmpDir := $(shell mktemp -d))
-	@curl -q -L -o "${tmpDir}/shopware-lsp.zip" https://github.com/shopwareLabs/shopware-lsp/releases/download/${VERSION}/shopware-lsp_${VERSION}_$(OS)_$(ARCH).zip
-	@unzip -q "${tmpDir}/shopware-lsp.zip" -d "${tmpDir}"
-	@cp "${tmpDir}/shopware-lsp" ./vscode-extension/shopware-lsp
-	@rm -rf "${tmpDir}"
-	$(eval RELEASE_ARCH := $(if $(filter amd64,$(ARCH)),x64,$(ARCH)))
-	npm install --prefix ./vscode-extension
-	cd vscode-extension && jq '.version = "${VERSION}"' package.json > package.json.tmp && mv package.json.tmp package.json
-	cd vscode-extension && npx @vscode/vsce package --target ${VSCODE_OS}-${RELEASE_ARCH} --pre-release -o ../dist/shopware-lsp-${VERSION}-${VSCODE_OS}-${RELEASE_ARCH}.vsix
-	rm -rf ./vscode-extension/shopware-lsp
-	gh release upload ${VERSION} ./dist/shopware-lsp-${VERSION}-${VSCODE_OS}-${RELEASE_ARCH}.vsix
-	@if [ "${PUBLISH}" = "1" ]; then \
-		npx @vscode/vsce publish --packagePath ./dist/shopware-lsp-${VERSION}-${VSCODE_OS}-${RELEASE_ARCH}.vsix; \
+	@if [ "$(OS)" = "alpine" ]; then \
+		VSCODE_OS="alpine"; \
+		DOWNLOAD_OS="linux"; \
 	else \
-		echo "Skipping VSCode extension publish. Set PUBLISH=1 to publish."; \
+		VSCODE_OS="$(VSCODE_OS)"; \
+		DOWNLOAD_OS="$(OS)"; \
+	fi; \
+	echo "VSCODE_OS: $$VSCODE_OS"; \
+	echo "DOWNLOAD_OS: $$DOWNLOAD_OS"; \
+	mkdir -p dist; \
+	tmpDir=$$(mktemp -d); \
+	curl -q -L -o "$$tmpDir/shopware-lsp.zip" https://github.com/shopwareLabs/shopware-lsp/releases/download/${VERSION}/shopware-lsp_${VERSION}_$${DOWNLOAD_OS}_$(ARCH).zip; \
+	unzip -q "$$tmpDir/shopware-lsp.zip" -d "$$tmpDir"; \
+	cp "$$tmpDir/shopware-lsp" ./vscode-extension/shopware-lsp; \
+	rm -rf "$$tmpDir"; \
+	if [ "$(ARCH)" = "amd64" ]; then \
+		RELEASE_ARCH="x64"; \
+	else \
+		RELEASE_ARCH="$(ARCH)"; \
+	fi; \
+	(cd ./vscode-extension && npm install); \
+	(cd ./vscode-extension && jq '.version = "${VERSION}"' package.json > package.json.tmp && mv package.json.tmp package.json); \
+	(cd ./vscode-extension && npx @vscode/vsce package --target $$VSCODE_OS-$$RELEASE_ARCH --pre-release -o ../dist/shopware-lsp-${VERSION}-$$VSCODE_OS-$$RELEASE_ARCH.vsix); \
+	rm -rf ./vscode-extension/shopware-lsp; \
+	if [ -f "./dist/shopware-lsp-${VERSION}-$$VSCODE_OS-$$RELEASE_ARCH.vsix" ]; then \
+		gh release upload ${VERSION} ./dist/shopware-lsp-${VERSION}-$$VSCODE_OS-$$RELEASE_ARCH.vsix || echo "Failed to upload to GitHub release. Release may not exist yet."; \
+		if [ "${PUBLISH}" = "1" ]; then \
+			npx @vscode/vsce publish --packagePath ./dist/shopware-lsp-${VERSION}-$$VSCODE_OS-$$RELEASE_ARCH.vsix; \
+		else \
+			echo "Skipping VSCode extension publish. Set PUBLISH=1 to publish."; \
+		fi; \
+	else \
+		echo "Error: VSIX file was not created successfully."; \
+		exit 1; \
 	fi
