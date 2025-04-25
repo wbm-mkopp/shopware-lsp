@@ -184,42 +184,47 @@ func SymfonyServiceIsParameterReference(node *tree_sitter.Node, docText []byte) 
 	return false
 }
 
+// SymfonyGetCurrentServiceIdFromArgument returns the current service id from an argument node (service or tag)
+// <service id="<get-this>">
+// <argument id="<caret>">
 func SymfonyGetCurrentServiceIdFromArgument(node *tree_sitter.Node, docText []byte) string {
-	argumentNode := node.Parent().Parent()
+	elementIdCapture := Capture("elementId", NodeKind("AttValue"))
 
-	if argumentNode == nil {
+	if !Ancestor(
+		And(
+			NodeKind("element"),
+			HasChild(And(
+				NodeKind("STag"),
+				HasChild(And(
+					NodeKind("Name"),
+					NodeText("service"),
+				)),
+				HasChild(And(
+					NodeKind("Attribute"),
+					HasChild(And(
+						NodeKind("Name"),
+						NodeTextUnescaped("id"),
+					)),
+					HasChild(And(
+						elementIdCapture,
+					)),
+				)),
+			)),
+		),
+		5,
+	).Matches(node, docText) {
 		return ""
 	}
 
-	serviceNode := argumentNode.Parent().Parent().Parent()
-
-	if serviceNode == nil {
+	capturedNode := elementIdCapture.GetCapturedNode()
+	if capturedNode == nil {
 		return ""
 	}
 
-	startTag := serviceNode.NamedChild(0)
-
-	if startTag == nil {
-		return ""
-	}
-
-	elementNameNode := GetFirstNodeOfKind(startTag, "Name")
-	if elementNameNode == nil {
-		return ""
-	}
-
-	if elementNameNode.Utf8Text(docText) != "service" {
-		return ""
-	}
-
-	attrValues := GetXmlAttributeValues(startTag, docText)
-	if attrValues == nil || attrValues["id"] == "" {
-		return ""
-	}
-
-	return attrValues["id"]
+	return strings.Trim(string(capturedNode.Utf8Text(docText)), "\"")
 }
 
+// SymfonyServiceIsTagElement returns true if the node is a tag element
 // <tag name="<caret>"/>
 func SymfonyServiceIsTagElement(node *tree_sitter.Node, docText []byte) bool {
 	if node.Kind() != "AttValue" {

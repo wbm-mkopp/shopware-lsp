@@ -345,6 +345,18 @@ func (p *nodeTextContainsPattern) Matches(node *tree_sitter.Node, content []byte
 	return strings.Contains(string(node.Utf8Text(content)), p.substring)
 }
 
+func NodeTextUnescaped(text string) Pattern {
+	return &nodeTextUnescapedPattern{text: text}
+}
+
+type nodeTextUnescapedPattern struct {
+	text string
+}
+
+func (p *nodeTextUnescapedPattern) Matches(node *tree_sitter.Node, content []byte) bool {
+	return strings.Trim(string(node.Utf8Text(content)), "\"") == p.text
+}
+
 // Match a parent node at a specific level
 func ParentOfKind(kind string, level int) Pattern {
 	return &parentOfKindPattern{kind: kind, level: level}
