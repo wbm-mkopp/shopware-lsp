@@ -10,7 +10,7 @@
     "theme": "light"
   },
   "engines": {
-    "vscode": "^1.98.0"
+    "vscode": "^1.96.0"
   },
   "categories": [
     "Programming Languages",
@@ -24,7 +24,8 @@
   "activationEvents": [
     "onLanguage:php",
     "onLanguage:xml",
-    "onLanguage:twig"
+    "onLanguage:twig",
+    "onLanguage:yaml"
   ],
   "repository": {
     "type": "git",
