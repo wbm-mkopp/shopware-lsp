@@ -3,7 +3,6 @@ package completion
 import (
 	"context"
 	"fmt"
-	"log"
 	"path/filepath"
 	"strings"
 
@@ -181,8 +180,6 @@ func (p *SymfonyCompletionProvider) xmlCompletion(ctx context.Context, params *p
 }
 
 func (p *SymfonyCompletionProvider) yamlCompletions(ctx context.Context, params *protocol.CompletionParams) []protocol.CompletionItem {
-	log.Printf("%s", params.Node.Kind())
-
 	if treesitterhelper.IsYamlServiceId(params.Node, params.DocumentContent) || treesitterhelper.IsYamlClassPropertyInServiceToType().Matches(params.Node, params.DocumentContent) {
 		classNames := p.phpIndex.GetClassNames()
 
