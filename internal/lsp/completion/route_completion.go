@@ -2,6 +2,7 @@ package completion
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 
 	"github.com/shopware/shopware-lsp/internal/lsp"
@@ -26,15 +27,14 @@ func (p *RouteCompletionProvider) GetCompletions(ctx context.Context, params *pr
 		return []protocol.CompletionItem{}
 	}
 
-	if strings.HasSuffix(strings.ToLower(params.TextDocument.URI), ".php") {
+	switch strings.ToLower(filepath.Ext(params.TextDocument.URI)) {
+	case ".php":
 		return p.phpCompletions(ctx, params)
-	}
-
-	if strings.HasSuffix(strings.ToLower(params.TextDocument.URI), ".twig") {
+	case ".twig":
 		return p.twigCompletions(ctx, params)
+	default:
+		return []protocol.CompletionItem{}
 	}
-
-	return []protocol.CompletionItem{}
 }
 
 func (p *RouteCompletionProvider) phpCompletions(ctx context.Context, params *protocol.CompletionParams) []protocol.CompletionItem {

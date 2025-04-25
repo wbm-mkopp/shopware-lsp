@@ -21,7 +21,7 @@ func TestGetClassesOfFile(t *testing.T) {
 	assert.Equal(t, expectedClassName, classes[expectedClassName].Name)
 	assert.Equal(t, "testdata/01.php", classes[expectedClassName].Path)
 	assert.Equal(t, 20, classes[expectedClassName].Line)
-	
+
 	// Check that the constructor method was found
 	assert.Contains(t, classes[expectedClassName].Methods, "__construct")
 	assert.Equal(t, "__construct", classes[expectedClassName].Methods["__construct"].Name)

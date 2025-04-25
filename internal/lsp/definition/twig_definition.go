@@ -28,16 +28,17 @@ func (p *TwigDefinitionProvider) GetDefinition(ctx context.Context, params *prot
 		return []protocol.Location{}
 	}
 
-	fileExt := strings.ToLower(filepath.Ext(params.TextDocument.URI))
-
-	if fileExt == ".php" {
+	switch strings.ToLower(filepath.Ext(params.TextDocument.URI)) {
+	case ".php":
 		return p.phpDefinitions(ctx, params)
-	}
-
-	if fileExt != ".twig" {
+	case ".twig":
+		return p.twigDefinitions(ctx, params)
+	default:
 		return []protocol.Location{}
 	}
+}
 
+func (p *TwigDefinitionProvider) twigDefinitions(ctx context.Context, params *protocol.DefinitionParams) []protocol.Location {
 	if treesitterhelper.TwigStringInTagPattern("extends", "sw_extends", "include", "sw_include").Matches(params.Node, []byte(params.DocumentContent)) {
 		itemValue := twig.CleanupTemplatePath(treesitterhelper.GetNodeText(params.Node, params.DocumentContent))
 

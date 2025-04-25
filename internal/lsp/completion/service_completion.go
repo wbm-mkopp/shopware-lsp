@@ -2,6 +2,9 @@ package completion
 
 import (
 	"context"
+	"fmt"
+	"log"
+	"path/filepath"
 	"strings"
 
 	"github.com/shopware/shopware-lsp/internal/lsp"
@@ -32,13 +35,27 @@ func NewServiceCompletionProvider(server *lsp.Server) *SymfonyCompletionProvider
 
 // GetCompletions returns completion items based on the provider type
 func (p *SymfonyCompletionProvider) GetCompletions(ctx context.Context, params *protocol.CompletionParams) []protocol.CompletionItem {
-	// Check if we're in an XML file
-	uri := params.TextDocument.URI
-	if !strings.HasSuffix(strings.ToLower(uri), ".xml") {
+	if params.Node == nil {
 		return []protocol.CompletionItem{}
 	}
 
-	if params.Node == nil {
+	fileExt := strings.ToLower(filepath.Ext(params.TextDocument.URI))
+
+	switch fileExt {
+	case ".yaml", ".yml":
+		return p.yamlCompletions(ctx, params)
+	case ".xml":
+		return p.xmlCompletion(ctx, params)
+	default:
+		return []protocol.CompletionItem{}
+	}
+}
+
+func (p *SymfonyCompletionProvider) xmlCompletion(ctx context.Context, params *protocol.CompletionParams) []protocol.CompletionItem {
+
+	// Check if we're in an XML file
+	uri := params.TextDocument.URI
+	if !strings.HasSuffix(strings.ToLower(uri), ".xml") {
 		return []protocol.CompletionItem{}
 	}
 
@@ -157,6 +174,45 @@ func (p *SymfonyCompletionProvider) GetCompletions(ctx context.Context, params *
 			}
 			items = append(items, item)
 		}
+		return items
+	}
+
+	return []protocol.CompletionItem{}
+}
+
+func (p *SymfonyCompletionProvider) yamlCompletions(ctx context.Context, params *protocol.CompletionParams) []protocol.CompletionItem {
+	log.Printf("%s", params.Node.Kind())
+
+	if treesitterhelper.IsYamlServiceId(params.Node, params.DocumentContent) || treesitterhelper.IsYamlClassPropertyInServiceToType().Matches(params.Node, params.DocumentContent) {
+		classNames := p.phpIndex.GetClassNames()
+
+		items := make([]protocol.CompletionItem, 0)
+		for _, className := range classNames {
+			item := protocol.CompletionItem{
+				Label: className,
+				Kind:  6, // 6 = Class
+			}
+			items = append(items, item)
+		}
+
+		return items
+	}
+
+	if treesitterhelper.IsYamlArgumentServiceId(params.Node, params.DocumentContent) {
+		// Get all services from the index
+		serviceIDs := p.serviceIndex.GetAllServices()
+
+		// Convert to completion items
+		items := make([]protocol.CompletionItem, 0)
+		for _, serviceID := range serviceIDs {
+			item := protocol.CompletionItem{
+				Label:      serviceID,
+				Kind:       6, // 6 = Class
+				InsertText: fmt.Sprintf("@%s", serviceID),
+			}
+			items = append(items, item)
+		}
+
 		return items
 	}
 

@@ -2,6 +2,7 @@ package definition
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 
 	"github.com/shopware/shopware-lsp/internal/lsp"
@@ -26,15 +27,14 @@ func (p *RouteDefinitionProvider) GetDefinition(ctx context.Context, params *pro
 		return []protocol.Location{}
 	}
 
-	if strings.HasSuffix(strings.ToLower(params.TextDocument.URI), ".php") {
+	switch strings.ToLower(filepath.Ext(params.TextDocument.URI)) {
+	case ".php":
 		return p.phpDefinition(ctx, params)
-	}
-
-	if strings.HasSuffix(strings.ToLower(params.TextDocument.URI), ".twig") {
+	case ".twig":
 		return p.twigDefinition(ctx, params)
+	default:
+		return []protocol.Location{}
 	}
-
-	return []protocol.Location{}
 }
 
 func (p *RouteDefinitionProvider) phpDefinition(ctx context.Context, params *protocol.DefinitionParams) []protocol.Location {

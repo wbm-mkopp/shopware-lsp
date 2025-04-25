@@ -188,7 +188,7 @@ func (idx *PHPIndex) extractMethodsFromClass(node *tree_sitter.Node, fileContent
 			methodNameNode := treesitterhelper.GetFirstNodeOfKind(child, "name")
 			if methodNameNode != nil {
 				methodName := string(methodNameNode.Utf8Text(fileContent))
-				
+
 				// Create a new method and add it to the methods map
 				methods[methodName] = PHPMethod{
 					Name: methodName,

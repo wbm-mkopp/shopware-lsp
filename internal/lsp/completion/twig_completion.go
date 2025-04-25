@@ -27,15 +27,17 @@ func (p *TwigCompletionProvider) GetCompletions(ctx context.Context, params *pro
 		return []protocol.CompletionItem{}
 	}
 
-	fileExt := strings.ToLower(filepath.Ext(params.TextDocument.URI))
-
-	if fileExt == ".php" {
+	switch strings.ToLower(filepath.Ext(params.TextDocument.URI)) {
+	case ".php":
 		return p.phpCompletions(ctx, params)
-	}
-
-	if fileExt != ".twig" {
+	case ".twig":
+		return p.twigCompletions(ctx, params)
+	default:
 		return []protocol.CompletionItem{}
 	}
+}
+
+func (p *TwigCompletionProvider) twigCompletions(ctx context.Context, params *protocol.CompletionParams) []protocol.CompletionItem {
 
 	if treesitterhelper.TwigStringInTagPattern("extends", "sw_extends", "include", "sw_include").Matches(params.Node, params.DocumentContent) {
 		files, _ := p.twigIndexer.GetAllTemplateFiles()

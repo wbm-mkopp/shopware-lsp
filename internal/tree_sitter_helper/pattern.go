@@ -319,6 +319,30 @@ func (p *anyNodeKindPattern) Matches(node *tree_sitter.Node, content []byte) boo
 	return false
 }
 
+type nodeNamePattern struct {
+	name string
+}
+
+func (p *nodeNamePattern) Matches(node *tree_sitter.Node, content []byte) bool {
+	parent := node.Parent()
+
+	if parent == nil {
+		return false
+	}
+
+	for i := uint(0); i < parent.NamedChildCount(); i++ {
+		if node.Id() == parent.NamedChild(i).Id() {
+			return parent.FieldNameForNamedChild(uint32(i)) == p.name
+		}
+	}
+
+	return false
+}
+
+func NodeName(name string) Pattern {
+	return &nodeNamePattern{name: name}
+}
+
 // Match a node's text content
 func NodeText(text string) Pattern {
 	return &nodeTextPattern{text: text}
