@@ -42,6 +42,7 @@ func (p *SymfonyCompletionProvider) GetCompletions(ctx context.Context, params *
 		return []protocol.CompletionItem{}
 	}
 
+	// <argument type="service" id="<caret>"/>
 	if treesitterhelper.SymfonyServiceIsServiceTag(params.Node, params.DocumentContent) {
 		currentServiceId := treesitterhelper.SymfonyGetCurrentServiceIdFromArgument(params.Node, params.DocumentContent)
 
@@ -92,6 +93,7 @@ func (p *SymfonyCompletionProvider) GetCompletions(ctx context.Context, params *
 		return items
 	}
 
+	// <argument type="tagged" tag="<caret>"/>
 	if treesitterhelper.SymfonyServiceIsArgumentTag(params.Node, params.DocumentContent) {
 		items := make([]protocol.CompletionItem, 0)
 		tags := p.serviceIndex.GetAllTags()
@@ -105,7 +107,7 @@ func (p *SymfonyCompletionProvider) GetCompletions(ctx context.Context, params *
 		return items
 	}
 
-	// Handle parameter reference in format %parameter_name%
+	// <argument>%<caret>%</argument>
 	if treesitterhelper.SymfonyServiceIsParameterReference(params.Node, params.DocumentContent) {
 		items := make([]protocol.CompletionItem, 0)
 		parameters := p.serviceIndex.GetAllParameters()

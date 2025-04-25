@@ -45,10 +45,12 @@ func main() {
 
 	server.RegisterCompletionProvider(completion.NewServiceCompletionProvider(server))
 	server.RegisterCompletionProvider(completion.NewTwigCompletionProvider(server))
+	server.RegisterCompletionProvider(completion.NewRouteCompletionProvider(server))
 
 	server.RegisterDefinitionProvider(definition.NewServiceXMLPHPDefinitionProvider(server))
 	server.RegisterDefinitionProvider(definition.NewServiceXMLDefinitionProvider(server))
 	server.RegisterDefinitionProvider(definition.NewTwigDefinitionProvider(server))
+	server.RegisterDefinitionProvider(definition.NewRouteDefinitionProvider(server))
 
 	server.RegisterCodeLensProvider(codelens.NewPHPCodeLensProvider(server))
 	server.RegisterCodeLensProvider(codelens.NewTwigCodeLensProvider(server))
