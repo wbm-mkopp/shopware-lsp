@@ -1,6 +1,7 @@
 PACKAGE_NAME          := shopware-cli
 GOLANG_CROSS_VERSION  ?= latest
 PUBLISH               ?= 0
+VSCODE_OS             ?= $(OS)
 
 .PHONY: release-dry-run
 release-dry-run:
@@ -34,11 +35,11 @@ release-build-extension:
 	$(eval RELEASE_ARCH := $(if $(filter amd64,$(ARCH)),x64,$(ARCH)))
 	npm install --prefix ./vscode-extension
 	cd vscode-extension && jq '.version = "${VERSION}"' package.json > package.json.tmp && mv package.json.tmp package.json
-	cd vscode-extension && npx @vscode/vsce package --target ${OS}-${RELEASE_ARCH} --pre-release -o ../dist/shopware-lsp-${VERSION}-${OS}-${RELEASE_ARCH}.vsix
+	cd vscode-extension && npx @vscode/vsce package --target ${VSCODE_OS}-${RELEASE_ARCH} --pre-release -o ../dist/shopware-lsp-${VERSION}-${VSCODE_OS}-${RELEASE_ARCH}.vsix
 	rm -rf ./vscode-extension/shopware-lsp
-	gh release upload ${VERSION} ./dist/shopware-lsp-${VERSION}-${OS}-${RELEASE_ARCH}.vsix
+	gh release upload ${VERSION} ./dist/shopware-lsp-${VERSION}-${VSCODE_OS}-${RELEASE_ARCH}.vsix
 	@if [ "${PUBLISH}" = "1" ]; then \
-		npx @vscode/vsce publish --packagePath ./dist/shopware-lsp-${VERSION}-${OS}-${RELEASE_ARCH}.vsix; \
+		npx @vscode/vsce publish --packagePath ./dist/shopware-lsp-${VERSION}-${VSCODE_OS}-${RELEASE_ARCH}.vsix; \
 	else \
 		echo "Skipping VSCode extension publish. Set PUBLISH=1 to publish."; \
 	fi
