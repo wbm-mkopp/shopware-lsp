@@ -1,5 +1,6 @@
 PACKAGE_NAME          := shopware-cli
 GOLANG_CROSS_VERSION  ?= latest
+PUBLISH               ?= 0
 
 .PHONY: release-dry-run
 release-dry-run:
@@ -36,3 +37,8 @@ release-build-extension:
 	cd vscode-extension && npx @vscode/vsce package --target ${OS}-${RELEASE_ARCH} --pre-release -o ../dist/shopware-lsp-${VERSION}-${OS}-${RELEASE_ARCH}.vsix
 	rm -rf ./vscode-extension/shopware-lsp
 	gh release upload ${VERSION} ./dist/shopware-lsp-${VERSION}-${OS}-${RELEASE_ARCH}.vsix
+	@if [ "${PUBLISH}" = "1" ]; then \
+		npx @vscode/vsce publish --packagePath ./dist/shopware-lsp-${VERSION}-${OS}-${RELEASE_ARCH}.vsix; \
+	else \
+		echo "Skipping VSCode extension publish. Set PUBLISH=1 to publish."; \
+	fi

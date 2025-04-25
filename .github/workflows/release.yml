@@ -36,6 +36,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build VSCode
-        run: make release-build-extension VERSION=${{ github.ref_name }} OS=${{ matrix.os }} ARCH=${{ matrix.arch }}
+        run: make release-build-extension VERSION=${{ github.ref_name }} OS=${{ matrix.os }} ARCH=${{ matrix.arch }} PUBLISH=1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VSCE_PAT: ${{ secrets.VSCODE_PUBLISH_TOKEN }}
