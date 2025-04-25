@@ -21,6 +21,7 @@ type Server struct {
 	conn                *jsonrpc2.Conn
 	completionProviders []CompletionProvider
 	definitionProviders []GotoDefinitionProvider
+	referencesProviders []ReferencesProvider
 	codeLensProviders   []CodeLensProvider
 	indexers            map[string]indexer.Indexer
 	indexerMu           sync.RWMutex
@@ -33,6 +34,7 @@ func NewServer(filescanner *indexer.FileScanner) *Server {
 	return &Server{
 		completionProviders: make([]CompletionProvider, 0),
 		definitionProviders: make([]GotoDefinitionProvider, 0),
+		referencesProviders: make([]ReferencesProvider, 0),
 		codeLensProviders:   make([]CodeLensProvider, 0),
 		indexers:            make(map[string]indexer.Indexer),
 		documentManager:     NewDocumentManager(),
@@ -48,6 +50,11 @@ func (s *Server) RegisterCompletionProvider(provider CompletionProvider) {
 // RegisterDefinitionProvider registers a definition provider with the server
 func (s *Server) RegisterDefinitionProvider(provider GotoDefinitionProvider) {
 	s.definitionProviders = append(s.definitionProviders, provider)
+}
+
+// RegisterReferencesProvider registers a references provider with the server
+func (s *Server) RegisterReferencesProvider(provider ReferencesProvider) {
+	s.referencesProviders = append(s.referencesProviders, provider)
 }
 
 // RegisterCodeLensProvider registers a code lens provider with the server
@@ -239,6 +246,13 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 		}
 		return s.definition(ctx, &params), nil
 
+	case "textDocument/references":
+		var params protocol.ReferenceParams
+		if err := json.Unmarshal(*req.Params, &params); err != nil {
+			return nil, err
+		}
+		return s.references(ctx, &params), nil
+
 	case "textDocument/codeLens":
 		var params protocol.CodeLensParams
 		if err := json.Unmarshal(*req.Params, &params); err != nil {
@@ -389,6 +403,7 @@ func (s *Server) initialize(ctx context.Context, params *protocol.InitializePara
 				"triggerCharacters": triggerChars,
 			},
 			"definitionProvider": true,
+			"referencesProvider": true,
 			"codeLensProvider": map[string]interface{}{
 				"resolveProvider": true,
 			},
