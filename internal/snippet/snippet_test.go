@@ -23,14 +23,22 @@ func TestParseSnippetFile(t *testing.T) {
 	}
 	defer tree.Close()
 
-	result, err := ParseSnippetFile(tree.RootNode(), bytes)
+	result, err := ParseSnippetFile(tree.RootNode(), bytes, "testdata/nested.json")
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	expected := map[string]string{
-		"foo.foo.name": "title",
-		"foo.name":     "title",
+	expected := map[string]Snippet{
+		"foo.foo.name": {
+			Text: "title",
+			File: "testdata/nested.json",
+			Line: 5,
+		},
+		"foo.name": {
+			Text: "title",
+			File: "testdata/nested.json",
+			Line: 3,
+		},
 	}
 
 	assert.Equal(t, expected, result)
