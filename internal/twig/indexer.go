@@ -41,6 +41,10 @@ func (idx *TwigIndexer) Index(path string, node *tree_sitter.Node, fileContent [
 		return nil
 	}
 
+	if strings.Contains(path, "Resources/app/administration") {
+		return nil
+	}
+
 	file, err := ParseTwig(path, node, fileContent)
 	if err != nil {
 		return err

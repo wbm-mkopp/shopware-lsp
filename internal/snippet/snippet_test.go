@@ -23,7 +23,7 @@ func TestParseSnippetFile(t *testing.T) {
 	}
 	defer tree.Close()
 
-	result, err := ParseSnippetFile(tree.RootNode(), bytes, "testdata/nested.json")
+	result, err := parseSnippetFile(tree.RootNode(), bytes, "testdata/nested.json")
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}

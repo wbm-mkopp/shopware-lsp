@@ -11,6 +11,7 @@ import (
 	"github.com/shopware/shopware-lsp/internal/lsp/completion"
 	"github.com/shopware/shopware-lsp/internal/lsp/definition"
 	"github.com/shopware/shopware-lsp/internal/php"
+	"github.com/shopware/shopware-lsp/internal/snippet"
 	"github.com/shopware/shopware-lsp/internal/symfony"
 	"github.com/shopware/shopware-lsp/internal/twig"
 )
@@ -42,6 +43,7 @@ func main() {
 	server.RegisterIndexer(symfony.NewRouteIndexer(cacheDir))
 	server.RegisterIndexer(php.NewPHPIndex(cacheDir))
 	server.RegisterIndexer(twig.NewTwigIndexer(cacheDir))
+	server.RegisterIndexer(snippet.NewSnippetIndexer(cacheDir))
 
 	server.RegisterCompletionProvider(completion.NewServiceCompletionProvider(server))
 	server.RegisterCompletionProvider(completion.NewTwigCompletionProvider(server))

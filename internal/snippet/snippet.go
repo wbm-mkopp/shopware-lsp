@@ -12,7 +12,7 @@ type Snippet struct {
 	Line int
 }
 
-func ParseSnippetFile(root *tree_sitter.Node, document []byte, filePath string) (map[string]Snippet, error) {
+func parseSnippetFile(root *tree_sitter.Node, document []byte, filePath string) (map[string]Snippet, error) {
 	// Find the object node which is the first child of the document node
 	if root.Kind() == "document" && root.NamedChildCount() > 0 {
 		root = root.NamedChild(0) // Get the object node
