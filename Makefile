@@ -54,6 +54,7 @@ release-build-extension:
 		gh release upload ${VERSION} ./dist/shopware-lsp-${VERSION}-$$VSCODE_OS-$$RELEASE_ARCH.vsix || echo "Failed to upload to GitHub release. Release may not exist yet."; \
 		if [ "${PUBLISH}" = "1" ]; then \
 			npx @vscode/vsce publish --packagePath ./dist/shopware-lsp-${VERSION}-$$VSCODE_OS-$$RELEASE_ARCH.vsix; \
+			npx ovsx publish --packagePath ./dist/shopware-lsp-${VERSION}-$$VSCODE_OS-$$RELEASE_ARCH.vsix; \
 		else \
 			echo "Skipping VSCode extension publish. Set PUBLISH=1 to publish."; \
 		fi; \
