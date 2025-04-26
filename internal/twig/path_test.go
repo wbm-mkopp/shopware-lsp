@@ -11,7 +11,7 @@ func TestConvertToRelativePath(t *testing.T) {
 	assert.Equal(t, "", ConvertToRelativePath("/"))
 	assert.Equal(t, "", ConvertToRelativePath("/Resources/views"))
 	assert.Equal(t, "", ConvertToRelativePath("/Resources/views/"))
-	assert.Equal(t, "storefront/base.html.twig", ConvertToRelativePath("/Resources/views/storefront/base.html.twig"))
+	assert.Equal(t, "@Storefront/storefront/base.html.twig", ConvertToRelativePath("/Resources/views/storefront/base.html.twig"))
 }
 
 func TestGetBundleNameByPath(t *testing.T) {

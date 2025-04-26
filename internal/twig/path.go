@@ -1,6 +1,7 @@
 package twig
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 )
@@ -8,10 +9,22 @@ import (
 func ConvertToRelativePath(twigPath string) string {
 	index := strings.Index(twigPath, "Resources/views")
 	if index != -1 {
-		return strings.TrimPrefix(strings.TrimPrefix(twigPath[index+len("Resources/views"):], "/"), "/")
+		path := strings.TrimPrefix(strings.TrimPrefix(twigPath[index:], "Resources/views"), "/")
+
+		if path == "" {
+			return ""
+		}
+
+		return fmt.Sprintf("@Storefront/%s", path)
 	}
 
-	return strings.TrimPrefix(twigPath, "/")
+	path := strings.TrimPrefix(twigPath, "/")
+
+	if path == "" {
+		return ""
+	}
+
+	return fmt.Sprintf("@Storefront/%s", path)
 }
 
 func getBundleNameByPath(twigPath string) string {
@@ -30,5 +43,6 @@ func getBundleNameByPath(twigPath string) string {
 }
 
 func CleanupTemplatePath(templatePath string) string {
+	return templatePath
 	return strings.TrimPrefix(templatePath, "@Storefront/")
 }

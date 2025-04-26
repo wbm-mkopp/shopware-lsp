@@ -41,7 +41,7 @@ func (idx *TwigIndexer) Index(path string, node *tree_sitter.Node, fileContent [
 		return nil
 	}
 
-	if strings.Contains(path, "Resources/app/administration") {
+	if strings.Contains(path, "Resources/app/administration") || strings.Contains(path, "Migration/Fixtures") || strings.Contains(path, ".phpdoc/template") {
 		return nil
 	}
 
