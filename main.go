@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/shopware/shopware-lsp/internal/feature"
 	"github.com/shopware/shopware-lsp/internal/indexer"
 	"github.com/shopware/shopware-lsp/internal/lsp"
 	"github.com/shopware/shopware-lsp/internal/lsp/codelens"
@@ -44,6 +45,7 @@ func main() {
 	server.RegisterIndexer(php.NewPHPIndex(cacheDir))
 	server.RegisterIndexer(twig.NewTwigIndexer(cacheDir))
 	server.RegisterIndexer(snippet.NewSnippetIndexer(cacheDir))
+	server.RegisterIndexer(feature.NewFeatureIndexer(cacheDir))
 
 	server.RegisterCompletionProvider(completion.NewServiceCompletionProvider(server))
 	server.RegisterCompletionProvider(completion.NewTwigCompletionProvider(server))
