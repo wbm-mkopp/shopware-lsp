@@ -39,7 +39,7 @@ func TestTwigParseSwExtends(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.Equal(t, "test", file.Path)
-	assert.Equal(t, "storefront/base.html.twig", file.ExtendsFile)
+	assert.Equal(t, "@Storefront/storefront/base.html.twig", file.ExtendsFile)
 }
 
 func TestNestedBlock(t *testing.T) {
