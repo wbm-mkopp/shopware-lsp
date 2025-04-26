@@ -1,38 +1,19 @@
 package snippet
 
 import (
-	"fmt"
-	"os"
 	"strings"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
-	tree_sitter_json "github.com/tree-sitter/tree-sitter-json/bindings/go"
 )
 
-func ParseSnippetFile(path string) (map[string]string, error) {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read snippet file: %w", err)
-	}
-
-	parser := tree_sitter.NewParser()
-	parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_json.Language()))
-
-	tree := parser.Parse(content, nil)
-	if tree == nil {
-		return nil, fmt.Errorf("failed to parse JSON")
-	}
-	defer tree.Close()
-
-	root := tree.RootNode()
-	
+func ParseSnippetFile(root *tree_sitter.Node, document []byte) (map[string]string, error) {
 	// Find the object node which is the first child of the document node
 	if root.Kind() == "document" && root.NamedChildCount() > 0 {
 		root = root.NamedChild(0) // Get the object node
 	}
-	
+
 	result := make(map[string]string)
-	extractValues("", root, content, result)
+	extractValues("", root, document, result)
 
 	return result, nil
 }
@@ -43,7 +24,7 @@ func extractValues(prefix string, node *tree_sitter.Node, content []byte, result
 		// Iterate through child nodes
 		for i := 0; i < int(node.NamedChildCount()); i++ {
 			pair := node.NamedChild(uint(i))
-			
+
 			if pair.Kind() == "pair" {
 				// Get key and value
 				key := pair.NamedChild(0)
@@ -60,7 +41,7 @@ func extractValues(prefix string, node *tree_sitter.Node, content []byte, result
 						keyText = string(key.Utf8Text(content))
 						keyText = strings.Trim(keyText, "\"")
 					}
-					
+
 					// Build the new prefix
 					newPrefix := keyText
 					if prefix != "" {
