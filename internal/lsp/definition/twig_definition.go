@@ -40,7 +40,7 @@ func (p *TwigDefinitionProvider) GetDefinition(ctx context.Context, params *prot
 
 func (p *TwigDefinitionProvider) twigDefinitions(ctx context.Context, params *protocol.DefinitionParams) []protocol.Location {
 	if treesitterhelper.TwigStringInTagPattern("extends", "sw_extends", "include", "sw_include").Matches(params.Node, []byte(params.DocumentContent)) {
-		itemValue := twig.CleanupTemplatePath(treesitterhelper.GetNodeText(params.Node, params.DocumentContent))
+		itemValue := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
 
 		files, _ := p.twigIndexer.GetTwigFilesByRelPath(itemValue)
 
@@ -69,7 +69,7 @@ func (p *TwigDefinitionProvider) twigDefinitions(ctx context.Context, params *pr
 
 func (p *TwigDefinitionProvider) phpDefinitions(ctx context.Context, params *protocol.DefinitionParams) []protocol.Location {
 	if treesitterhelper.IsPHPRenderStorefrontCall(params.Node, params.DocumentContent) {
-		files, _ := p.twigIndexer.GetTwigFilesByRelPath(twig.CleanupTemplatePath(treesitterhelper.GetNodeText(params.Node, params.DocumentContent)))
+		files, _ := p.twigIndexer.GetTwigFilesByRelPath(treesitterhelper.GetNodeText(params.Node, params.DocumentContent))
 
 		var locations []protocol.Location
 		for _, file := range files {

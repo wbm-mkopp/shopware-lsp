@@ -79,7 +79,7 @@ func ParseTwig(filePath string, node *tree_sitter.Node, content []byte) (*TwigFi
 						child := node.NamedChild(uint(i))
 
 						if child.Kind() == "string" {
-							file.ExtendsFile = CleanupTemplatePath(strings.Trim(strings.Trim(string(child.Utf8Text(content)), "\""), "'"))
+							file.ExtendsFile = strings.Trim(strings.Trim(string(child.Utf8Text(content)), "\""), "'")
 							file.ExtendsTagLine = int(node.Range().StartPoint.Row) + 1
 							break
 						}

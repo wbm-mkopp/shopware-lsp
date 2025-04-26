@@ -58,3 +58,11 @@ func (s *SnippetIndexer) RemovedFiles(paths []string) error {
 func (s *SnippetIndexer) Close() error {
 	return s.frontendIndex.Close()
 }
+
+func (s *SnippetIndexer) GetFrontendSnippets() ([]string, error) {
+	return s.frontendIndex.GetAllKeys()
+}
+
+func (s *SnippetIndexer) GetFrontendSnippet(key string) ([]Snippet, error) {
+	return s.frontendIndex.GetValues(key)
+}

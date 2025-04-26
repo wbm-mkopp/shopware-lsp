@@ -16,12 +16,12 @@ func TestFeatureIndexer_Index(t *testing.T) {
 	// Create a temporary directory for the test database
 	tempDir, err := os.MkdirTemp("", "feature-indexer-test")
 	require.NoError(t, err, "Creating temp directory should not fail")
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	// Create a new indexer
 	indexer, err := NewFeatureIndexer(tempDir)
 	require.NoError(t, err, "Creating indexer should not fail")
-	defer indexer.Close()
+	defer func() { _ = indexer.Close() }()
 
 	// Read the test file
 	filePath := filepath.Join("testdata", "feature.yaml")
@@ -69,12 +69,12 @@ func TestFeatureIndexer_RemovedFiles(t *testing.T) {
 	// Create a temporary directory for the test database
 	tempDir, err := os.MkdirTemp("", "feature-indexer-test")
 	require.NoError(t, err, "Creating temp directory should not fail")
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	// Create a new indexer
 	indexer, err := NewFeatureIndexer(tempDir)
 	require.NoError(t, err, "Creating indexer should not fail")
-	defer indexer.Close()
+	defer func() { _ = indexer.Close() }()
 
 	// Read the test file
 	filePath := filepath.Join("testdata", "feature.yaml")
