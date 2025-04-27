@@ -32,25 +32,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     outputChannel.clear();
 
     // Get the server path from settings or use default
-    let serverPath = '';
+    let serverPath = vscode.workspace.getConfiguration('shopwareLSP').get<string>('serverPath', '');
+    
     // If no custom path is provided, use the bundled server
-    // For development, we'll look for the server in the parent directory
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
-    const possiblePaths = [
-      // When installed as extension
-      context.asAbsolutePath(path.join('.', 'shopware-lsp')),
-      // When installed as extension in the parent directory
-      context.asAbsolutePath(path.join('..', 'shopware-lsp')),
-      // When running from source
-      path.join(workspaceRoot, '..', 'shopware-lsp'),
-      // When in the same directory
-      path.join(workspaceRoot, 'shopware-lsp')
-    ];
+    if (!serverPath) {
+      // For development, we'll look for the server in the parent directory
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+      const possiblePaths = [
+        // When installed as extension
+        context.asAbsolutePath(path.join('.', 'shopware-lsp')),
+        // When installed as extension in the parent directory
+        context.asAbsolutePath(path.join('..', 'shopware-lsp')),
+        // When running from source
+        path.join(workspaceRoot, '..', 'shopware-lsp'),
+        // When in the same directory
+        path.join(workspaceRoot, 'shopware-lsp')
+      ];
 
-    for (const p of possiblePaths) {
-      if (fs.existsSync(p)) {
-        serverPath = p;
-        break;
+      for (const p of possiblePaths) {
+        if (fs.existsSync(p)) {
+          serverPath = p;
+          break;
+        }
       }
     }
 

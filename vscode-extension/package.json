@@ -37,6 +37,16 @@
   "pricing": "Free",
   "main": "./dist/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "Shopware Language Server",
+      "properties": {
+        "shopwareLSP.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the Shopware Language Server executable. If empty, the extension will try to find the server automatically."
+        }
+      }
+    },
     "commands": [
       {
         "command": "shopwareLSP.restart",
