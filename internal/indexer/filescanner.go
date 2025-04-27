@@ -223,6 +223,35 @@ func (fs *FileScanner) IndexFiles(ctx context.Context, files []string) error {
 		return nil
 	}
 
+	// Filter out files in directories that should be skipped
+	filteredFiles := make([]string, 0, len(files))
+	for _, path := range files {
+		// Get the relative path from project root
+		relPath, err := filepath.Rel(fs.projectRoot, path)
+		if err != nil {
+			// If we can't get the relative path, keep the file to be safe
+			filteredFiles = append(filteredFiles, path)
+			continue
+		}
+
+		// Check if the file is in a directory that should be skipped
+		skip := false
+		pathParts := strings.Split(relPath, string(os.PathSeparator))
+		for _, part := range pathParts {
+			if defaultSkipDirs[part] {
+				skip = true
+				break
+			}
+		}
+
+		if !skip {
+			filteredFiles = append(filteredFiles, path)
+		}
+	}
+
+	// Update files to only include filtered files
+	files = filteredFiles
+
 	// Determine the number of worker goroutines to use
 	workerCount := runtime.NumCPU() + 2
 	if workerCount > 16 {
