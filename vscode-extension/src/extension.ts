@@ -181,7 +181,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       };
     });
 
-    // Show quick pick with references
+    // If there's only one reference, directly open it without showing the quick pick
+    if (items.length === 1) {
+      const item = items[0];
+      const document = await vscode.workspace.openTextDocument(vscode.Uri.parse(item.uri));
+      const editor = await vscode.window.showTextDocument(document);
+      
+      // Position at the specified line
+      const position = new vscode.Position(item.line, 0);
+      editor.selection = new vscode.Selection(position, position);
+      editor.revealRange(
+        new vscode.Range(position, position),
+        vscode.TextEditorRevealType.InCenter
+      );
+      return;
+    }
+
+    // Show quick pick with references when there are multiple
     const selected = await vscode.window.showQuickPick(items, {
       placeHolder: 'Select a reference to open',
       matchOnDescription: true,
