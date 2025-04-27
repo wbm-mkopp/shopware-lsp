@@ -17,28 +17,30 @@ import (
 
 // Server represents the LSP server
 type Server struct {
-	rootPath            string
-	conn                *jsonrpc2.Conn
-	completionProviders []CompletionProvider
-	definitionProviders []GotoDefinitionProvider
-	referencesProviders []ReferencesProvider
-	codeLensProviders   []CodeLensProvider
-	indexers            map[string]indexer.Indexer
-	indexerMu           sync.RWMutex
-	documentManager     *DocumentManager
-	fileScanner         *indexer.FileScanner
+	rootPath             string
+	conn                 *jsonrpc2.Conn
+	completionProviders  []CompletionProvider
+	definitionProviders  []GotoDefinitionProvider
+	referencesProviders  []ReferencesProvider
+	codeLensProviders    []CodeLensProvider
+	diagnosticsProviders []DiagnosticsProvider
+	indexers             map[string]indexer.Indexer
+	indexerMu            sync.RWMutex
+	documentManager      *DocumentManager
+	fileScanner          *indexer.FileScanner
 }
 
 // NewServer creates a new LSP server
 func NewServer(filescanner *indexer.FileScanner) *Server {
 	return &Server{
-		completionProviders: make([]CompletionProvider, 0),
-		definitionProviders: make([]GotoDefinitionProvider, 0),
-		referencesProviders: make([]ReferencesProvider, 0),
-		codeLensProviders:   make([]CodeLensProvider, 0),
-		indexers:            make(map[string]indexer.Indexer),
-		documentManager:     NewDocumentManager(),
-		fileScanner:         filescanner,
+		completionProviders:  make([]CompletionProvider, 0),
+		definitionProviders:  make([]GotoDefinitionProvider, 0),
+		referencesProviders:  make([]ReferencesProvider, 0),
+		codeLensProviders:    make([]CodeLensProvider, 0),
+		diagnosticsProviders: make([]DiagnosticsProvider, 0),
+		indexers:             make(map[string]indexer.Indexer),
+		documentManager:      NewDocumentManager(),
+		fileScanner:          filescanner,
 	}
 }
 
@@ -199,6 +201,9 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 			return nil, err
 		}
 		s.documentManager.OpenDocument(params.TextDocument.URI, params.TextDocument.Text, params.TextDocument.Version)
+
+		// Run diagnostics on the opened document
+		go s.publishDiagnostics(ctx, params.TextDocument.URI, params.TextDocument.Version)
 		return nil, nil
 
 	case "textDocument/didChange":
@@ -216,6 +221,9 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 		}
 		if len(params.ContentChanges) > 0 {
 			s.documentManager.UpdateDocument(params.TextDocument.URI, params.ContentChanges[0].Text, params.TextDocument.Version)
+
+			// Run diagnostics on the updated document
+			go s.publishDiagnostics(ctx, params.TextDocument.URI, params.TextDocument.Version)
 		}
 		return nil, nil
 
@@ -259,6 +267,13 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 			return nil, err
 		}
 		return s.codeLens(ctx, &params), nil
+
+	case "textDocument/diagnostic":
+		var params protocol.DiagnosticParams
+		if err := json.Unmarshal(*req.Params, &params); err != nil {
+			return nil, err
+		}
+		return s.diagnostic(ctx, &params), nil
 
 	case "codeLens/resolve":
 		var codeLens protocol.CodeLens
@@ -399,6 +414,10 @@ func (s *Server) initialize(ctx context.Context, params *protocol.InitializePara
 				"openClose": true,
 				"change":    1, // Full sync
 			},
+			"diagnosticProvider": map[string]interface{}{
+				"interFileDependencies": true,
+				"workspaceDiagnostics":  false,
+			},
 			"completionProvider": map[string]interface{}{
 				"triggerCharacters": triggerChars,
 			},
@@ -503,4 +522,90 @@ func (s *Server) collectTriggerCharacters() []string {
 
 func (s *Server) DocumentManager() *DocumentManager {
 	return s.documentManager
+}
+
+// RegisterDiagnosticsProvider registers a diagnostics provider with the server
+func (s *Server) RegisterDiagnosticsProvider(provider DiagnosticsProvider) {
+	s.diagnosticsProviders = append(s.diagnosticsProviders, provider)
+}
+
+// publishDiagnostics collects and publishes diagnostics for a document
+func (s *Server) publishDiagnostics(ctx context.Context, uri string, version int) {
+	if s.conn == nil {
+		return
+	}
+
+	// Get document content
+	content, ok := s.documentManager.GetDocumentText(uri)
+	if !ok {
+		return
+	}
+
+	// Collect diagnostics from all providers
+	allDiagnostics := []protocol.Diagnostic{}
+
+	node := s.documentManager.GetRootNode(uri)
+
+	if node == nil {
+		return
+	}
+
+	for _, provider := range s.diagnosticsProviders {
+		diagnostics, err := provider.GetDiagnostics(ctx, uri, node, content)
+		if err != nil {
+			log.Printf("Error getting diagnostics from provider %s: %v", provider, err)
+			continue
+		}
+
+		allDiagnostics = append(allDiagnostics, diagnostics...)
+	}
+
+	// Publish diagnostics
+	params := protocol.PublishDiagnosticsParams{
+		URI:         uri,
+		Version:     version,
+		Diagnostics: allDiagnostics,
+	}
+
+	if err := s.conn.Notify(ctx, "textDocument/publishDiagnostics", params); err != nil {
+		log.Printf("Error publishing diagnostics: %v", err)
+	}
+}
+
+// diagnostic handles textDocument/diagnostic requests
+func (s *Server) diagnostic(ctx context.Context, params *protocol.DiagnosticParams) interface{} {
+	uri := params.TextDocument.URI
+	
+	// Get document content
+	content, ok := s.documentManager.GetDocumentText(uri)
+	if !ok {
+		return protocol.DiagnosticResult{
+			Items: []protocol.Diagnostic{},
+		}
+	}
+
+	// Collect diagnostics from all providers
+	allDiagnostics := []protocol.Diagnostic{}
+
+	node := s.documentManager.GetRootNode(uri)
+
+	if node == nil {
+		return protocol.DiagnosticResult{
+			Items: []protocol.Diagnostic{},
+		}
+	}
+
+	for _, provider := range s.diagnosticsProviders {
+		diagnostics, err := provider.GetDiagnostics(ctx, uri, node, content)
+		if err != nil {
+			log.Printf("Error getting diagnostics from provider %s: %v", provider, err)
+			continue
+		}
+
+		allDiagnostics = append(allDiagnostics, diagnostics...)
+	}
+
+	return protocol.DiagnosticResult{
+		Items: allDiagnostics,
+	}
 }

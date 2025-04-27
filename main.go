@@ -11,6 +11,7 @@ import (
 	"github.com/shopware/shopware-lsp/internal/lsp/codelens"
 	"github.com/shopware/shopware-lsp/internal/lsp/completion"
 	"github.com/shopware/shopware-lsp/internal/lsp/definition"
+	"github.com/shopware/shopware-lsp/internal/lsp/diagnostics"
 	"github.com/shopware/shopware-lsp/internal/lsp/reference"
 	"github.com/shopware/shopware-lsp/internal/php"
 	"github.com/shopware/shopware-lsp/internal/snippet"
@@ -63,6 +64,8 @@ func main() {
 	server.RegisterCodeLensProvider(codelens.NewTwigCodeLensProvider(server))
 
 	server.RegisterReferencesProvider(reference.NewRouteReferenceProvider(server))
+
+	server.RegisterDiagnosticsProvider(diagnostics.NewSnippetDiagnosticsProvider(server))
 
 	if err := server.Start(os.Stdin, os.Stdout); err != nil {
 		log.Fatalf("LSP server error: %v", err)

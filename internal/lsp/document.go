@@ -139,6 +139,19 @@ func (m *DocumentManager) GetNodeAtPosition(uri string, line int, character int)
 	return node, doc, true
 }
 
+func (m *DocumentManager) GetRootNode(uri string) *tree_sitter.Node {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// Check if the document exists
+	doc, ok := m.documents[uri]
+	if !ok || doc.Tree == nil {
+		return nil
+	}
+
+	return doc.Tree.RootNode()
+}
+
 // Close closes the document manager and frees resources
 func (m *DocumentManager) Close() {
 	m.mu.Lock()
