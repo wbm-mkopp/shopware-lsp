@@ -2,7 +2,26 @@ package treesitterhelper
 
 import tree_sitter "github.com/tree-sitter/go-tree-sitter"
 
-// Pattern-based implementation
+func IsPHPThisMethodCall(node *tree_sitter.Node, content []byte, methodName string) Pattern {
+	return And(
+		Or(
+			NodeKind("string_content"),
+			NodeKind("encapsed_string"),
+			NodeKind("string"),
+		),
+		Ancestor(
+			And(
+				NodeKind("member_call_expression"),
+				HasChild(And(
+					NodeKind("name"),
+					NodeText(methodName),
+				)),
+			),
+			4, // Maximum depth to search up for ancestor
+		),
+	)
+}
+
 func IsPHPRenderStorefrontCall(node *tree_sitter.Node, content []byte) bool {
 	pattern := And(
 		NodeKind("string_content"),

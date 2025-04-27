@@ -31,6 +31,8 @@ func (s *SnippetCompletionProvider) GetCompletions(ctx context.Context, params *
 	switch strings.ToLower(filepath.Ext(params.TextDocument.URI)) {
 	case ".twig":
 		return s.twigCompletion(ctx, params)
+	case ".php":
+		return s.phpCompletion(ctx, params)
 	default:
 		return []protocol.CompletionItem{}
 	}
@@ -38,6 +40,23 @@ func (s *SnippetCompletionProvider) GetCompletions(ctx context.Context, params *
 
 func (s *SnippetCompletionProvider) twigCompletion(ctx context.Context, params *protocol.CompletionParams) []protocol.CompletionItem {
 	if treesitterhelper.TwigTransPattern().Matches(params.Node, params.DocumentContent) {
+		snippets, _ := s.snippetIndexer.GetFrontendSnippets()
+
+		var completionItems []protocol.CompletionItem
+		for _, snippet := range snippets {
+			completionItems = append(completionItems, protocol.CompletionItem{
+				Label: snippet,
+			})
+		}
+
+		return completionItems
+	}
+
+	return []protocol.CompletionItem{}
+}
+
+func (s *SnippetCompletionProvider) phpCompletion(ctx context.Context, params *protocol.CompletionParams) []protocol.CompletionItem {
+	if treesitterhelper.IsPHPThisMethodCall(params.Node, params.DocumentContent, "trans").Matches(params.Node, params.DocumentContent) {
 		snippets, _ := s.snippetIndexer.GetFrontendSnippets()
 
 		var completionItems []protocol.CompletionItem

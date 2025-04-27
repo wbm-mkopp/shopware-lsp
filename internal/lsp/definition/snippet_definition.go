@@ -30,6 +30,8 @@ func (s *SnippetDefinitionProvider) GetDefinition(ctx context.Context, params *p
 	switch strings.ToLower(filepath.Ext(params.TextDocument.URI)) {
 	case ".twig":
 		return s.twigDefinitions(ctx, params)
+	case ".php":
+		return s.phpDefinitions(ctx, params)
 	default:
 		return []protocol.Location{}
 	}
@@ -41,6 +43,34 @@ func (s *SnippetDefinitionProvider) twigDefinitions(ctx context.Context, params 
 
 		var locations []protocol.Location
 
+		for _, snippet := range snippets {
+			locations = append(locations, protocol.Location{
+				URI: snippet.File,
+				Range: protocol.Range{
+					Start: protocol.Position{
+						Line:      snippet.Line - 1,
+						Character: 0,
+					},
+					End: protocol.Position{
+						Line:      snippet.Line - 1,
+						Character: 0,
+					},
+				},
+			})
+		}
+
+		return locations
+	}
+
+	return []protocol.Location{}
+}
+
+func (s *SnippetDefinitionProvider) phpDefinitions(ctx context.Context, params *protocol.DefinitionParams) []protocol.Location {
+	if treesitterhelper.IsPHPThisMethodCall(params.Node, params.DocumentContent, "trans").Matches(params.Node, params.DocumentContent) {
+		value := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
+		snippets, _ := s.snippetIndexer.GetFrontendSnippet(value)
+
+		var locations []protocol.Location
 		for _, snippet := range snippets {
 			locations = append(locations, protocol.Location{
 				URI: snippet.File,
