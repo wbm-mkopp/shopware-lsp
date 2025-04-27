@@ -293,10 +293,6 @@ func (fs *FileScanner) IndexFiles(ctx context.Context, files []string) error {
 					continue
 				}
 
-				ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Second))
-
-				log.Printf("Indexing file: %s", path)
-
 				// Remove the file from all indexers since we're reindexing it
 				if err := fs.removeFileFromIndexers(path); err != nil {
 					errChan <- err
@@ -310,7 +306,7 @@ func (fs *FileScanner) IndexFiles(ctx context.Context, files []string) error {
 					panic(fmt.Sprintf("no parser found for file type: %s", ext))
 				}
 
-				tree := parser.ParseCtx(ctx, content, nil)
+				tree := parser.Parse(content, nil)
 
 				for _, indexer := range fs.indexer {
 					if err := indexer.Index(path, tree.RootNode(), content); err != nil {
@@ -324,8 +320,6 @@ func (fs *FileScanner) IndexFiles(ctx context.Context, files []string) error {
 				if err := fs.updateFileHash(path, content); err != nil {
 					errChan <- err
 				}
-
-				cancel()
 			}
 
 			CloseTreesitterParsers(parsers)
