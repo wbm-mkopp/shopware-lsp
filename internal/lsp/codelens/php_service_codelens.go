@@ -46,12 +46,17 @@ func (p *PHPServiceCodelensProvider) GetCodeLenses(ctx context.Context, params *
 			continue
 		}
 
+		var fileLocations []string
+		for _, location := range locations {
+			fileLocations = append(fileLocations, fmt.Sprintf("file://%s#%d", location.Path, location.Line))
+		}
+
 		lenses = append(lenses, protocol.CodeLens{
 			Command: &protocol.Command{
 				Title:   "Open Service Definition",
-				Command: "vscode.open",
+				Command: "shopware.openReferences",
 				Arguments: []any{
-					fmt.Sprintf("file://%s#%d", locations[0].Path, locations[0].Line),
+					fileLocations,
 				},
 			},
 			Range: protocol.Range{

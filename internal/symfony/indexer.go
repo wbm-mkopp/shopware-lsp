@@ -60,6 +60,10 @@ func (idx *ServiceIndex) Index(path string, node *tree_sitter.Node, fileContent 
 	var params []Parameter
 	var err error
 
+	if strings.Contains(path, "var/cache") {
+		return nil
+	}
+
 	// Determine if this is an XML or YAML file based on extension
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
