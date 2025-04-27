@@ -38,7 +38,7 @@ func (p *RouteCompletionProvider) GetCompletions(ctx context.Context, params *pr
 }
 
 func (p *RouteCompletionProvider) phpCompletions(ctx context.Context, params *protocol.CompletionParams) []protocol.CompletionItem {
-	if treesitterhelper.IsPHPRedirectToRoute(params.Node, params.DocumentContent) {
+	if treesitterhelper.IsPHPThisMethodCall(params.Node, params.DocumentContent, "redirectToRoute").Matches(params.Node, params.DocumentContent) {
 		allRoutes, _ := p.routeIndex.GetRoutes()
 
 		var completionItems []protocol.CompletionItem

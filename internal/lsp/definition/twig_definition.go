@@ -68,7 +68,7 @@ func (p *TwigDefinitionProvider) twigDefinitions(ctx context.Context, params *pr
 }
 
 func (p *TwigDefinitionProvider) phpDefinitions(ctx context.Context, params *protocol.DefinitionParams) []protocol.Location {
-	if treesitterhelper.IsPHPRenderStorefrontCall(params.Node, params.DocumentContent) {
+	if treesitterhelper.IsPHPThisMethodCall(params.Node, params.DocumentContent, "renderStorefront").Matches(params.Node, params.DocumentContent) {
 		files, _ := p.twigIndexer.GetTwigFilesByRelPath(treesitterhelper.GetNodeText(params.Node, params.DocumentContent))
 
 		var locations []protocol.Location

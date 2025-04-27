@@ -38,7 +38,7 @@ func (p *RouteDefinitionProvider) GetDefinition(ctx context.Context, params *pro
 }
 
 func (p *RouteDefinitionProvider) phpDefinition(ctx context.Context, params *protocol.DefinitionParams) []protocol.Location {
-	if treesitterhelper.IsPHPRedirectToRoute(params.Node, params.DocumentContent) {
+	if treesitterhelper.IsPHPThisMethodCall(params.Node, params.DocumentContent, "redirectToRoute").Matches(params.Node, params.DocumentContent) {
 		currentText := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
 
 		locations, _ := p.routeIndex.GetRoute(currentText)
