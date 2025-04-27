@@ -191,6 +191,18 @@ func (idx *ServiceIndex) Close() error {
 	return err
 }
 
+func (idx *ServiceIndex) Clear() error {
+	if err := idx.serviceIndex.Clear(); err != nil {
+		return err
+	}
+
+	if err := idx.parameterIndex.Clear(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // GetAllTags returns all tag names in the index
 func (idx *ServiceIndex) GetAllTags() []string {
 	values, err := idx.serviceIndex.GetAllValues()

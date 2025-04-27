@@ -59,6 +59,10 @@ func (s *SnippetIndexer) Close() error {
 	return s.frontendIndex.Close()
 }
 
+func (s *SnippetIndexer) Clear() error {
+	return s.frontendIndex.Clear()
+}
+
 func (s *SnippetIndexer) GetFrontendSnippets() ([]string, error) {
 	return s.frontendIndex.GetAllKeys()
 }

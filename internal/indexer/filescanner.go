@@ -341,6 +341,12 @@ func (fs *FileScanner) IndexFiles(ctx context.Context, files []string) error {
 
 // ClearHashes clears all file hashes, forcing reindexing
 func (fs *FileScanner) ClearHashes() error {
+	for _, indexer := range fs.indexer {
+		if err := indexer.Clear(); err != nil {
+			return err
+		}
+	}
+
 	return fs.db.Update(func(tx *bbolt.Tx) error {
 		// Delete and recreate bucket
 		if err := tx.DeleteBucket([]byte("file_hashes")); err != nil {

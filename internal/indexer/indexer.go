@@ -7,4 +7,5 @@ type Indexer interface {
 	Index(path string, node *tree_sitter.Node, fileContent []byte) error
 	RemovedFiles(paths []string) error
 	Close() error
+	Clear() error
 }

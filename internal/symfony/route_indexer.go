@@ -94,3 +94,7 @@ func (idx *RouteIndexer) RemovedFiles(paths []string) error {
 func (idx *RouteIndexer) Close() error {
 	return idx.dataIndexer.Close()
 }
+
+func (idx *RouteIndexer) Clear() error {
+	return idx.dataIndexer.Clear()
+}

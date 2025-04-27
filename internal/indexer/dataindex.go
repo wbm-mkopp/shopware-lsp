@@ -376,6 +376,30 @@ func (idx *DataIndexer[T]) BatchDeleteByFilePaths(filePaths []string) error {
 	})
 }
 
+func (idx *DataIndexer[T]) Clear() error {
+	return idx.db.Update(func(tx *bbolt.Tx) error {
+		// Delete existing buckets
+		if err := tx.DeleteBucket(idx.dataBucket); err != nil {
+			return fmt.Errorf("failed to delete data bucket: %w", err)
+		}
+
+		if err := tx.DeleteBucket(idx.filesBucket); err != nil {
+			return fmt.Errorf("failed to delete files bucket: %w", err)
+		}
+
+		// Recreate buckets
+		if _, err := tx.CreateBucket(idx.dataBucket); err != nil {
+			return fmt.Errorf("failed to create data bucket: %w", err)
+		}
+
+		if _, err := tx.CreateBucket(idx.filesBucket); err != nil {
+			return fmt.Errorf("failed to create files bucket: %w", err)
+		}
+
+		return nil
+	})
+}
+
 // Close closes the database
 func (idx *DataIndexer[T]) Close() error {
 	idx.mu.Lock()

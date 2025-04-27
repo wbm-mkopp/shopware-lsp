@@ -94,6 +94,18 @@ func (idx *TwigIndexer) Close() error {
 	return nil
 }
 
+func (idx *TwigIndexer) Clear() error {
+	if err := idx.twigBlockIndex.Clear(); err != nil {
+		return err
+	}
+
+	if err := idx.twigFileIndex.Clear(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (idx *TwigIndexer) GetAllTemplateFiles() ([]string, error) {
 	return idx.twigFileIndex.GetAllKeys()
 }

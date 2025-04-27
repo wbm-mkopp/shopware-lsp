@@ -141,6 +141,10 @@ func (idx *PHPIndex) Close() error {
 	return idx.dataIndexer.Close()
 }
 
+func (idx *PHPIndex) Clear() error {
+	return idx.dataIndexer.Clear()
+}
+
 func (idx *PHPIndex) GetClass(className string) *PHPClass {
 	values, err := idx.dataIndexer.GetValues(className)
 	if err != nil {

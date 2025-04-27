@@ -82,6 +82,10 @@ func (i *FeatureIndexer) Close() error {
 	return i.featureIndex.Close()
 }
 
+func (i *FeatureIndexer) Clear() error {
+	return i.featureIndex.Clear()
+}
+
 func (i *FeatureIndexer) GetFeatureByName(name string) ([]Feature, error) {
 	return i.featureIndex.GetValues(name)
 }
