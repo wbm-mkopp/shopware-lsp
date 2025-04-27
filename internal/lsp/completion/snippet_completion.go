@@ -56,7 +56,7 @@ func (s *SnippetCompletionProvider) twigCompletion(ctx context.Context, params *
 }
 
 func (s *SnippetCompletionProvider) phpCompletion(ctx context.Context, params *protocol.CompletionParams) []protocol.CompletionItem {
-	if treesitterhelper.IsPHPThisMethodCall(params.Node, params.DocumentContent, "trans").Matches(params.Node, params.DocumentContent) {
+	if treesitterhelper.IsPHPThisMethodCall("trans").Matches(params.Node, params.DocumentContent) {
 		snippets, _ := s.snippetIndexer.GetFrontendSnippets()
 
 		var completionItems []protocol.CompletionItem

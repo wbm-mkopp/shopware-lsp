@@ -66,7 +66,7 @@ func (s *SnippetDefinitionProvider) twigDefinitions(ctx context.Context, params 
 }
 
 func (s *SnippetDefinitionProvider) phpDefinitions(ctx context.Context, params *protocol.DefinitionParams) []protocol.Location {
-	if treesitterhelper.IsPHPThisMethodCall(params.Node, params.DocumentContent, "trans").Matches(params.Node, params.DocumentContent) {
+	if treesitterhelper.IsPHPThisMethodCall("trans").Matches(params.Node, params.DocumentContent) {
 		value := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
 		snippets, _ := s.snippetIndexer.GetFrontendSnippet(value)
 

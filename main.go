@@ -11,6 +11,7 @@ import (
 	"github.com/shopware/shopware-lsp/internal/lsp/codelens"
 	"github.com/shopware/shopware-lsp/internal/lsp/completion"
 	"github.com/shopware/shopware-lsp/internal/lsp/definition"
+	"github.com/shopware/shopware-lsp/internal/lsp/reference"
 	"github.com/shopware/shopware-lsp/internal/php"
 	"github.com/shopware/shopware-lsp/internal/snippet"
 	"github.com/shopware/shopware-lsp/internal/symfony"
@@ -42,6 +43,7 @@ func main() {
 
 	server.RegisterIndexer(symfony.NewServiceIndex(projectRoot, cacheDir))
 	server.RegisterIndexer(symfony.NewRouteIndexer(cacheDir))
+	server.RegisterIndexer(symfony.NewRouteUsageIndexer(cacheDir))
 	server.RegisterIndexer(php.NewPHPIndex(cacheDir))
 	server.RegisterIndexer(twig.NewTwigIndexer(cacheDir))
 	server.RegisterIndexer(snippet.NewSnippetIndexer(cacheDir))
@@ -59,6 +61,8 @@ func main() {
 
 	server.RegisterCodeLensProvider(codelens.NewPHPCodeLensProvider(server))
 	server.RegisterCodeLensProvider(codelens.NewTwigCodeLensProvider(server))
+
+	server.RegisterReferencesProvider(reference.NewRouteReferenceProvider(server))
 
 	if err := server.Start(os.Stdin, os.Stdout); err != nil {
 		log.Fatalf("LSP server error: %v", err)

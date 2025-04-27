@@ -56,7 +56,7 @@ func (p *TwigCompletionProvider) twigCompletions(ctx context.Context, params *pr
 }
 
 func (p *TwigCompletionProvider) phpCompletions(ctx context.Context, params *protocol.CompletionParams) []protocol.CompletionItem {
-	if treesitterhelper.IsPHPThisMethodCall(params.Node, params.DocumentContent, "renderStorefront").Matches(params.Node, params.DocumentContent) {
+	if treesitterhelper.IsPHPThisMethodCall("renderStorefront").Matches(params.Node, params.DocumentContent) {
 		files, _ := p.twigIndexer.GetAllTemplateFiles()
 
 		var completionItems []protocol.CompletionItem

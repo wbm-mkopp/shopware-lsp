@@ -1,8 +1,12 @@
 package treesitterhelper
 
-import tree_sitter "github.com/tree-sitter/go-tree-sitter"
+import (
+	"fmt"
 
-func IsPHPThisMethodCall(node *tree_sitter.Node, content []byte, methodName string) Pattern {
+	tree_sitter "github.com/tree-sitter/go-tree-sitter"
+)
+
+func IsPHPThisMethodCall(methodName string) Pattern {
 	return And(
 		Or(
 			NodeKind("string_content"),
@@ -20,4 +24,49 @@ func IsPHPThisMethodCall(node *tree_sitter.Node, content []byte, methodName stri
 			4,
 		),
 	)
+}
+
+func GetMethodFQCN(node *tree_sitter.Node, content []byte) string {
+	nsCapture := Capture("namespace", NodeKind("namespace_name"))
+	classNameCapture := Capture("class_name", NodeKind("name"))
+
+	if !And(
+		NodeKind("name"),
+		Ancestor(
+			And(
+				NodeKind("method_declaration"),
+				Ancestor(
+					And(
+						NodeKind("class_declaration"),
+						HasChild(
+							classNameCapture,
+						),
+						Ancestor(
+							And(
+								NodeKind("program"),
+								HasChild(
+									And(
+										NodeKind("namespace_definition"),
+										HasChild(
+											nsCapture,
+										),
+									),
+								),
+							),
+							20,
+						),
+					),
+					5,
+				),
+			),
+			1,
+		),
+	).Matches(node, content) {
+		return ""
+	}
+
+	className := string(classNameCapture.GetCapturedNode().Utf8Text(content))
+	ns := string(nsCapture.GetCapturedNode().Utf8Text(content))
+
+	return fmt.Sprintf("%s\\%s::%s", ns, className, string(node.Utf8Text(content)))
 }

@@ -17,6 +17,17 @@ type Route struct {
 	Line       int
 }
 
+type RouteList []Route
+
+func (rl RouteList) GetByController(name string) *Route {
+	for _, r := range rl {
+		if r.Controller == name {
+			return &r
+		}
+	}
+	return nil
+}
+
 type RouteIndexer struct {
 	dataIndexer *indexer.DataIndexer[Route]
 }
@@ -35,7 +46,7 @@ func (idx *RouteIndexer) ID() string {
 	return "symfony.route"
 }
 
-func (idx *RouteIndexer) GetRoutes() ([]Route, error) {
+func (idx *RouteIndexer) GetRoutes() (RouteList, error) {
 	return idx.dataIndexer.GetAllValues()
 }
 
