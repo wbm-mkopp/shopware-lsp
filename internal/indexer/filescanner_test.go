@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 func TestFileScanner_IndexFiles_SkipDirs(t *testing.T) {
@@ -27,7 +27,9 @@ func TestFileScanner_IndexFiles_SkipDirs(t *testing.T) {
 	// Create a file scanner with the mock indexer
 	fs, err := NewFileScanner(tempDir, filepath.Join(tempDir, "test.db"))
 	require.NoError(t, err)
-	defer fs.Close()
+	defer func() {
+		assert.NoError(t, fs.Close())
+	}()
 
 	// Add the mock indexer
 	fs.AddIndexer(mockIndexer)
@@ -126,5 +128,9 @@ func (m *mockIndexer) ID() string {
 }
 
 func (m *mockIndexer) Close() error {
+	return nil
+}
+
+func (m *mockIndexer) Clear() error {
 	return nil
 }
