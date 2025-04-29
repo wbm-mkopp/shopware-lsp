@@ -24,6 +24,7 @@ type Server struct {
 	referencesProviders  []ReferencesProvider
 	codeLensProviders    []CodeLensProvider
 	diagnosticsProviders []DiagnosticsProvider
+	codeActionProviders  []CodeActionProvider
 	indexers             map[string]indexer.Indexer
 	indexerMu            sync.RWMutex
 	documentManager      *DocumentManager
@@ -38,6 +39,7 @@ func NewServer(filescanner *indexer.FileScanner) *Server {
 		referencesProviders:  make([]ReferencesProvider, 0),
 		codeLensProviders:    make([]CodeLensProvider, 0),
 		diagnosticsProviders: make([]DiagnosticsProvider, 0),
+		codeActionProviders:  make([]CodeActionProvider, 0),
 		indexers:             make(map[string]indexer.Indexer),
 		documentManager:      NewDocumentManager(),
 		fileScanner:          filescanner,
@@ -62,6 +64,11 @@ func (s *Server) RegisterReferencesProvider(provider ReferencesProvider) {
 // RegisterCodeLensProvider registers a code lens provider with the server
 func (s *Server) RegisterCodeLensProvider(provider CodeLensProvider) {
 	s.codeLensProviders = append(s.codeLensProviders, provider)
+}
+
+// RegisterCodeActionProvider registers a code action provider with the server
+func (s *Server) RegisterCodeActionProvider(provider CodeActionProvider) {
+	s.codeActionProviders = append(s.codeActionProviders, provider)
 }
 
 // RegisterIndexer adds an indexer to the registry
@@ -281,6 +288,13 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 			return nil, err
 		}
 		return s.resolveCodeLens(ctx, &codeLens)
+		
+	case "textDocument/codeAction":
+		var params protocol.CodeActionParams
+		if err := json.Unmarshal(*req.Params, &params); err != nil {
+			return nil, err
+		}
+		return s.codeAction(ctx, &params), nil
 
 	case "shopware/forceReindex":
 		// Force reindex all indexers
@@ -407,6 +421,9 @@ func (s *Server) initialize(ctx context.Context, params *protocol.InitializePara
 	// Collect all trigger characters from providers
 	triggerChars := s.collectTriggerCharacters()
 
+	// Collect all code action kinds from providers
+	codeActionKinds := s.collectCodeActionKinds()
+
 	// Define server capabilities
 	return map[string]interface{}{
 		"capabilities": map[string]interface{}{
@@ -425,6 +442,9 @@ func (s *Server) initialize(ctx context.Context, params *protocol.InitializePara
 			"referencesProvider": true,
 			"codeLensProvider": map[string]interface{}{
 				"resolveProvider": true,
+			},
+			"codeActionProvider": map[string]interface{}{
+				"codeActionKinds": codeActionKinds,
 			},
 			"workspace": map[string]interface{}{
 				"fileOperations": map[string]interface{}{
@@ -520,6 +540,26 @@ func (s *Server) collectTriggerCharacters() []string {
 	return triggerChars
 }
 
+// collectCodeActionKinds collects all code action kinds from registered providers
+func (s *Server) collectCodeActionKinds() []protocol.CodeActionKind {
+	// Use a map to deduplicate code action kinds
+	kindsMap := make(map[protocol.CodeActionKind]bool)
+
+	for _, provider := range s.codeActionProviders {
+		for _, kind := range provider.GetCodeActionKinds() {
+			kindsMap[kind] = true
+		}
+	}
+
+	// Convert map keys to slice
+	kinds := make([]protocol.CodeActionKind, 0, len(kindsMap))
+	for kind := range kindsMap {
+		kinds = append(kinds, kind)
+	}
+
+	return kinds
+}
+
 func (s *Server) DocumentManager() *DocumentManager {
 	return s.documentManager
 }
@@ -608,4 +648,22 @@ func (s *Server) diagnostic(ctx context.Context, params *protocol.DiagnosticPara
 	return protocol.DiagnosticResult{
 		Items: allDiagnostics,
 	}
+}
+
+// codeAction handles textDocument/codeAction requests
+func (s *Server) codeAction(ctx context.Context, params *protocol.CodeActionParams) []protocol.CodeAction {
+	// Get document content and node at position
+	node := s.documentManager.GetRootNode(params.TextDocument.URI)
+	if node == nil {
+		return []protocol.CodeAction{}
+	}
+
+	// Collect code actions from all providers
+	var allCodeActions []protocol.CodeAction
+	for _, provider := range s.codeActionProviders {
+		codeActions := provider.GetCodeActions(ctx, params)
+		allCodeActions = append(allCodeActions, codeActions...)
+	}
+
+	return allCodeActions
 }

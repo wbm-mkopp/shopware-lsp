@@ -8,6 +8,7 @@ import (
 	"github.com/shopware/shopware-lsp/internal/feature"
 	"github.com/shopware/shopware-lsp/internal/indexer"
 	"github.com/shopware/shopware-lsp/internal/lsp"
+	"github.com/shopware/shopware-lsp/internal/lsp/codeaction"
 	"github.com/shopware/shopware-lsp/internal/lsp/codelens"
 	"github.com/shopware/shopware-lsp/internal/lsp/completion"
 	"github.com/shopware/shopware-lsp/internal/lsp/definition"
@@ -66,6 +67,9 @@ func main() {
 	server.RegisterReferencesProvider(reference.NewRouteReferenceProvider(server))
 
 	server.RegisterDiagnosticsProvider(diagnostics.NewSnippetDiagnosticsProvider(server))
+	
+	// Register code action providers
+	server.RegisterCodeActionProvider(codeaction.NewSnippetCodeActionProvider(server))
 
 	if err := server.Start(os.Stdin, os.Stdout); err != nil {
 		log.Fatalf("LSP server error: %v", err)

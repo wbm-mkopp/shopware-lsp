@@ -57,6 +57,10 @@ func (s *SnippetDiagnosticsProvider) twigDiagnostics(ctx context.Context, uri st
 				Message:  fmt.Sprintf("Snippet '%s' not found", snippetText),
 				Source:   "shopware",
 				Severity: protocol.DiagnosticSeverityError,
+				Code:     "shopware.frontend.snippet.missing",
+				Data: map[string]any{
+					"snippetText": snippetText,
+				},
 			})
 		}
 	}
