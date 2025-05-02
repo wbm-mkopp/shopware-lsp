@@ -10,6 +10,8 @@ require (
 	github.com/kaermorchen/tree-sitter-twig v0.7.1-0.20250417181424-8ab106232948
 	github.com/sourcegraph/jsonrpc2 v0.2.0
 	github.com/stretchr/testify v1.10.0
+	github.com/tidwall/pretty v1.2.1
+	github.com/tidwall/sjson v1.2.5
 	github.com/tree-sitter-grammars/tree-sitter-xml v0.7.0
 	github.com/tree-sitter-grammars/tree-sitter-yaml v0.7.0
 	github.com/tree-sitter/go-tree-sitter v0.25.0
@@ -25,8 +27,6 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
-	github.com/tidwall/pretty v1.2.1 // indirect
-	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	golang.org/x/sync v0.13.0 // indirect
 	golang.org/x/sys v0.29.0 // indirect
