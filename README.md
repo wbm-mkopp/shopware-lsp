@@ -25,6 +25,7 @@ A Language Server Protocol (LSP) implementation for Shopware development.
 - Snippet indexing and validation in Twig files
 - Snippet completion in Twig files
 - Diagnostics for missing snippets in Twig templates
+    - Quick Fix to add missing snippets
 - Go-to-definition for snippet keys
 
 ### Route Support
@@ -35,6 +36,7 @@ A Language Server Protocol (LSP) implementation for Shopware development.
 ### Feature Flag Support
 - Feature flag indexing and validation
 - Go-to-definition for feature flags
+- Feature flag completion in PHP files
 
 ### Diagnostics
 - Snippet validation in Twig templates

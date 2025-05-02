@@ -4,6 +4,8 @@ go 1.24
 
 replace github.com/tree-sitter-grammars/tree-sitter-xml => github.com/justinMBullard/tree-sitter-xml v0.0.0-20250305015746-03d1af911bbd
 
+replace github.com/tree-sitter-grammars/tree-sitter-scss => github.com/shyim/tree-sitter-scss v0.0.0-20250502122635-ca898ab73795
+
 require (
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/fsnotify/fsnotify v1.9.0
@@ -12,6 +14,7 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/tidwall/pretty v1.2.1
 	github.com/tidwall/sjson v1.2.5
+	github.com/tree-sitter-grammars/tree-sitter-scss v1.0.0
 	github.com/tree-sitter-grammars/tree-sitter-xml v0.7.0
 	github.com/tree-sitter-grammars/tree-sitter-yaml v0.7.0
 	github.com/tree-sitter/go-tree-sitter v0.25.0

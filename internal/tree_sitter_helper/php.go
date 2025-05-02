@@ -6,6 +6,35 @@ import (
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
+func IsStaticPHPMethodCall(className, methodName string) Pattern {
+
+	return And(
+		Or(
+			NodeKind("string_content"),
+			NodeKind("encapsed_string"),
+			NodeKind("string"),
+		),
+		Ancestor(
+			And(
+				NodeKind("scoped_call_expression"),
+				HasChild(
+					And(
+						NodeKind("name"),
+						NodeText(methodName),
+					),
+				),
+				HasChild(
+					And(
+						NodeKind("name"),
+						NodeText(className),
+					),
+				),
+			),
+			4,
+		),
+	)
+}
+
 func IsPHPThisMethodCall(methodName string) Pattern {
 	return And(
 		Or(

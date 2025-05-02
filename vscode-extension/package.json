@@ -25,7 +25,8 @@
     "onLanguage:php",
     "onLanguage:xml",
     "onLanguage:twig",
-    "onLanguage:yaml"
+    "onLanguage:yaml",
+    "onLanguage:scss"
   ],
   "repository": {
     "type": "git",

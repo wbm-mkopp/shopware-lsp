@@ -2,6 +2,7 @@ package indexer
 
 import (
 	tree_sitter_twig "github.com/kaermorchen/tree-sitter-twig/bindings/go"
+	tree_sitter_scss "github.com/tree-sitter-grammars/tree-sitter-scss/bindings/go"
 	tree_sitter_xml "github.com/tree-sitter-grammars/tree-sitter-xml/bindings/go"
 	tree_sitter_yaml "github.com/tree-sitter-grammars/tree-sitter-yaml/bindings/go"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
@@ -16,6 +17,7 @@ var scannedFileTypes = []string{
 	".yml",
 	".twig",
 	".json",
+	".scss",
 }
 
 func CreateTreesitterParsers() map[string]*tree_sitter.Parser {
@@ -43,6 +45,11 @@ func CreateTreesitterParsers() map[string]*tree_sitter.Parser {
 
 	parsers[".yml"] = tree_sitter.NewParser()
 	if err := parsers[".yml"].SetLanguage(tree_sitter.NewLanguage(tree_sitter_yaml.Language())); err != nil {
+		panic(err)
+	}
+
+	parsers[".scss"] = tree_sitter.NewParser()
+	if err := parsers[".scss"].SetLanguage(tree_sitter.NewLanguage(tree_sitter_scss.Language())); err != nil {
 		panic(err)
 	}
 

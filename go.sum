@@ -14,6 +14,10 @@ github.com/mattn/go-pointer v0.0.1 h1:n+XhsuGeVO6MEAp7xyEukFINEa+Quek5psIR/ylA6o
 github.com/mattn/go-pointer v0.0.1/go.mod h1:2zXcozF6qYGgmsG+SeTZz3oAbFLdD3OWqnUbNvJZAlc=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
+github.com/shyim/tree-sitter-scss v0.0.0-20250502122635-ca898ab73795 h1:DQCCsdEfiwinGnS2cfI55TtpEONc+xscJx/Kpj4SFXY=
+github.com/shyim/tree-sitter-scss v0.0.0-20250502122635-ca898ab73795/go.mod h1:tE8mbrBAnn+N3JDzU35uG6gKQZ00IXoRJsKCnYH0lio=
+github.com/smacker/go-tree-sitter v0.0.0-20230720070738-0d0a9f78d8f8 h1:DxgjlvWYsb80WEN2Zv3WqJFAg2DKjUQJO6URGdf1x6Y=
+github.com/smacker/go-tree-sitter v0.0.0-20230720070738-0d0a9f78d8f8/go.mod h1:q99oHDsbP0xRwmn7Vmob8gbSMNyvJ83OauXPSuHQuKE=
 github.com/sourcegraph/jsonrpc2 v0.2.0 h1:KjN/dC4fP6aN9030MZCJs9WQbTOjWHhrtKVpzzSrr/U=
 github.com/sourcegraph/jsonrpc2 v0.2.0/go.mod h1:ZafdZgk/axhT1cvZAPOhw+95nz2I/Ra5qMlU4gTRwIo=
 github.com/stretchr/testify v1.10.0 h1:Xv5erBjTwe/5IxqUQTdXv5kgmIvbHo3QQyRwhJsOfJA=
