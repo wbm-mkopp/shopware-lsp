@@ -25,7 +25,9 @@ type Server struct {
 	codeLensProviders    []CodeLensProvider
 	diagnosticsProviders []DiagnosticsProvider
 	codeActionProviders  []CodeActionProvider
+	commandProviders     []CommandProvider
 	indexers             map[string]indexer.Indexer
+	commandMap           map[string]CommandFunc
 	indexerMu            sync.RWMutex
 	documentManager      *DocumentManager
 	fileScanner          *indexer.FileScanner
@@ -40,7 +42,9 @@ func NewServer(filescanner *indexer.FileScanner) *Server {
 		codeLensProviders:    make([]CodeLensProvider, 0),
 		diagnosticsProviders: make([]DiagnosticsProvider, 0),
 		codeActionProviders:  make([]CodeActionProvider, 0),
+		commandProviders:     make([]CommandProvider, 0),
 		indexers:             make(map[string]indexer.Indexer),
+		commandMap:           make(map[string]CommandFunc),
 		documentManager:      NewDocumentManager(),
 		fileScanner:          filescanner,
 	}
@@ -69,6 +73,11 @@ func (s *Server) RegisterCodeLensProvider(provider CodeLensProvider) {
 // RegisterCodeActionProvider registers a code action provider with the server
 func (s *Server) RegisterCodeActionProvider(provider CodeActionProvider) {
 	s.codeActionProviders = append(s.codeActionProviders, provider)
+}
+
+// RegisterCommandProvider registers a command provider with the server
+func (s *Server) RegisterCommandProvider(provider CommandProvider) {
+	s.commandProviders = append(s.commandProviders, provider)
 }
 
 // RegisterIndexer adds an indexer to the registry
@@ -146,6 +155,13 @@ func (s *Server) CloseAll() error {
 }
 
 func (s *Server) Start(in io.Reader, out io.Writer) error {
+	// Register commands
+	for _, provider := range s.commandProviders {
+		for command, fn := range provider.GetCommands(context.Background()) {
+			s.commandMap[command] = fn
+		}
+	}
+
 	// Create a new JSON-RPC connection
 	stream := jsonrpc2.NewBufferedStream(rwc{in, out}, jsonrpc2.VSCodeObjectCodec{})
 	conn := jsonrpc2.NewConn(context.Background(), stream, jsonrpc2.HandlerWithError(s.handle))
@@ -178,6 +194,10 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 		return nil, nil
 	}
 
+	if cmd, ok := s.commandMap[req.Method]; ok {
+		return cmd(ctx, req.Params)
+	}
+
 	switch req.Method {
 	case "initialize":
 		var params protocol.InitializeParams
@@ -189,7 +209,7 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 	case "initialized":
 		// Build the index when the client is initialized
 		go func() {
-			// Index all registered indexers
+			// Index all registered indexersq
 			if err := s.indexAll(ctx, false); err != nil {
 				log.Printf("Error indexing: %v", err)
 			}
@@ -288,7 +308,7 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 			return nil, err
 		}
 		return s.resolveCodeLens(ctx, &codeLens)
-		
+
 	case "textDocument/codeAction":
 		var params protocol.CodeActionParams
 		if err := json.Unmarshal(*req.Params, &params); err != nil {
@@ -564,6 +584,10 @@ func (s *Server) DocumentManager() *DocumentManager {
 	return s.documentManager
 }
 
+func (s *Server) FileScanner() *indexer.FileScanner {
+	return s.fileScanner
+}
+
 // RegisterDiagnosticsProvider registers a diagnostics provider with the server
 func (s *Server) RegisterDiagnosticsProvider(provider DiagnosticsProvider) {
 	s.diagnosticsProviders = append(s.diagnosticsProviders, provider)
@@ -615,7 +639,7 @@ func (s *Server) publishDiagnostics(ctx context.Context, uri string, version int
 // diagnostic handles textDocument/diagnostic requests
 func (s *Server) diagnostic(ctx context.Context, params *protocol.DiagnosticParams) interface{} {
 	uri := params.TextDocument.URI
-	
+
 	// Get document content
 	content, ok := s.documentManager.GetDocumentText(uri)
 	if !ok {

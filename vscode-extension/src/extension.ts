@@ -218,6 +218,57 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
     }
   }));
+  
+  // Register create snippet command handler
+  context.subscriptions.push(vscode.commands.registerCommand('shopware.createSnippet', async (snippetKey: string, fileUri: string) => {
+    try {
+      if (!client) {
+        vscode.window.showErrorMessage('Shopware LSP is not running');
+        return;
+      }
+      
+      const result = await client.sendRequest<{paths: SnippetFile[]}>('shopware/snippet/getPossibleSnippetFilse', {
+        fileUri,
+      });
+
+      if (!result || !result.paths || result.paths.length === 0) {
+        vscode.window.showErrorMessage('No snippet files found');
+        return;
+      }
+
+      let firstValue = '';
+
+      for (const snippetFile of result.paths) {
+        const result = await vscode.window.showInputBox({
+          prompt: `Enter snippet value for ${snippetFile.name}`,
+          value: firstValue,
+          title: `Create snippet for ${snippetKey}`,
+        })
+
+        if (result === undefined) {
+          vscode.window.showErrorMessage('Snippet creation cancelled');
+          return;
+        }
+
+        if (result.trim() === '') {
+          vscode.window.showErrorMessage('Snippet value cannot be empty');
+          return;
+        }
+
+        firstValue = result;
+        snippetFile.value = result;
+      }
+
+      await client.sendRequest('shopware/snippet/create', {
+        snippetKey,
+        snippets: result.paths
+      });
+
+      vscode.window.showInformationMessage(`Snippet ${snippetKey} created successfully`);
+    } catch (error) {
+      vscode.window.showErrorMessage(`Error creating snippet: ${error}`);
+    }
+  }));
 }
 
 export function deactivate(): Thenable<void> | undefined {

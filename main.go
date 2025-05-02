@@ -67,9 +67,11 @@ func main() {
 	server.RegisterReferencesProvider(reference.NewRouteReferenceProvider(server))
 
 	server.RegisterDiagnosticsProvider(diagnostics.NewSnippetDiagnosticsProvider(server))
-	
+
 	// Register code action providers
 	server.RegisterCodeActionProvider(codeaction.NewSnippetCodeActionProvider(server))
+
+	server.RegisterCommandProvider(snippet.NewSnippetCommandProvider(server))
 
 	if err := server.Start(os.Stdin, os.Stdout); err != nil {
 		log.Fatalf("LSP server error: %v", err)

@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
 )
@@ -49,4 +50,10 @@ type IndexerRegistry interface {
 	IndexAll() error
 	// CloseAll closes all registered indexers
 	CloseAll() error
+}
+
+type CommandFunc func(ctx context.Context, args *json.RawMessage) (interface{}, error)
+
+type CommandProvider interface {
+	GetCommands(ctx context.Context) map[string]CommandFunc
 }

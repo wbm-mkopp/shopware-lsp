@@ -62,7 +62,7 @@ func (s *SnippetCodeActionProvider) GetCodeActions(ctx context.Context, params *
 			Command: &protocol.CommandAction{
 				Title:     "Create Snippet",
 				Command:   "shopware.createSnippet",
-				Arguments: []interface{}{snippetKey},
+				Arguments: []interface{}{snippetKey, params.TextDocument.URI},
 			},
 		}
 
