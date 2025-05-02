@@ -44,7 +44,7 @@ func (s *SnippetCodeActionProvider) GetCodeActions(ctx context.Context, params *
 
 	// Process only snippet-related diagnostics
 	for _, diagnostic := range params.Context.Diagnostics {
-		if diagnostic.Code != "shopware.frontend.snippet.missing" {
+		if diagnostic.Code != "frontend.snippet.missing" {
 			continue
 		}
 
@@ -54,7 +54,7 @@ func (s *SnippetCodeActionProvider) GetCodeActions(ctx context.Context, params *
 
 		// Create command-based code action
 		commandAction := protocol.CodeAction{
-			Title: fmt.Sprintf("Create snippet '%s'", snippetKey),
+			Title: fmt.Sprintf("Create snippet %s", snippetKey),
 			Kind:  protocol.CodeActionQuickFix,
 			Diagnostics: []protocol.Diagnostic{
 				diagnostic,

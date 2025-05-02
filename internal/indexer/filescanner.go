@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cespare/xxhash/v2"
+	"github.com/fsnotify/fsnotify"
 	"go.etcd.io/bbolt"
 )
 
@@ -38,6 +39,11 @@ type FileScanner struct {
 	projectRoot string
 	db          *bbolt.DB
 	indexer     []Indexer
+	watcher     *fsnotify.Watcher
+	watcherCtx  context.Context
+	cancel      context.CancelFunc
+	watcherWg   sync.WaitGroup
+	onUpdate    func()
 }
 
 // NewFileScanner creates a new file scanner
@@ -70,23 +76,248 @@ func NewFileScanner(projectRoot string, dbPath string) (*FileScanner, error) {
 		return nil, fmt.Errorf("failed to initialize buckets: %w", err)
 	}
 
+	// Create a new context for the watcher
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return &FileScanner{
 		projectRoot: projectRoot,
 		db:          db,
 		indexer:     []Indexer{},
+		watcherCtx:  ctx,
+		cancel:      cancel,
 	}, nil
+}
+
+func (fs *FileScanner) SetOnUpdate(onUpdate func()) {
+	fs.onUpdate = onUpdate
 }
 
 func (fs *FileScanner) AddIndexer(indexer Indexer) {
 	fs.indexer = append(fs.indexer, indexer)
 }
 
-// Close closes the database
+// StartWatcher starts watching for file changes in the project directory
+func (fs *FileScanner) StartWatcher() error {
+	// Create a new watcher
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("failed to create file watcher: %w", err)
+	}
+
+	fs.watcher = watcher
+	fs.watcherWg.Add(1)
+
+	// Start the watcher goroutine
+	go func() {
+		defer fs.watcherWg.Done()
+		defer fs.watcher.Close()
+
+		// Use a debounce mechanism to avoid processing the same file multiple times
+		pendingAdds := make(map[string]bool)
+		pendingRemoves := make(map[string]bool)
+		debounceTimer := time.NewTimer(time.Hour) // Initialize with a long duration
+		debounceTimer.Stop()                      // Stop it immediately
+
+		processChanges := func() {
+			// Process adds/modifications
+			if len(pendingAdds) > 0 {
+				filesToAdd := make([]string, 0, len(pendingAdds))
+				for file := range pendingAdds {
+					filesToAdd = append(filesToAdd, file)
+				}
+				pendingAdds = make(map[string]bool)
+
+				log.Printf("Processing %d changed/added files", len(filesToAdd))
+				if err := fs.IndexFiles(fs.watcherCtx, filesToAdd); err != nil {
+					log.Printf("Error indexing files: %v", err)
+				}
+			}
+
+			// Process removes
+			if len(pendingRemoves) > 0 {
+				filesToRemove := make([]string, 0, len(pendingRemoves))
+				for file := range pendingRemoves {
+					filesToRemove = append(filesToRemove, file)
+				}
+				pendingRemoves = make(map[string]bool)
+
+				log.Printf("Processing %d deleted files", len(filesToRemove))
+				if err := fs.RemoveFiles(fs.watcherCtx, filesToRemove); err != nil {
+					log.Printf("Error removing files: %v", err)
+				}
+			}
+		}
+
+		for {
+			select {
+			case <-fs.watcherCtx.Done():
+				// Process any pending changes before exiting
+				processChanges()
+				return
+
+			case event, ok := <-fs.watcher.Events:
+				if !ok {
+					return
+				}
+
+				// Skip directories that should be ignored
+				relPath, err := filepath.Rel(fs.projectRoot, event.Name)
+				if err == nil {
+					pathParts := strings.Split(relPath, string(os.PathSeparator))
+					skip := false
+					for _, part := range pathParts {
+						if defaultSkipDirs[part] {
+							skip = true
+							break
+						}
+					}
+					if skip {
+						continue
+					}
+				}
+
+				// Get file info
+				fileInfo, err := os.Stat(event.Name)
+				if err != nil {
+					// File might have been deleted
+					if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
+						// Check if it's a file type we care about
+						ext := strings.ToLower(filepath.Ext(event.Name))
+						if slices.Contains(scannedFileTypes, ext) {
+							pendingRemoves[event.Name] = true
+							// Reset the debounce timer
+							if !debounceTimer.Stop() {
+								select {
+								case <-debounceTimer.C:
+								default:
+								}
+							}
+							debounceTimer.Reset(200 * time.Millisecond)
+						}
+					}
+					continue
+				}
+
+				// Skip directories
+				if fileInfo.IsDir() {
+					// If a directory is created, add it to the watcher
+					if event.Op&fsnotify.Create != 0 {
+						fs.addDirectoryToWatcher(event.Name)
+					}
+					continue
+				}
+
+				// Handle file events
+				ext := strings.ToLower(filepath.Ext(event.Name))
+				if slices.Contains(scannedFileTypes, ext) {
+					if event.Op&(fsnotify.Create|fsnotify.Write) != 0 {
+						// File was created or modified
+						if event.Op&fsnotify.Create != 0 {
+							log.Printf("File created: %s", event.Name)
+						} else {
+							log.Printf("File modified: %s", event.Name)
+						}
+						pendingAdds[event.Name] = true
+						// Remove from pending removes if it was there
+						delete(pendingRemoves, event.Name)
+					} else if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
+						// File was removed or renamed
+						if event.Op&fsnotify.Remove != 0 {
+							log.Printf("File removed: %s", event.Name)
+						} else {
+							log.Printf("File renamed: %s", event.Name)
+						}
+						pendingRemoves[event.Name] = true
+						// Remove from pending adds if it was there
+						delete(pendingAdds, event.Name)
+					}
+
+					// Reset the debounce timer
+					if !debounceTimer.Stop() {
+						select {
+						case <-debounceTimer.C:
+						default:
+						}
+					}
+					debounceTimer.Reset(200 * time.Millisecond)
+				}
+
+			case err, ok := <-fs.watcher.Errors:
+				if !ok {
+					return
+				}
+				log.Printf("File watcher error: %v", err)
+
+			case <-debounceTimer.C:
+				// Process changes after the debounce period
+				processChanges()
+			}
+		}
+	}()
+
+	// Add the project root directory to the watcher
+	return fs.addDirectoryToWatcher(fs.projectRoot)
+}
+
+// StopWatcher stops the file watcher
+func (fs *FileScanner) StopWatcher() {
+	if fs.watcher != nil {
+		// Cancel the context to signal the watcher goroutine to stop
+		fs.cancel()
+
+		// Wait for the watcher goroutine to finish
+		fs.watcherWg.Wait()
+
+		// Reset the watcher
+		fs.watcher = nil
+	}
+}
+
+// addDirectoryToWatcher recursively adds a directory and its subdirectories to the watcher
+func (fs *FileScanner) addDirectoryToWatcher(dir string) error {
+	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Skip files/dirs we can't access
+		}
+
+		// Only watch directories
+		if !info.IsDir() {
+			return nil
+		}
+
+		// Skip directories in the skipDirs list
+		relPath, err := filepath.Rel(fs.projectRoot, path)
+		if err == nil {
+			pathParts := strings.Split(relPath, string(os.PathSeparator))
+			for _, part := range pathParts {
+				if defaultSkipDirs[part] {
+					return filepath.SkipDir
+				}
+			}
+		}
+
+		// Add the directory to the watcher
+		if err := fs.watcher.Add(path); err != nil {
+			log.Printf("Error watching directory %s: %v", path, err)
+		}
+
+		return nil
+	})
+}
+
+// Close closes the database and stops the file watcher
 func (fs *FileScanner) Close() error {
+	// Stop the file watcher if it's running
+	if fs.watcher != nil {
+		fs.StopWatcher()
+	}
+
+	// Close the database
 	if fs.db != nil {
 		return fs.db.Close()
 	}
 
+	// Close all indexers
 	for _, indexer := range fs.indexer {
 		if err := indexer.Close(); err != nil {
 			return err
@@ -183,13 +414,16 @@ func (fs *FileScanner) fileNeedsIndexing(path string) (bool, []byte, error) {
 
 // RemoveFiles removes multiple files from the index
 func (fs *FileScanner) RemoveFiles(ctx context.Context, paths []string) error {
+	log.Printf("Test 1")
 	for _, indexer := range fs.indexer {
 		if err := indexer.RemovedFiles(paths); err != nil {
 			return err
 		}
 	}
 
-	return fs.db.Update(func(tx *bbolt.Tx) error {
+	log.Printf("Test 2")
+
+	err := fs.db.Update(func(tx *bbolt.Tx) error {
 		hashBucket := tx.Bucket([]byte("file_hashes"))
 		for _, path := range paths {
 			if err := hashBucket.Delete([]byte(path)); err != nil {
@@ -198,6 +432,20 @@ func (fs *FileScanner) RemoveFiles(ctx context.Context, paths []string) error {
 		}
 		return nil
 	})
+
+	log.Printf("Test 3")
+
+	if err != nil {
+		return err
+	}
+
+	log.Printf("Test 4")
+
+	if fs.onUpdate != nil {
+		fs.onUpdate()
+	}
+
+	return nil
 }
 
 // removeFileFromIndexers removes a single file from all indexers without affecting the hash database
@@ -339,6 +587,10 @@ func (fs *FileScanner) IndexFiles(ctx context.Context, files []string) error {
 	// Check if there were any errors
 	for err := range errChan {
 		log.Printf("Error processing file: %v", err)
+	}
+
+	if fs.onUpdate != nil {
+		fs.onUpdate()
 	}
 
 	return nil

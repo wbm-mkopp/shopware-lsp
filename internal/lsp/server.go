@@ -35,7 +35,7 @@ type Server struct {
 
 // NewServer creates a new LSP server
 func NewServer(filescanner *indexer.FileScanner) *Server {
-	return &Server{
+	s := &Server{
 		completionProviders:  make([]CompletionProvider, 0),
 		definitionProviders:  make([]GotoDefinitionProvider, 0),
 		referencesProviders:  make([]ReferencesProvider, 0),
@@ -48,6 +48,14 @@ func NewServer(filescanner *indexer.FileScanner) *Server {
 		documentManager:      NewDocumentManager(),
 		fileScanner:          filescanner,
 	}
+
+	// Set the update callback to publish diagnostics
+	s.fileScanner.SetOnUpdate(func() {
+		log.Printf("Publishing diagnostics to all open files")
+		go s.PublishDiagnostics(context.Background(), nil)
+	})
+
+	return s
 }
 
 // RegisterCompletionProvider registers a completion provider with the server
@@ -169,6 +177,7 @@ func (s *Server) Start(in io.Reader, out io.Writer) error {
 
 	// Wait for the connection to close
 	<-conn.DisconnectNotify()
+
 	return nil
 }
 
@@ -449,6 +458,13 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 func (s *Server) initialize(ctx context.Context, params *protocol.InitializeParams) interface{} {
 	// Extract root path from params
 	s.extractRootPath(params)
+
+	// Start the file watcher
+	if err := s.fileScanner.StartWatcher(); err != nil {
+		log.Printf("Error starting file watcher: %v", err)
+	} else {
+		log.Println("File watcher started successfully")
+	}
 
 	// Collect all trigger characters from providers
 	triggerChars := s.collectTriggerCharacters()
