@@ -140,7 +140,7 @@ type SnippetFile struct {
 func findPossibleSnippets(dirPath string) []SnippetFile {
 	var possibleSnippets []SnippetFile
 
-	filepath.WalkDir(dirPath, func(path string, d fs.DirEntry, err error) error {
+	_ = filepath.WalkDir(dirPath, func(path string, d fs.DirEntry, err error) error {
 		if d.IsDir() {
 			return nil
 		}
