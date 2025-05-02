@@ -349,6 +349,9 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 		if err := s.fileScanner.IndexFiles(ctx, files); err != nil {
 			log.Printf("Error indexing new files: %v", err)
 		}
+
+		log.Printf("Watcher Client: Created files: %v", files)
+
 		return nil, nil
 
 	case "workspace/didRenameFiles":
@@ -371,6 +374,8 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 			log.Printf("Error removing old files: %v", err)
 		}
 
+		log.Printf("Watcher Client: Renamed files: %v", oldFiles)
+
 		return nil, nil
 
 	case "workspace/didDeleteFiles":
@@ -383,6 +388,9 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 		for i, file := range params.Files {
 			files[i] = strings.TrimPrefix(file.URI, "file://")
 		}
+
+		log.Printf("Watcher Client: Deleting files: %v", files)
+
 		if err := s.fileScanner.RemoveFiles(ctx, files); err != nil {
 			log.Printf("Error removing old files: %v", err)
 		}
@@ -410,12 +418,16 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 		}
 
 		if len(createFiles) > 0 {
+			log.Printf("Watcher Client: Creating files: %v", createFiles)
+
 			if err := s.fileScanner.IndexFiles(ctx, createFiles); err != nil {
 				log.Printf("Error indexing new files: %v", err)
 			}
 		}
 
 		if len(deleteFiles) > 0 {
+			log.Printf("Watcher Client: Deleting files: %v", deleteFiles)
+
 			if err := s.fileScanner.RemoveFiles(ctx, deleteFiles); err != nil {
 				log.Printf("Error removing old files: %v", err)
 			}
@@ -591,6 +603,15 @@ func (s *Server) FileScanner() *indexer.FileScanner {
 // RegisterDiagnosticsProvider registers a diagnostics provider with the server
 func (s *Server) RegisterDiagnosticsProvider(provider DiagnosticsProvider) {
 	s.diagnosticsProviders = append(s.diagnosticsProviders, provider)
+}
+
+func (s *Server) PublishDiagnostics(ctx context.Context, uri string) {
+	version := 0
+	if doc, ok := s.DocumentManager().GetDocument(uri); ok {
+		version = doc.Version
+	}
+
+	s.publishDiagnostics(ctx, uri, version)
 }
 
 // publishDiagnostics collects and publishes diagnostics for a document

@@ -93,6 +93,7 @@ func (s *SnippetCommandProvider) getPossibleSnippets(ctx context.Context, args *
 
 func (s *SnippetCommandProvider) createSnippet(ctx context.Context, args *json.RawMessage) (interface{}, error) {
 	var params struct {
+		FileURI    string        `json:"fileUri"`
 		SnippetKey string        `json:"snippetKey"`
 		Snippets   []SnippetFile `json:"snippets"`
 	}
@@ -124,6 +125,8 @@ func (s *SnippetCommandProvider) createSnippet(ctx context.Context, args *json.R
 	if err := s.lsp.FileScanner().IndexFiles(ctx, files); err != nil {
 		return nil, fmt.Errorf("failed to index files: %w", err)
 	}
+
+	s.lsp.PublishDiagnostics(ctx, params.FileURI)
 
 	return nil, nil
 }

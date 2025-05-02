@@ -260,6 +260,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
 
       await client.sendRequest('shopware/snippet/create', {
+        fileUri,
         snippetKey,
         snippets: result.paths
       });
