@@ -605,13 +605,39 @@ func (s *Server) RegisterDiagnosticsProvider(provider DiagnosticsProvider) {
 	s.diagnosticsProviders = append(s.diagnosticsProviders, provider)
 }
 
-func (s *Server) PublishDiagnostics(ctx context.Context, uri string) {
-	version := 0
-	if doc, ok := s.DocumentManager().GetDocument(uri); ok {
-		version = doc.Version
+type docAnalyse struct {
+	uri     string
+	version int
+}
+
+func (s *Server) PublishDiagnostics(ctx context.Context, files []string) {
+	var docs []docAnalyse
+
+	if files == nil {
+		for _, doc := range s.DocumentManager().documents {
+			docs = append(docs, docAnalyse{
+				uri:     doc.URI,
+				version: doc.Version,
+			})
+		}
+	} else {
+		for _, uri := range files {
+			version := 0
+
+			if doc, ok := s.DocumentManager().GetDocument(uri); ok {
+				version = doc.Version
+			}
+
+			docs = append(docs, docAnalyse{
+				uri:     uri,
+				version: version,
+			})
+		}
 	}
 
-	s.publishDiagnostics(ctx, uri, version)
+	for _, doc := range docs {
+		go s.publishDiagnostics(ctx, doc.uri, doc.version)
+	}
 }
 
 // publishDiagnostics collects and publishes diagnostics for a document

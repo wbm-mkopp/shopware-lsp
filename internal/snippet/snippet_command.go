@@ -126,7 +126,7 @@ func (s *SnippetCommandProvider) createSnippet(ctx context.Context, args *json.R
 		return nil, fmt.Errorf("failed to index files: %w", err)
 	}
 
-	s.lsp.PublishDiagnostics(ctx, params.FileURI)
+	s.lsp.PublishDiagnostics(ctx, []string{params.FileURI})
 
 	return nil, nil
 }
