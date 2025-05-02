@@ -110,7 +110,11 @@ func (fs *FileScanner) StartWatcher() error {
 	// Start the watcher goroutine
 	go func() {
 		defer fs.watcherWg.Done()
-		defer fs.watcher.Close()
+		defer func() {
+			if fs.watcher != nil {
+				_ = fs.watcher.Close()
+			}
+		}()
 
 		// Use a debounce mechanism to avoid processing the same file multiple times
 		pendingAdds := make(map[string]bool)
@@ -202,7 +206,9 @@ func (fs *FileScanner) StartWatcher() error {
 				if fileInfo.IsDir() {
 					// If a directory is created, add it to the watcher
 					if event.Op&fsnotify.Create != 0 {
-						fs.addDirectoryToWatcher(event.Name)
+						if err := fs.addDirectoryToWatcher(event.Name); err != nil {
+							log.Printf("Error adding directory to watcher: %v", err)
+						}
 					}
 					continue
 				}
