@@ -17,6 +17,7 @@ import (
 	"github.com/shopware/shopware-lsp/internal/php"
 	"github.com/shopware/shopware-lsp/internal/snippet"
 	"github.com/shopware/shopware-lsp/internal/symfony"
+	"github.com/shopware/shopware-lsp/internal/systemconfig"
 	"github.com/shopware/shopware-lsp/internal/twig"
 )
 
@@ -50,6 +51,7 @@ func main() {
 	server.RegisterIndexer(twig.NewTwigIndexer(cacheDir))
 	server.RegisterIndexer(snippet.NewSnippetIndexer(cacheDir))
 	server.RegisterIndexer(feature.NewFeatureIndexer(cacheDir))
+	server.RegisterIndexer(systemconfig.NewSystemConfigIndexer(cacheDir))
 
 	server.RegisterCompletionProvider(completion.NewServiceCompletionProvider(server))
 	server.RegisterCompletionProvider(completion.NewTwigCompletionProvider(server))
