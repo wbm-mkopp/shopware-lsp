@@ -23,7 +23,9 @@ func TestGetNamespaceFromPath(t *testing.T) {
 		// Create a composer.json file
 		composerJson := `{
 			"name": "shopware/plugin-name",
-			"shopware-plugin-class": "Shopware\\PluginName\\PluginName"
+			"extra": {
+				"shopware-plugin-class": "Shopware\\PluginName\\PluginName"
+			}
 		}`
 		require.NoError(t, os.WriteFile(filepath.Join(pluginDir, "composer.json"), []byte(composerJson), 0644))
 
@@ -93,7 +95,9 @@ func TestIndexSystemConfigFile(t *testing.T) {
 	// Create a composer.json file
 	composerJson := `{
 		"name": "shopware/test-plugin",
-		"shopware-plugin-class": "Shopware\\TestPlugin\\TestPlugin"
+		"extra": {
+			"shopware-plugin-class": "Shopware\\TestPlugin\\TestPlugin"
+		}
 	}`
 	require.NoError(t, os.WriteFile(filepath.Join(pluginDir, "composer.json"), []byte(composerJson), 0644))
 

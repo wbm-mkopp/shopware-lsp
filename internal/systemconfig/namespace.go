@@ -3,7 +3,6 @@ package systemconfig
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -164,8 +163,6 @@ func IndexSystemConfigFile(data []byte, filePath string) ([]SystemConfigEntry, e
 	if err != nil {
 		return nil, err
 	}
-
-	log.Printf("Namespace: %s", namespace)
 
 	// Parse the XML
 	parser := tree_sitter.NewParser()

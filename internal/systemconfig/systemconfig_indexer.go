@@ -1,8 +1,6 @@
 package systemconfig
 
 import (
-	"fmt"
-	"log"
 	"path/filepath"
 	"strings"
 
@@ -48,16 +46,6 @@ func (s *SystemConfigIndexer) Index(path string, node *tree_sitter.Node, fileCon
 	entries, err := IndexSystemConfigFile(fileContent, path)
 	if err != nil {
 		return err
-	}
-
-	log.Printf("Indexed %d system config entries from %s", len(entries), path)
-
-	for _, entry := range entries {
-		if entry.Namespace != "" {
-			log.Printf("Entry: %s", fmt.Sprintf("%s.%s", entry.Namespace, entry.Name))
-		} else {
-			log.Printf("Warning: Empty namespace for entry %s in file %s", entry.Name, path)
-		}
 	}
 
 	// Prepare batch save
