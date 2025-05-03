@@ -150,13 +150,7 @@ func getNamespaceFromManifestXml(manifestPath string) (string, error) {
 }
 
 // IndexSystemConfigFile indexes a system config file and returns the entries
-func IndexSystemConfigFile(filePath string) ([]SystemConfigEntry, error) {
-	// Check if the file exists
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil, err
-	}
-
+func IndexSystemConfigFile(data []byte, filePath string) ([]SystemConfigEntry, error) {
 	// Check if it's a system config file
 	if !IsSystemConfigXML(data) {
 		return nil, fmt.Errorf("not a system config file")

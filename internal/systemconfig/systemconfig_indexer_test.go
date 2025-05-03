@@ -60,7 +60,9 @@ func TestSystemConfigIndexer(t *testing.T) {
 	
 	// Manually index the file since we need to use the real file path
 	// for namespace detection to work correctly
-	entries, err := IndexSystemConfigFile(configPath)
+	fileContent, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	entries, err := IndexSystemConfigFile(fileContent, configPath)
 	require.NoError(t, err)
 	
 	// Print debug info about the entries

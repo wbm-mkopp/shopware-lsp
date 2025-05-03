@@ -115,7 +115,9 @@ func TestIndexSystemConfigFile(t *testing.T) {
 	require.NoError(t, os.WriteFile(configFile, []byte(configXml), 0644))
 
 	// Test indexing
-	entries, err := IndexSystemConfigFile(configFile)
+	fileContent, err := os.ReadFile(configFile)
+	require.NoError(t, err)
+	entries, err := IndexSystemConfigFile(fileContent, configFile)
 	require.NoError(t, err)
 	assert.Equal(t, 2, len(entries))
 

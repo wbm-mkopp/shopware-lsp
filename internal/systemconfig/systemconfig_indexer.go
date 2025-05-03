@@ -44,8 +44,8 @@ func (s *SystemConfigIndexer) Index(path string, node *tree_sitter.Node, fileCon
 		return nil
 	}
 
-	// Extract system config entries from the file
-	entries, err := IndexSystemConfigFile(path)
+	// We already have the file content, so we can pass it directly
+	entries, err := IndexSystemConfigFile(fileContent, path)
 	if err != nil {
 		return err
 	}
