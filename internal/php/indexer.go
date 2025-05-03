@@ -40,6 +40,7 @@ type PHPProperty struct {
 	Name       string     `json:"name"`
 	Line       int        `json:"line"`
 	Visibility Visibility `json:"visibility"`
+	Type       string     `json:"type"`
 }
 
 type PHPIndex struct {
@@ -102,6 +103,8 @@ func (idx *PHPIndex) GetClassesOfFileWithParser(path string, node *tree_sitter.N
 	cursor := node.Walk()
 
 	currentNamespace := ""
+	// Map to store use statements (imports)
+	useStatements := make(map[string]string)
 
 	defer cursor.Close()
 
@@ -114,6 +117,30 @@ func (idx *PHPIndex) GetClassesOfFileWithParser(path string, node *tree_sitter.N
 
 				if nameNode != nil {
 					currentNamespace = string(nameNode.Utf8Text(fileContent))
+				}
+			}
+
+			// Process use statements (imports)
+			if node.Kind() == "namespace_use_declaration" {
+				for i := uint(0); i < node.NamedChildCount(); i++ {
+					useClause := node.NamedChild(i)
+					if useClause != nil && useClause.Kind() == "namespace_use_clause" {
+						// Get the qualified name
+						qualifiedName := treesitterhelper.GetFirstNodeOfKind(useClause, "qualified_name")
+						if qualifiedName != nil {
+							// Get the full namespace path
+							fullPath := string(qualifiedName.Utf8Text(fileContent))
+							
+							// Get the class name (last part of the path)
+							classNameNode := qualifiedName.NamedChild(qualifiedName.NamedChildCount() - 1)
+							if classNameNode != nil && classNameNode.Kind() == "name" {
+								className := string(classNameNode.Utf8Text(fileContent))
+								
+								// Store the mapping from class name to full path
+								useStatements[className] = fullPath
+							}
+						}
+					}
 				}
 			}
 
@@ -138,7 +165,7 @@ func (idx *PHPIndex) GetClassesOfFileWithParser(path string, node *tree_sitter.N
 
 					// Extract methods and properties from the class
 					phpClass.Methods = idx.extractMethodsFromClass(node, fileContent)
-					phpClass.Properties = idx.extractPropertiesFromClass(node, fileContent)
+					phpClass.Properties = idx.extractPropertiesFromClass(node, fileContent, currentNamespace, useStatements)
 
 					classes[className] = phpClass
 				}
@@ -251,7 +278,7 @@ func (idx *PHPIndex) extractMethodsFromClass(node *tree_sitter.Node, fileContent
 }
 
 // extractPropertiesFromClass extracts all property definitions from a class declaration node
-func (idx *PHPIndex) extractPropertiesFromClass(node *tree_sitter.Node, fileContent []byte) map[string]PHPProperty {
+func (idx *PHPIndex) extractPropertiesFromClass(node *tree_sitter.Node, fileContent []byte, currentNamespace string, useStatements map[string]string) map[string]PHPProperty {
 	properties := make(map[string]PHPProperty)
 
 	// Find the class body node
@@ -311,11 +338,44 @@ func (idx *PHPIndex) extractPropertiesFromClass(node *tree_sitter.Node, fileCont
 							}
 						}
 						
+						// Extract property type if available
+						propType := ""
+						
+						// Try to find named_type (class types) first
+						namedTypeNode := treesitterhelper.GetFirstNodeOfKind(child, "named_type")
+						if namedTypeNode != nil {
+							// For named types, get the name node
+							nameNode := treesitterhelper.GetFirstNodeOfKind(namedTypeNode, "name")
+							if nameNode != nil {
+								// Get the short class name
+								shortClassName := string(nameNode.Utf8Text(fileContent))
+								
+								// Try to resolve the FQCN using the use statements
+								if fqcn, ok := useStatements[shortClassName]; ok {
+									propType = fqcn
+								} else {
+									// If not found in use statements, assume it's in the current namespace
+									if currentNamespace != "" {
+										propType = currentNamespace + "\\" + shortClassName
+									} else {
+										propType = shortClassName
+									}
+								}
+							}
+						} else {
+							// Try primitive type (int, string, etc.)
+							primitiveTypeNode := treesitterhelper.GetFirstNodeOfKind(child, "primitive_type")
+							if primitiveTypeNode != nil {
+								propType = string(primitiveTypeNode.Utf8Text(fileContent))
+							}
+						}
+
 						// Create a new property and add it to the properties map
 						properties[propName] = PHPProperty{
 							Name:       propName,
 							Line:       int(varNode.Range().StartPoint.Row) + 1,
 							Visibility: visibility,
+							Type:       propType,
 						}
 					}
 				}
@@ -366,11 +426,44 @@ func (idx *PHPIndex) extractPropertiesFromClass(node *tree_sitter.Node, fileCont
 								}
 							}
 							
+							// Extract property type if available
+							propType := ""
+							
+							// Try to find named_type (class types) first
+							namedTypeNode := treesitterhelper.GetFirstNodeOfKind(param, "named_type")
+							if namedTypeNode != nil {
+								// For named types, get the name node
+								nameNode := treesitterhelper.GetFirstNodeOfKind(namedTypeNode, "name")
+								if nameNode != nil {
+									// Get the short class name
+									shortClassName := string(nameNode.Utf8Text(fileContent))
+									
+									// Try to resolve the FQCN using the use statements
+									if fqcn, ok := useStatements[shortClassName]; ok {
+										propType = fqcn
+									} else {
+										// If not found in use statements, assume it's in the current namespace
+										if currentNamespace != "" {
+											propType = currentNamespace + "\\" + shortClassName
+										} else {
+											propType = shortClassName
+										}
+									}
+								}
+							} else {
+								// Try primitive type (int, string, etc.)
+								primitiveTypeNode := treesitterhelper.GetFirstNodeOfKind(param, "primitive_type")
+								if primitiveTypeNode != nil {
+									propType = string(primitiveTypeNode.Utf8Text(fileContent))
+								}
+							}
+
 							// Create a new property and add it to the properties map
 							properties[propName] = PHPProperty{
 								Name:       propName,
 								Line:       int(varNode.Range().StartPoint.Row) + 1,
 								Visibility: visibility,
+								Type:       propType,
 							}
 						}
 					}

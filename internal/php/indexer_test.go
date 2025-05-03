@@ -32,6 +32,7 @@ func TestGetClassesOfFile(t *testing.T) {
 	assert.Equal(t, "treeItem", classes[expectedClassName].Properties["treeItem"].Name)
 	assert.Equal(t, 22, classes[expectedClassName].Properties["treeItem"].Line)
 	assert.Equal(t, Private, classes[expectedClassName].Properties["treeItem"].Visibility)
+	assert.Equal(t, "Shopware\\Core\\Content\\Category\\Tree\\TreeItem", classes[expectedClassName].Properties["treeItem"].Type)
 }
 
 func TestGetClassesWithMethodsAndProperties(t *testing.T) {
@@ -90,10 +91,12 @@ func TestGetClassesWithMethodsAndProperties(t *testing.T) {
 	assert.Equal(t, "request", properties["request"].Name)
 	assert.Equal(t, 11, properties["request"].Line)
 	assert.Equal(t, Private, properties["request"].Visibility)
+	assert.Equal(t, "Symfony\\Component\\HttpFoundation\\Request", properties["request"].Type)
 
 	// Check property from constructor
 	assert.Contains(t, properties, "productRepository")
 	assert.Equal(t, "productRepository", properties["productRepository"].Name)
 	assert.Equal(t, 17, properties["productRepository"].Line)
 	assert.Equal(t, Private, properties["productRepository"].Visibility)
+	assert.Equal(t, "string", properties["productRepository"].Type)
 }
