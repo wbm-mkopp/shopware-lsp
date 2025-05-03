@@ -177,12 +177,14 @@ func TestComplexAliasScenarios(t *testing.T) {
 			expectedResult: "App\\Controller\\Admin\\UserController",
 		},
 		{
-			name:      "Test mode with special handling",
+			name:      "Special alias handling",
 			namespace: "Shopware\\Core\\Content\\Product\\Test",
 			useStatements: map[string]string{
 				"Request": "Symfony\\Component\\HttpFoundation\\Request",
 			},
-			aliases:        map[string]string{},
+			aliases: map[string]string{
+				"SymfonyRequest": "Symfony\\Component\\HttpFoundation\\Request",
+			},
 			typeName:       "SymfonyRequest",
 			expectedResult: "Symfony\\Component\\HttpFoundation\\Request",
 		},

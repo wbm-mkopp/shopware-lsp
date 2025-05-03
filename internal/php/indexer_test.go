@@ -140,7 +140,7 @@ func TestNamespaceAliases(t *testing.T) {
 	assert.Equal(t, "productLoader", properties["productLoader"].Name)
 	assert.Equal(t, 14, properties["productLoader"].Line)
 	assert.Equal(t, Private, properties["productLoader"].Visibility)
-	assert.Equal(t, "Shopware\\Core\\Content\\Product\\Test\\Loader", properties["productLoader"].Type)
+	assert.Equal(t, "Shopware\\Core\\Content\\Product\\Service\\ProductLoader", properties["productLoader"].Type)
 
 	// Check property with non-aliased type (Connection)
 	assert.Contains(t, properties, "connection")
@@ -158,7 +158,7 @@ func TestNamespaceAliases(t *testing.T) {
 	assert.Equal(t, "getLoader", methods["getLoader"].Name)
 	assert.Equal(t, 28, methods["getLoader"].Line)
 	assert.Equal(t, Public, methods["getLoader"].Visibility)
-	assert.Equal(t, "Shopware\\Core\\Content\\Product\\Test\\Loader", methods["getLoader"].ReturnType)
+	assert.Equal(t, "Shopware\\Core\\Content\\Product\\Service\\ProductLoader", methods["getLoader"].ReturnType)
 
 	// Check method with aliased parameter type (SymfonyRequest)
 	assert.Contains(t, methods, "validateRequest")

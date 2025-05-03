@@ -4,3 +4,5 @@ node_modules
 /vscode-extension/dist
 /dist
 /.opencode
+internal/php/alias_resolver.go
+internal/php/php.db

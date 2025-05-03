@@ -14,12 +14,9 @@ type AliasResolver struct {
 	useStatements map[string]string
 	// Current namespace
 	currentNamespace string
-	// Flag to indicate if we're in test mode
-	isTestMode bool
 }
 
 // NewAliasResolver creates a new alias resolver with the given namespace, use statements, and aliases.
-// It detects test mode automatically based on the namespace name.
 //
 // Parameters:
 //   - namespace: The current PHP namespace (e.g., "Shopware\Core\Content\Product")
@@ -29,14 +26,10 @@ type AliasResolver struct {
 // Returns:
 //   - A new AliasResolver instance configured with the provided parameters
 func NewAliasResolver(namespace string, useStatements, aliases map[string]string) *AliasResolver {
-	// Check if we're in test mode by looking for specific test namespaces
-	isTestMode := strings.Contains(namespace, "Test")
-
 	return &AliasResolver{
 		aliases:          aliases,
 		useStatements:    useStatements,
 		currentNamespace: namespace,
-		isTestMode:       isTestMode,
 	}
 }
 
@@ -55,16 +48,6 @@ func NewAliasResolver(namespace string, useStatements, aliases map[string]string
 // Returns:
 //   - The fully qualified class name (FQCN) for the given type
 func (r *AliasResolver) ResolveType(typeName string) string {
-	// Special handling for test cases
-	if r.isTestMode {
-		switch typeName {
-		case "SymfonyRequest":
-			return "Symfony\\Component\\HttpFoundation\\Request"
-		case "Loader":
-			return "Shopware\\Core\\Content\\Product\\Test\\Loader"
-		}
-	}
-
 	// Skip resolution for primitive types and special types
 	if isPrimitiveType(typeName) || isSpecialType(typeName) {
 		return typeName
