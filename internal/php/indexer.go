@@ -13,15 +13,33 @@ import (
 )
 
 type PHPClass struct {
-	Name    string               `json:"name"`
-	Path    string               `json:"path"`
-	Line    int                  `json:"line"`
-	Methods map[string]PHPMethod `json:"methods"`
+	Name       string                 `json:"name"`
+	Path       string                 `json:"path"`
+	Line       int                    `json:"line"`
+	Methods    map[string]PHPMethod   `json:"methods"`
+	Properties map[string]PHPProperty `json:"properties"`
 }
 
 type PHPMethod struct {
-	Name string `json:"name"`
-	Line int    `json:"line"`
+	Name       string     `json:"name"`
+	Line       int        `json:"line"`
+	Visibility Visibility `json:"visibility"`
+}
+
+// Visibility constants for PHP properties and methods
+const (
+	Public Visibility = iota
+	Protected
+	Private
+)
+
+// Visibility represents the visibility level of a PHP element
+type Visibility int
+
+type PHPProperty struct {
+	Name       string     `json:"name"`
+	Line       int        `json:"line"`
+	Visibility Visibility `json:"visibility"`
 }
 
 type PHPIndex struct {
@@ -109,16 +127,18 @@ func (idx *PHPIndex) GetClassesOfFileWithParser(path string, node *tree_sitter.N
 						className = currentNamespace + "\\" + className
 					}
 
-					// Create a new class with empty methods map
+					// Create a new class with empty methods and properties maps
 					phpClass := PHPClass{
-						Name:    className,
-						Path:    path,
-						Line:    int(classNameNode.Range().StartPoint.Row) + 1,
-						Methods: make(map[string]PHPMethod),
+						Name:       className,
+						Path:       path,
+						Line:       int(classNameNode.Range().StartPoint.Row) + 1,
+						Methods:    make(map[string]PHPMethod),
+						Properties: make(map[string]PHPProperty),
 					}
 
-					// Extract methods from the class
+					// Extract methods and properties from the class
 					phpClass.Methods = idx.extractMethodsFromClass(node, fileContent)
+					phpClass.Properties = idx.extractPropertiesFromClass(node, fileContent)
 
 					classes[className] = phpClass
 				}
@@ -193,14 +213,171 @@ func (idx *PHPIndex) extractMethodsFromClass(node *tree_sitter.Node, fileContent
 			if methodNameNode != nil {
 				methodName := string(methodNameNode.Utf8Text(fileContent))
 
+				// Determine method visibility
+				visibility := Public // Default visibility
+				
+				// Check for visibility modifiers in the method declaration
+				for k := uint(0); k < child.NamedChildCount(); k++ {
+					modifier := child.NamedChild(k)
+					if modifier == nil {
+						continue
+					}
+					
+					modifierText := string(modifier.Utf8Text(fileContent))
+					switch modifierText {
+					case "private":
+						visibility = Private
+						break
+					case "protected":
+						visibility = Protected
+						break
+					case "public":
+						visibility = Public
+						break
+					}
+				}
+				
 				// Create a new method and add it to the methods map
 				methods[methodName] = PHPMethod{
-					Name: methodName,
-					Line: int(methodNameNode.Range().StartPoint.Row) + 1,
+					Name:       methodName,
+					Line:       int(methodNameNode.Range().StartPoint.Row) + 1,
+					Visibility: visibility,
 				}
 			}
 		}
 	}
 
 	return methods
+}
+
+// extractPropertiesFromClass extracts all property definitions from a class declaration node
+func (idx *PHPIndex) extractPropertiesFromClass(node *tree_sitter.Node, fileContent []byte) map[string]PHPProperty {
+	properties := make(map[string]PHPProperty)
+
+	// Find the class body node
+	classBodyNode := treesitterhelper.GetFirstNodeOfKind(node, "declaration_list")
+	if classBodyNode == nil {
+		return properties
+	}
+
+	// Iterate through all children of the class body
+	for i := uint(0); i < classBodyNode.NamedChildCount(); i++ {
+		child := classBodyNode.NamedChild(i)
+		if child == nil {
+			continue
+		}
+
+		// Check if the child is a property declaration
+		if child.Kind() == "property_declaration" {
+			// Property declarations can have multiple properties defined at once
+			// We need to iterate through the declaration_list to find all property elements
+			for j := uint(0); j < child.NamedChildCount(); j++ {
+				propElement := child.NamedChild(j)
+				if propElement == nil {
+					continue
+				}
+
+				// Check if this is a property element
+				if propElement.Kind() == "property_element" {
+					// Get the property name (variable name without the $ prefix)
+					varNode := treesitterhelper.GetFirstNodeOfKind(propElement, "variable_name")
+					if varNode != nil {
+						// Get the property name without the $ prefix
+						propNameWithPrefix := string(varNode.Utf8Text(fileContent))
+						// Remove the $ prefix
+						propName := propNameWithPrefix[1:] // Skip the first character ($)
+
+						// Determine property visibility
+						visibility := Public // Default visibility
+						
+						// Check for visibility modifiers in the property declaration
+						for k := uint(0); k < child.NamedChildCount(); k++ {
+							modifier := child.NamedChild(k)
+							if modifier == nil {
+								continue
+							}
+							
+							modifierText := string(modifier.Utf8Text(fileContent))
+							switch modifierText {
+							case "private":
+								visibility = Private
+								break
+							case "protected":
+								visibility = Protected
+								break
+							case "public":
+								visibility = Public
+								break
+							}
+						}
+						
+						// Create a new property and add it to the properties map
+						properties[propName] = PHPProperty{
+							Name:       propName,
+							Line:       int(varNode.Range().StartPoint.Row) + 1,
+							Visibility: visibility,
+						}
+					}
+				}
+			}
+		} else if child.Kind() == "method_declaration" {
+			// Check if this is a constructor method
+			methodNameNode := treesitterhelper.GetFirstNodeOfKind(child, "name")
+			if methodNameNode != nil && string(methodNameNode.Utf8Text(fileContent)) == "__construct" {
+				// Find the parameter list
+				paramListNode := treesitterhelper.GetFirstNodeOfKind(child, "formal_parameters")
+				if paramListNode != nil {
+					// Iterate through all parameters
+					for j := uint(0); j < paramListNode.NamedChildCount(); j++ {
+						param := paramListNode.NamedChild(j)
+						if param == nil || param.Kind() != "property_promotion_parameter" {
+							continue
+						}
+
+						// Get the property name from the parameter
+						varNode := treesitterhelper.GetFirstNodeOfKind(param, "variable_name")
+						if varNode != nil {
+							// Get the property name without the $ prefix
+							propNameWithPrefix := string(varNode.Utf8Text(fileContent))
+							// Remove the $ prefix
+							propName := propNameWithPrefix[1:] // Skip the first character ($)
+
+							// Determine property visibility from constructor parameter
+							visibility := Public // Default visibility
+							
+							// Check for visibility modifiers in the parameter
+							for k := uint(0); k < param.NamedChildCount(); k++ {
+								modifier := param.NamedChild(k)
+								if modifier == nil {
+									continue
+								}
+								
+								modifierText := string(modifier.Utf8Text(fileContent))
+								switch modifierText {
+								case "private":
+									visibility = Private
+									break
+								case "protected":
+									visibility = Protected
+									break
+								case "public":
+									visibility = Public
+									break
+								}
+							}
+							
+							// Create a new property and add it to the properties map
+							properties[propName] = PHPProperty{
+								Name:       propName,
+								Line:       int(varNode.Range().StartPoint.Row) + 1,
+								Visibility: visibility,
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return properties
 }

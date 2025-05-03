@@ -26,9 +26,15 @@ func TestGetClassesOfFile(t *testing.T) {
 	assert.Contains(t, classes[expectedClassName].Methods, "__construct")
 	assert.Equal(t, "__construct", classes[expectedClassName].Methods["__construct"].Name)
 	assert.Equal(t, 27, classes[expectedClassName].Methods["__construct"].Line)
+
+	// Check that the property was found
+	assert.Contains(t, classes[expectedClassName].Properties, "treeItem")
+	assert.Equal(t, "treeItem", classes[expectedClassName].Properties["treeItem"].Name)
+	assert.Equal(t, 22, classes[expectedClassName].Properties["treeItem"].Line)
+	assert.Equal(t, Private, classes[expectedClassName].Properties["treeItem"].Visibility)
 }
 
-func TestGetClassesWithMethods(t *testing.T) {
+func TestGetClassesWithMethodsAndProperties(t *testing.T) {
 	// Create a new context for the test
 	index, err := NewPHPIndex(t.TempDir())
 	assert.NoError(t, err)
@@ -55,19 +61,39 @@ func TestGetClassesWithMethods(t *testing.T) {
 	assert.Contains(t, methods, "__construct")
 	assert.Equal(t, "__construct", methods["__construct"].Name)
 	assert.Equal(t, 16, methods["__construct"].Line)
+	assert.Equal(t, Public, methods["__construct"].Visibility)
 
 	// Check public method
 	assert.Contains(t, methods, "load")
 	assert.Equal(t, "load", methods["load"].Name)
 	assert.Equal(t, 22, methods["load"].Line)
+	assert.Equal(t, Public, methods["load"].Visibility)
 
 	// Check protected method
 	assert.Contains(t, methods, "validateId")
 	assert.Equal(t, "validateId", methods["validateId"].Name)
 	assert.Equal(t, 27, methods["validateId"].Line)
+	assert.Equal(t, Protected, methods["validateId"].Visibility)
 
 	// Check private method
 	assert.Contains(t, methods, "getRepository")
 	assert.Equal(t, "getRepository", methods["getRepository"].Name)
 	assert.Equal(t, 32, methods["getRepository"].Line)
+	assert.Equal(t, Private, methods["getRepository"].Visibility)
+
+	// Verify the properties were extracted correctly
+	properties := classes[expectedClassName].Properties
+	assert.Len(t, properties, 2)
+
+	// Check readonly property
+	assert.Contains(t, properties, "request")
+	assert.Equal(t, "request", properties["request"].Name)
+	assert.Equal(t, 11, properties["request"].Line)
+	assert.Equal(t, Private, properties["request"].Visibility)
+
+	// Check property from constructor
+	assert.Contains(t, properties, "productRepository")
+	assert.Equal(t, "productRepository", properties["productRepository"].Name)
+	assert.Equal(t, 17, properties["productRepository"].Line)
+	assert.Equal(t, Private, properties["productRepository"].Visibility)
 }
