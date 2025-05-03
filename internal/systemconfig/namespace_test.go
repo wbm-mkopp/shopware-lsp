@@ -136,7 +136,7 @@ func TestIndexSystemConfigFile(t *testing.T) {
 
 	// Check the first entry (textField)
 	assert.Equal(t, "TestPlugin.config", entries[0].Namespace)
-	assert.Equal(t, "textField", entries[0].Name)
+	assert.Equal(t, "TestPlugin.config.textField", entries[0].Name)
 	assert.Equal(t, "Text Field", entries[0].Label)
 	assert.Equal(t, "text", entries[0].Type)
 	assert.Equal(t, "", entries[0].Component)
@@ -144,7 +144,7 @@ func TestIndexSystemConfigFile(t *testing.T) {
 
 	// Check the second entry (customComponent)
 	assert.Equal(t, "TestPlugin.config", entries[1].Namespace)
-	assert.Equal(t, "customComponent", entries[1].Name)
+	assert.Equal(t, "TestPlugin.config.customComponent", entries[1].Name)
 	assert.Equal(t, "Custom Component", entries[1].Label)
 	assert.Equal(t, "", entries[1].Type)
 	assert.Equal(t, "custom-component", entries[1].Component)
