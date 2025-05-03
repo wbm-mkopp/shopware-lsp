@@ -12,6 +12,32 @@ import (
 	tree_sitter_php "github.com/tree-sitter/tree-sitter-php/bindings/go"
 )
 
+// findChildByKind finds the first child node of the given kind
+func findChildByKind(node *tree_sitter.Node, kind string) *tree_sitter.Node {
+	if node == nil {
+		return nil
+	}
+
+	// Check regular children
+	childCount := node.ChildCount()
+	for i := uint(0); i < uint(childCount); i++ {
+		child := node.Child(i)
+		if child != nil && child.Kind() == kind {
+			return child
+		}
+	}
+
+	// If not found in direct children, try to find in named children
+	for i := uint(0); i < node.NamedChildCount(); i++ {
+		child := node.NamedChild(i)
+		if child != nil && child.Kind() == kind {
+			return child
+		}
+	}
+
+	return nil
+}
+
 type PHPClass struct {
 	Name       string                 `json:"name"`
 	Path       string                 `json:"path"`
@@ -24,6 +50,7 @@ type PHPMethod struct {
 	Name       string     `json:"name"`
 	Line       int        `json:"line"`
 	Visibility Visibility `json:"visibility"`
+	ReturnType string     `json:"returnType"`
 }
 
 // Visibility constants for PHP properties and methods
@@ -103,8 +130,10 @@ func (idx *PHPIndex) GetClassesOfFileWithParser(path string, node *tree_sitter.N
 	cursor := node.Walk()
 
 	currentNamespace := ""
-	// Map to store use statements (imports)
+	// Map to store use statements (imports) - maps short class name to FQCN
 	useStatements := make(map[string]string)
+	// Map to store namespace aliases - maps alias name to FQCN
+	aliases := make(map[string]string)
 
 	defer cursor.Close()
 
@@ -120,24 +149,101 @@ func (idx *PHPIndex) GetClassesOfFileWithParser(path string, node *tree_sitter.N
 				}
 			}
 
-			// Process use statements (imports)
+			// Process namespace use declarations
 			if node.Kind() == "namespace_use_declaration" {
-				for i := uint(0); i < node.NamedChildCount(); i++ {
-					useClause := node.NamedChild(i)
-					if useClause != nil && useClause.Kind() == "namespace_use_clause" {
+				// Check if this is a group use statement with a namespace prefix and a group
+				namespaceNameNode := findChildByKind(node, "namespace_name")
+				namespaceUseGroupNode := findChildByKind(node, "namespace_use_group")
+
+				if namespaceNameNode != nil && namespaceUseGroupNode != nil {
+					// This is a group use statement (e.g., use Symfony\Component\{HttpFoundation\Request, ...})
+					baseNamespace := string(namespaceNameNode.Utf8Text(fileContent))
+
+					// Process each use clause in the group
+					for i := uint(0); i < namespaceUseGroupNode.NamedChildCount(); i++ {
+						useClause := namespaceUseGroupNode.NamedChild(i)
+						if useClause == nil || useClause.Kind() != "namespace_use_clause" {
+							continue
+						}
+
 						// Get the qualified name
-						qualifiedName := treesitterhelper.GetFirstNodeOfKind(useClause, "qualified_name")
+						qualifiedName := findChildByKind(useClause, "qualified_name")
 						if qualifiedName != nil {
-							// Get the full namespace path
-							fullPath := string(qualifiedName.Utf8Text(fileContent))
-							
+							// Get the relative path
+							relativePath := string(qualifiedName.Utf8Text(fileContent))
+
+							// Construct the full path
+							fullPath := baseNamespace + "\\" + relativePath
+
 							// Get the class name (last part of the path)
 							classNameNode := qualifiedName.NamedChild(qualifiedName.NamedChildCount() - 1)
 							if classNameNode != nil && classNameNode.Kind() == "name" {
 								className := string(classNameNode.Utf8Text(fileContent))
+
+								// Check if there's an alias
+								aliasNode := findChildByKind(useClause, "name")
+								if aliasNode != nil && aliasNode != classNameNode {
+									// This is an alias (e.g., use Symfony\Component\{HttpFoundation\Request as Req})
+									aliasName := string(aliasNode.Utf8Text(fileContent))
+									aliases[aliasName] = fullPath
+									log.Printf("Added group alias: %s -> %s", aliasName, fullPath)
+								} else {
+									// No alias, use the class name
+									useStatements[className] = fullPath
+									log.Printf("Added group use: %s -> %s", className, fullPath)
+								}
+							}
+						} else {
+							// Handle direct alias format (e.g., use Doctrine\DBAL\{Connection as DbConnection})
+							// In this case, we have two name nodes directly under namespace_use_clause
+							if useClause.NamedChildCount() >= 2 {
+								classNameNode := useClause.NamedChild(0)
+								aliasNode := useClause.NamedChild(1)
 								
-								// Store the mapping from class name to full path
-								useStatements[className] = fullPath
+								if classNameNode != nil && classNameNode.Kind() == "name" && 
+								   aliasNode != nil && aliasNode.Kind() == "name" {
+									className := string(classNameNode.Utf8Text(fileContent))
+									aliasName := string(aliasNode.Utf8Text(fileContent))
+									
+									// Construct the full path
+									fullPath := baseNamespace + "\\" + className
+									
+									// Add to aliases map
+									aliases[aliasName] = fullPath
+									log.Printf("Added group alias: %s -> %s", aliasName, fullPath)
+								}
+							}
+						}
+					}
+				} else {
+					// Process regular use statements (non-group)
+					for i := uint(0); i < node.NamedChildCount(); i++ {
+						useClause := node.NamedChild(i)
+						if useClause != nil && useClause.Kind() == "namespace_use_clause" {
+							// Handle regular use statements
+							qualifiedName := findChildByKind(useClause, "qualified_name")
+							if qualifiedName != nil {
+								// Get the full namespace path
+								fullPath := string(qualifiedName.Utf8Text(fileContent))
+
+								// Get the class name (last part of the path)
+								classNameNode := qualifiedName.NamedChild(qualifiedName.NamedChildCount() - 1)
+								if classNameNode != nil && classNameNode.Kind() == "name" {
+									className := string(classNameNode.Utf8Text(fileContent))
+
+									// Check if there's an alias
+									aliasNode := findChildByKind(useClause, "name")
+									if aliasNode != nil && aliasNode != classNameNode {
+										// This is an alias (e.g., use Doctrine\DBAL\Connection as DbConnection)
+										aliasName := string(aliasNode.Utf8Text(fileContent))
+										aliases[aliasName] = fullPath
+										log.Printf("Added alias: %s -> %s", aliasName, fullPath)
+									} else {
+										// No alias, use the class name
+										useStatements[className] = fullPath
+										log.Printf("Added use statement: %s -> %s", className, fullPath)
+									}
+								}
 							}
 						}
 					}
@@ -164,8 +270,8 @@ func (idx *PHPIndex) GetClassesOfFileWithParser(path string, node *tree_sitter.N
 					}
 
 					// Extract methods and properties from the class
-					phpClass.Methods = idx.extractMethodsFromClass(node, fileContent)
-					phpClass.Properties = idx.extractPropertiesFromClass(node, fileContent, currentNamespace, useStatements)
+					phpClass.Methods = idx.extractMethodsFromClass(node, fileContent, currentNamespace, useStatements, aliases)
+					phpClass.Properties = idx.extractPropertiesFromClass(node, fileContent, currentNamespace, useStatements, aliases)
 
 					classes[className] = phpClass
 				}
@@ -217,7 +323,7 @@ func (idx *PHPIndex) GetClassNames() []string {
 }
 
 // extractMethodsFromClass extracts all method definitions from a class declaration node
-func (idx *PHPIndex) extractMethodsFromClass(node *tree_sitter.Node, fileContent []byte) map[string]PHPMethod {
+func (idx *PHPIndex) extractMethodsFromClass(node *tree_sitter.Node, fileContent []byte, currentNamespace string, useStatements map[string]string, aliases map[string]string) map[string]PHPMethod {
 	methods := make(map[string]PHPMethod)
 
 	// Find the class body node
@@ -264,11 +370,40 @@ func (idx *PHPIndex) extractMethodsFromClass(node *tree_sitter.Node, fileContent
 					}
 				}
 				
+				// Extract method return type if available
+				returnType := ""
+				
+				// Try to find return type declaration
+				// First look for named_type (class types)
+				namedTypeNode := treesitterhelper.GetFirstNodeOfKind(child, "named_type")
+				if namedTypeNode != nil {
+					// For named types, get the name node
+					nameNode := treesitterhelper.GetFirstNodeOfKind(namedTypeNode, "name")
+					if nameNode != nil {
+						// Get the short class name
+						shortClassName := string(nameNode.Utf8Text(fileContent))
+						
+						// Try to resolve the FQCN using the use statements or aliases
+						log.Printf("Resolving FQCN for %s", shortClassName)
+						// Create an alias resolver
+						aliasResolver := NewAliasResolver(currentNamespace, useStatements, aliases)
+						// Resolve the type
+						returnType = aliasResolver.ResolveType(shortClassName)
+					}
+				} else {
+					// Try primitive type (int, string, etc.)
+					primitiveTypeNode := treesitterhelper.GetFirstNodeOfKind(child, "primitive_type")
+					if primitiveTypeNode != nil {
+						returnType = string(primitiveTypeNode.Utf8Text(fileContent))
+					}
+				}
+				
 				// Create a new method and add it to the methods map
 				methods[methodName] = PHPMethod{
 					Name:       methodName,
 					Line:       int(methodNameNode.Range().StartPoint.Row) + 1,
 					Visibility: visibility,
+					ReturnType: returnType,
 				}
 			}
 		}
@@ -278,7 +413,7 @@ func (idx *PHPIndex) extractMethodsFromClass(node *tree_sitter.Node, fileContent
 }
 
 // extractPropertiesFromClass extracts all property definitions from a class declaration node
-func (idx *PHPIndex) extractPropertiesFromClass(node *tree_sitter.Node, fileContent []byte, currentNamespace string, useStatements map[string]string) map[string]PHPProperty {
+func (idx *PHPIndex) extractPropertiesFromClass(node *tree_sitter.Node, fileContent []byte, currentNamespace string, useStatements map[string]string, aliases map[string]string) map[string]PHPProperty {
 	properties := make(map[string]PHPProperty)
 
 	// Find the class body node
@@ -350,17 +485,12 @@ func (idx *PHPIndex) extractPropertiesFromClass(node *tree_sitter.Node, fileCont
 								// Get the short class name
 								shortClassName := string(nameNode.Utf8Text(fileContent))
 								
-								// Try to resolve the FQCN using the use statements
-								if fqcn, ok := useStatements[shortClassName]; ok {
-									propType = fqcn
-								} else {
-									// If not found in use statements, assume it's in the current namespace
-									if currentNamespace != "" {
-										propType = currentNamespace + "\\" + shortClassName
-									} else {
-										propType = shortClassName
-									}
-								}
+								// Try to resolve the FQCN using the use statements or aliases
+								log.Printf("Resolving property type for %s", shortClassName)
+								// Create an alias resolver
+								aliasResolver := NewAliasResolver(currentNamespace, useStatements, aliases)
+								// Resolve the type
+								propType = aliasResolver.ResolveType(shortClassName)
 							}
 						} else {
 							// Try primitive type (int, string, etc.)
@@ -438,17 +568,12 @@ func (idx *PHPIndex) extractPropertiesFromClass(node *tree_sitter.Node, fileCont
 									// Get the short class name
 									shortClassName := string(nameNode.Utf8Text(fileContent))
 									
-									// Try to resolve the FQCN using the use statements
-									if fqcn, ok := useStatements[shortClassName]; ok {
-										propType = fqcn
-									} else {
-										// If not found in use statements, assume it's in the current namespace
-										if currentNamespace != "" {
-											propType = currentNamespace + "\\" + shortClassName
-										} else {
-											propType = shortClassName
-										}
-									}
+									// Try to resolve the FQCN using the use statements or aliases
+									log.Printf("Resolving constructor property type for %s", shortClassName)
+									// Create an alias resolver
+									aliasResolver := NewAliasResolver(currentNamespace, useStatements, aliases)
+									// Resolve the type
+									propType = aliasResolver.ResolveType(shortClassName)
 								}
 							} else {
 								// Try primitive type (int, string, etc.)
