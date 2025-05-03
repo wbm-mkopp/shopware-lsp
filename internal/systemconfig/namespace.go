@@ -3,6 +3,7 @@ package systemconfig
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,7 +40,7 @@ func GetNamespaceFromPath(filePath string) (string, error) {
 		// Check if composer.json exists
 		if _, err := os.Stat(composerPath); err == nil {
 			// Parse composer.json to get the namespace
-			namespace, err := getNamespaceFromComposerJson(composerPath)
+			namespace, err := getNamespaceFromComposerJson(composerPath, fileName)
 			if err != nil {
 				return "", err
 			}
@@ -70,7 +71,7 @@ func GetNamespaceFromPath(filePath string) (string, error) {
 }
 
 // getNamespaceFromComposerJson extracts the namespace from composer.json
-func getNamespaceFromComposerJson(composerPath string) (string, error) {
+func getNamespaceFromComposerJson(composerPath, fileName string) (string, error) {
 	// Read composer.json
 	data, err := os.ReadFile(composerPath)
 	if err != nil {
@@ -79,19 +80,21 @@ func getNamespaceFromComposerJson(composerPath string) (string, error) {
 
 	// Parse composer.json
 	var composer struct {
-		Name                string `json:"name"`
-		ShopwarePluginClass string `json:"shopware-plugin-class"`
+		Name  string `json:"name"`
+		Extra struct {
+			ShopwarePluginClass string `json:"shopware-plugin-class"`
+		} `json:"extra"`
 	}
 	if err := json.Unmarshal(data, &composer); err != nil {
 		return "", err
 	}
 
-	if composer.ShopwarePluginClass == "" {
-		return "", nil
+	if composer.Extra.ShopwarePluginClass == "" {
+		return fmt.Sprintf("core.%s", fileName), nil
 	}
 
 	// Extract the plugin name from the shopware-plugin-class
-	parts := strings.Split(composer.ShopwarePluginClass, "\\")
+	parts := strings.Split(composer.Extra.ShopwarePluginClass, "\\")
 	pluginName := parts[len(parts)-1]
 
 	return pluginName + ".config", nil
@@ -161,6 +164,8 @@ func IndexSystemConfigFile(data []byte, filePath string) ([]SystemConfigEntry, e
 	if err != nil {
 		return nil, err
 	}
+
+	log.Printf("Namespace: %s", namespace)
 
 	// Parse the XML
 	parser := tree_sitter.NewParser()

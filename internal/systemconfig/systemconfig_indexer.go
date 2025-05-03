@@ -35,7 +35,7 @@ func (s *SystemConfigIndexer) ID() string {
 // Index processes a file and indexes any system config entries found
 func (s *SystemConfigIndexer) Index(path string, node *tree_sitter.Node, fileContent []byte) error {
 	// Skip non-system config files
-	if !strings.HasSuffix(path, ".xml") || strings.Contains(path, "/_fixtures/") {
+	if !strings.HasSuffix(path, ".xml") || strings.Contains(path, "/_fixtures/") || strings.Contains(path, "/_fixture/") {
 		return nil
 	}
 
@@ -53,7 +53,11 @@ func (s *SystemConfigIndexer) Index(path string, node *tree_sitter.Node, fileCon
 	log.Printf("Indexed %d system config entries from %s", len(entries), path)
 
 	for _, entry := range entries {
-		log.Printf("Entry: %s", fmt.Sprintf("%s.%s", entry.Namespace, entry.Name))
+		if entry.Namespace != "" {
+			log.Printf("Entry: %s", fmt.Sprintf("%s.%s", entry.Namespace, entry.Name))
+		} else {
+			log.Printf("Warning: Empty namespace for entry %s in file %s", entry.Name, path)
+		}
 	}
 
 	// Prepare batch save
