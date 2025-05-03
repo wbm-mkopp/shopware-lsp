@@ -20,7 +20,7 @@ type SystemConfigEntry struct {
 	Type      string
 	Component string
 	FilePath  string
-	Line      uint32
+	Line      int
 }
 
 // GetNamespaceFromPath extracts the namespace from the file path by looking for composer.json or manifest.xml
@@ -172,12 +172,12 @@ func IndexSystemConfigFile(filePath string, node *tree_sitter.Node, data []byte)
 	for _, field := range fields {
 		entries = append(entries, SystemConfigEntry{
 			Namespace: namespace,
-			Name:      field.Name,
+			Name:      fmt.Sprintf("%s.%s", namespace, field.Name),
 			Label:     field.Label,
 			Type:      field.Type,
 			Component: field.Component,
 			FilePath:  filePath,
-			Line:      field.Line,
+			Line:      int(field.Line),
 		})
 	}
 

@@ -52,13 +52,10 @@ func (s *SystemConfigIndexer) Index(path string, node *tree_sitter.Node, fileCon
 	batchSave := make(map[string]map[string]SystemConfigEntry)
 
 	for _, entry := range entries {
-		// Use the fully qualified name (namespace + name) as the key
-		entryKey := entry.Namespace + "." + entry.Name
-
 		if _, ok := batchSave[entry.FilePath]; !ok {
 			batchSave[entry.FilePath] = make(map[string]SystemConfigEntry)
 		}
-		batchSave[entry.FilePath][entryKey] = entry
+		batchSave[entry.FilePath][entry.Name] = entry
 	}
 
 	return s.configIndex.BatchSaveItems(batchSave)
