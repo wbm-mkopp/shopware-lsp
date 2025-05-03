@@ -43,7 +43,7 @@ func (s *SystemConfigIndexer) Index(path string, node *tree_sitter.Node, fileCon
 	}
 
 	// We already have the file content, so we can pass it directly
-	entries, err := IndexSystemConfigFile(fileContent, path)
+	entries, err := IndexSystemConfigFile(path, node, fileContent)
 	if err != nil {
 		return err
 	}

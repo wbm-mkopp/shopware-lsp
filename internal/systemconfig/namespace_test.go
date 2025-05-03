@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	tree_sitter_xml "github.com/tree-sitter-grammars/tree-sitter-xml/bindings/go"
+	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 func TestGetNamespaceFromPath(t *testing.T) {
@@ -121,7 +123,14 @@ func TestIndexSystemConfigFile(t *testing.T) {
 	// Test indexing
 	fileContent, err := os.ReadFile(configFile)
 	require.NoError(t, err)
-	entries, err := IndexSystemConfigFile(fileContent, configFile)
+
+	parser := tree_sitter.NewParser()
+	assert.NoError(t, parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_xml.LanguageXML())))
+
+	tree := parser.Parse(fileContent, nil)
+	defer tree.Close()
+
+	entries, err := IndexSystemConfigFile(configFile, tree.RootNode(), fileContent)
 	require.NoError(t, err)
 	assert.Equal(t, 2, len(entries))
 

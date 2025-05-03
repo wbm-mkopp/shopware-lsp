@@ -152,7 +152,7 @@ func getNamespaceFromManifestXml(manifestPath string) (string, error) {
 }
 
 // IndexSystemConfigFile indexes a system config file and returns the entries
-func IndexSystemConfigFile(data []byte, filePath string) ([]SystemConfigEntry, error) {
+func IndexSystemConfigFile(filePath string, node *tree_sitter.Node, data []byte) ([]SystemConfigEntry, error) {
 	// Check if it's a system config file
 	if !IsSystemConfigXML(data) {
 		return nil, fmt.Errorf("not a system config file")
@@ -164,17 +164,8 @@ func IndexSystemConfigFile(data []byte, filePath string) ([]SystemConfigEntry, e
 		return nil, err
 	}
 
-	// Parse the XML
-	parser := tree_sitter.NewParser()
-	if err := parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_xml.LanguageXML())); err != nil {
-		return nil, fmt.Errorf("failed to set language: %w", err)
-	}
-
-	tree := parser.Parse(data, nil)
-	defer tree.Close()
-
 	// Find all system config fields
-	fields := FindAllSystemConfigFields(tree.RootNode(), data, filePath)
+	fields := FindAllSystemConfigFields(node, data, filePath)
 
 	// Create entries with namespace
 	entries := make([]SystemConfigEntry, 0, len(fields))
