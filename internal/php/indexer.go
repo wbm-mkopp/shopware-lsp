@@ -11,6 +11,7 @@ import (
 	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 	tree_sitter_php "github.com/tree-sitter/tree-sitter-php/bindings/go"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 // findChildByKind finds the first child node of the given kind
@@ -40,21 +41,65 @@ func findChildByKind(node *tree_sitter.Node, kind string) *tree_sitter.Node {
 }
 
 type PHPClass struct {
-	Name        string                 `json:"name"`
-	Path        string                 `json:"path"`
-	Line        int                    `json:"line"`
-	Methods     map[string]PHPMethod   `json:"methods"`
-	Properties  map[string]PHPProperty `json:"properties"`
-	Parent      string                 `json:"parent,omitempty"`     // The class this class extends from
-	Interfaces  []string               `json:"interfaces,omitempty"` // Interfaces this class implements
-	IsInterface bool                   `json:"is_interface"`         // Whether this is an interface or a class
+	Name        string                 
+	Path        string                 
+	Line        int                    
+	Methods     map[string]PHPMethod   
+	Properties  map[string]PHPProperty 
+	Parent      string                 // The class this class extends from
+	Interfaces  []string               // Interfaces this class implements
+	IsInterface bool                   // Whether this is an interface or a class
 }
 
 type PHPMethod struct {
-	Name       string     `json:"name"`
-	Line       int        `json:"line"`
-	Visibility Visibility `json:"visibility"`
-	ReturnType PHPType    `json:"returnType"`
+	Name       string    
+	Line       int       
+	Visibility Visibility 
+	ReturnType PHPType   
+	// Serialization helpers
+	ReturnTypeName string 
+}
+
+// marshalMethod creates a serializable version of PHPMethod
+type marshalMethod struct {
+	Name           string     `msgpack:"name"`
+	Line           int        `msgpack:"line"`
+	Visibility     Visibility `msgpack:"visibility"`
+	ReturnTypeName string     `msgpack:"return_type_name,omitempty"`
+}
+
+// MarshalMsgpack implements msgpack.Marshaler interface
+func (m PHPMethod) MarshalMsgpack() ([]byte, error) {
+	mm := marshalMethod{
+		Name:       m.Name,
+		Line:       m.Line,
+		Visibility: m.Visibility,
+	}
+	
+	if m.ReturnType != nil {
+		mm.ReturnTypeName = m.ReturnType.Name()
+	}
+	
+	return msgpack.Marshal(mm)
+}
+
+// UnmarshalMsgpack implements msgpack.Unmarshaler interface
+func (m *PHPMethod) UnmarshalMsgpack(data []byte) error {
+	var mm marshalMethod
+	if err := msgpack.Unmarshal(data, &mm); err != nil {
+		return err
+	}
+	
+	m.Name = mm.Name
+	m.Line = mm.Line
+	m.Visibility = mm.Visibility
+	
+	// Reconstruct the return type from the type name
+	if mm.ReturnTypeName != "" {
+		m.ReturnType = NewPHPType(mm.ReturnTypeName)
+	}
+	
+	return nil
 }
 
 // Visibility constants for PHP properties and methods
@@ -68,10 +113,54 @@ const (
 type Visibility int
 
 type PHPProperty struct {
-	Name       string     `json:"name"`
-	Line       int        `json:"line"`
-	Visibility Visibility `json:"visibility"`
-	Type       PHPType    `json:"type"`
+	Name       string    
+	Line       int       
+	Visibility Visibility 
+	Type       PHPType    // The PHP type of the property
+	// Serialization helpers
+	TypeName   string    
+}
+
+// marshalProperty creates a serializable version of PHPProperty
+type marshalProperty struct {
+	Name       string     `msgpack:"name"`
+	Line       int        `msgpack:"line"`
+	Visibility Visibility `msgpack:"visibility"`
+	TypeName   string     `msgpack:"type_name,omitempty"`
+}
+
+// MarshalMsgpack implements msgpack.Marshaler interface
+func (p PHPProperty) MarshalMsgpack() ([]byte, error) {
+	mp := marshalProperty{
+		Name:       p.Name,
+		Line:       p.Line,
+		Visibility: p.Visibility,
+	}
+	
+	if p.Type != nil {
+		mp.TypeName = p.Type.Name()
+	}
+	
+	return msgpack.Marshal(mp)
+}
+
+// UnmarshalMsgpack implements msgpack.Unmarshaler interface
+func (p *PHPProperty) UnmarshalMsgpack(data []byte) error {
+	var mp marshalProperty
+	if err := msgpack.Unmarshal(data, &mp); err != nil {
+		return err
+	}
+	
+	p.Name = mp.Name
+	p.Line = mp.Line
+	p.Visibility = mp.Visibility
+	
+	// Reconstruct the type from the type name
+	if mp.TypeName != "" {
+		p.Type = NewPHPType(mp.TypeName)
+	}
+	
+	return nil
 }
 
 type PHPIndex struct {
@@ -407,14 +496,14 @@ func (idx *PHPIndex) GetClassesOfFileWithParser(path string, node *tree_sitter.N
 
 // searchParentClassMethod recursively searches for a method in parent classes
 // and returns the method's return type if found
-func (idx *PHPIndex) searchParentClassMethod(allClasses map[string]PHPClass, parentClassName, methodName string) PHPType {
+func (idx *PHPIndex) searchParentClassMethod(parentClassName, methodName string) PHPType {
 	if parentClassName == "" || methodName == "" {
 		return nil
 	}
 
-	// Get the parent class from the indexed classes
-	parentClass, ok := allClasses[parentClassName]
-	if !ok {
+	// Get the parent class individually - more efficient than getting all classes
+	parentClass := idx.GetClass(parentClassName)
+	if parentClass == nil {
 		return nil
 	}
 
@@ -427,13 +516,13 @@ func (idx *PHPIndex) searchParentClassMethod(allClasses map[string]PHPClass, par
 
 	// If method not found in parent class, check the parent's parent
 	if parentClass.Parent != "" {
-		return idx.searchParentClassMethod(allClasses, parentClass.Parent, methodName)
+		return idx.searchParentClassMethod(parentClass.Parent, methodName)
 	}
 
 	// Also check interfaces implemented by the parent class
 	for _, interfaceName := range parentClass.Interfaces {
-		interface_, ok := allClasses[interfaceName]
-		if !ok || !interface_.IsInterface {
+		interface_ := idx.GetClass(interfaceName)
+		if interface_ == nil || !interface_.IsInterface {
 			continue
 		}
 
@@ -450,23 +539,25 @@ func (idx *PHPIndex) searchParentClassMethod(allClasses map[string]PHPClass, par
 // searchParentClassProperty recursively searches for a property in parent classes
 // and returns the property's type if found. It respects visibility rules, so private
 // properties from parent classes are not accessible.
-func (idx *PHPIndex) searchParentClassProperty(allClasses map[string]PHPClass, parentClassName, propertyName string) PHPType {
+func (idx *PHPIndex) searchParentClassProperty(parentClassName, propertyName string) PHPType {
 	if parentClassName == "" || propertyName == "" {
 		log.Printf("Invalid parameters: class=%s, property=%s", parentClassName, propertyName)
 		return nil
 	}
 
-	// Get the parent class from the indexed classes
-	parentClass, ok := allClasses[parentClassName]
-	if !ok {
-		log.Printf("Class not found: %s", parentClassName)
+	// For debugging
+	log.Printf("Searching for property %s in class %s", propertyName, parentClassName)
+
+	// Get the parent class individually - more efficient than getting all classes
+	parentClass := idx.GetClass(parentClassName)
+	if parentClass == nil {
+		log.Printf("Class %s not found in indexed classes", parentClassName)
 		return nil
 	}
 
-	// Debug: Check what properties are available
-	log.Printf("Searching for property %s in class %s", propertyName, parentClassName)
-	for name := range parentClass.Properties {
-		log.Printf("Available property: %s", name)
+	// List all available properties for debugging
+	for propName := range parentClass.Properties {
+		log.Printf("Available property: %s", propName)
 	}
 
 	// Check if the property exists in the parent class
@@ -485,17 +576,17 @@ func (idx *PHPIndex) searchParentClassProperty(allClasses map[string]PHPClass, p
 		}
 	}
 
-	// If property not found or is private, check the parent's parent
+	// If property not found or not accessible in parent class, check the parent's parent
 	if parentClass.Parent != "" {
 		log.Printf("Checking parent class %s for property %s", parentClass.Parent, propertyName)
-		return idx.searchParentClassProperty(allClasses, parentClass.Parent, propertyName)
+		return idx.searchParentClassProperty(parentClass.Parent, propertyName)
 	}
 
-	// We don't check interfaces for properties since interfaces don't define properties
 	log.Printf("Property %s not found in class hierarchy of %s", propertyName, parentClassName)
 	return nil
 }
 
+// GetClasses returns all classes indexed by name for legacy compatibility
 func (idx *PHPIndex) GetClasses() map[string]PHPClass {
 	allClasses := make(map[string]PHPClass)
 	classValues, err := idx.dataIndexer.GetAllValues()
@@ -558,11 +649,8 @@ func (idx *PHPIndex) handleMemberCallExpression(node *tree_sitter.Node, fileCont
 	methodName := string(nameNode.Utf8Text(fileContent))
 	log.Printf("Found method call: $this->%s() in class %s", methodName, currentClass)
 
-	// Get all classes
-	allClasses := idx.GetAllClasses()
-
-	// Search in the current class and parent classes
-	returnType := idx.searchParentClassMethod(allClasses, currentClass, methodName)
+	// Directly search in the current class and parent classes
+	returnType := idx.searchParentClassMethod(currentClass, methodName)
 	if returnType != nil {
 		return returnType
 	}
@@ -590,11 +678,8 @@ func (idx *PHPIndex) handleMemberExpression(node *tree_sitter.Node, fileContent 
 	propertyName := string(nameNode.Utf8Text(fileContent))
 	log.Printf("Found property access: $this->%s in class %s", propertyName, currentClass)
 
-	// Get all classes
-	allClasses := idx.GetAllClasses()
-
-	// Search in the current class and parent classes for the property
-	propertyType := idx.searchParentClassProperty(allClasses, currentClass, propertyName)
+	// Directly search in the current class and parent classes for the property
+	propertyType := idx.searchParentClassProperty(currentClass, propertyName)
 	if propertyType != nil {
 		return propertyType
 	}

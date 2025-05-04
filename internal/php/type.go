@@ -870,9 +870,9 @@ func handleMemberCallExpression(node *tree_sitter.Node, fileContent []byte, phpI
 	methodName := string(nameNode.Utf8Text(fileContent))
 	log.Printf("Found method call: $this->%s() in class %s", methodName, currentClass)
 	
-	// Look up the class and method in the index
-	classes := phpIndex.GetClasses()
-	if phpClass, ok := classes[currentClass]; ok {
+	// Look up the class and method in the index - use GetClass for better performance
+	phpClass := phpIndex.GetClass(currentClass)
+	if phpClass != nil {
 		if method, ok := phpClass.Methods[methodName]; ok {
 			log.Printf("Found method: %s with return type", methodName)
 			// Use the method's return type
