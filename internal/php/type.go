@@ -1,8 +1,12 @@
 package php
 
 import (
+	"log"
 	"sort"
 	"strings"
+
+	tree_sitter_helper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
+	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 // PHPType represents a PHP type with methods to compare and match against other types
@@ -824,4 +828,60 @@ func getTypeNullability(t PHPType) bool {
 	default:
 		return false
 	}
+}
+
+// GetTypeOfNode determines the PHP type of a given AST node.
+// This is used for type inference in PHP code to provide accurate completions.
+// Currently supports:
+// - $this->method() expressions
+func GetTypeOfNode(node *tree_sitter.Node, fileContent []byte, phpIndex *PHPIndex, currentClass string) PHPType {
+	if node == nil {
+		return nil
+	}
+
+	nodeKind := node.Kind()
+	log.Printf("Getting type of node: %s", nodeKind)
+
+	// Handle member call expression: $this->method()
+	if nodeKind == "member_call_expression" {
+		return handleMemberCallExpression(node, fileContent, phpIndex, currentClass)
+	}
+
+	// Default to mixed type if we can't determine a specific type
+	return NewPHPType("mixed")
+}
+
+// handleMemberCallExpression processes $this->method() calls and returns the return type of that method
+func handleMemberCallExpression(node *tree_sitter.Node, fileContent []byte, phpIndex *PHPIndex, currentClass string) PHPType {
+	// Extract the object part of the expression (should be $this)
+	objectNode := tree_sitter_helper.GetFirstNodeOfKind(node, "variable_name")
+	
+	// Not a $this call
+	if objectNode == nil || string(objectNode.Utf8Text(fileContent)) != "this" {
+		return NewPHPType("mixed")
+	}
+	
+	// Find the method name being called
+	nameNode := tree_sitter_helper.GetFirstNodeOfKind(node, "name")
+	if nameNode == nil {
+		return NewPHPType("mixed")
+	}
+	
+	methodName := string(nameNode.Utf8Text(fileContent))
+	log.Printf("Found method call: $this->%s() in class %s", methodName, currentClass)
+	
+	// Look up the class and method in the index
+	classes := phpIndex.GetClasses()
+	if phpClass, ok := classes[currentClass]; ok {
+		if method, ok := phpClass.Methods[methodName]; ok {
+			log.Printf("Found method: %s with return type", methodName)
+			// Use the method's return type
+			if method.ReturnType != nil {
+				return method.ReturnType
+			}
+		}
+	}
+	
+	// Default to mixed if we couldn't determine the type
+	return NewPHPType("mixed")
 }

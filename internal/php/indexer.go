@@ -401,6 +401,186 @@ func (idx *PHPIndex) GetClassesOfFileWithParser(path string, node *tree_sitter.N
 	return classes
 }
 
+// GetTypeOfNode determines the PHP type of a given AST node.
+// This is used for type inference in PHP code to provide accurate completions.
+// The implementation is defined below as a method on PHPIndex.
+
+// searchParentClassMethod recursively searches for a method in parent classes
+// and returns the method's return type if found
+func (idx *PHPIndex) searchParentClassMethod(allClasses map[string]PHPClass, parentClassName, methodName string) PHPType {
+	// Find the parent class
+	parentClass, ok := allClasses[parentClassName]
+	if !ok {
+		return nil
+	}
+
+	// Check if the method exists in this parent class
+	if method, ok := parentClass.Methods[methodName]; ok && method.ReturnType != nil {
+		log.Printf("Found method %s in parent class %s with return type", methodName, parentClassName)
+		return method.ReturnType
+	}
+
+	// If not found and this class has a parent, search in that parent
+	if parentClass.Parent != "" {
+		returnType := idx.searchParentClassMethod(allClasses, parentClass.Parent, methodName)
+		if returnType != nil {
+			return returnType
+		}
+	}
+
+	// Check interfaces of this parent class
+	for _, interfaceName := range parentClass.Interfaces {
+		interfaceClass, ok := allClasses[interfaceName]
+		if ok && interfaceClass.IsInterface {
+			if method, ok := interfaceClass.Methods[methodName]; ok && method.ReturnType != nil {
+				log.Printf("Found method %s in interface %s implemented by parent %s", 
+					methodName, interfaceName, parentClassName)
+				return method.ReturnType
+			}
+		}
+	}
+
+	return nil
+}
+
+func (idx *PHPIndex) GetClasses() map[string]PHPClass {
+	allClasses := make(map[string]PHPClass)
+	classValues, err := idx.dataIndexer.GetAllValues()
+	if err != nil {
+		log.Printf("Error fetching classes: %v", err)
+		return allClasses
+	}
+
+	// Create a map of classes indexed by class name
+	for _, class := range classValues {
+		allClasses[class.Name] = class
+	}
+
+	return allClasses
+}
+
+// GetTypeOfNode determines the PHP type of a given AST node.
+// This is used for type inference in PHP code to provide accurate completions.
+// Currently supports:
+// - $this->method() expressions
+func (idx *PHPIndex) GetTypeOfNode(node *tree_sitter.Node, fileContent []byte, currentClass string) PHPType {
+	if node == nil {
+		return nil
+	}
+
+	nodeKind := node.Kind()
+	log.Printf("Getting type of node: %s", nodeKind)
+
+	// Handle member call expression: $this->method()
+	if nodeKind == "member_call_expression" {
+		return idx.handleMemberCallExpression(node, fileContent, currentClass)
+	}
+
+	// Default to mixed type if we can't determine a specific type
+	return NewMixedType()
+}
+
+// handleMemberCallExpression processes $this->method() calls and returns the return type of that method
+func (idx *PHPIndex) handleMemberCallExpression(node *tree_sitter.Node, fileContent []byte, currentClass string) PHPType {
+	// Extract the object part of the expression (should be $this)
+	objectNode := treesitterhelper.GetFirstNodeOfKind(node, "variable_name")
+	
+	// Not a $this call
+	if objectNode == nil || string(objectNode.Utf8Text(fileContent)) != "this" {
+		return NewMixedType()
+	}
+	
+	// Find the method name being called
+	nameNode := treesitterhelper.GetFirstNodeOfKind(node, "name")
+	if nameNode == nil {
+		return NewMixedType()
+	}
+	
+	methodName := string(nameNode.Utf8Text(fileContent))
+	log.Printf("Found method call: $this->%s() in class %s", methodName, currentClass)
+	
+	// Look up the class and method in the index
+	classes := idx.GetClasses()
+	if phpClass, ok := classes[currentClass]; ok {
+		if method, ok := phpClass.Methods[methodName]; ok {
+			log.Printf("Found method: %s with return type", methodName)
+			// Use the method's return type if available
+			if method.ReturnType != nil {
+				return method.ReturnType
+			}
+		}
+		
+		// If the class has a parent, try to look up the method in the parent class
+		if phpClass.Parent != "" {
+			// Recursively check parent classes
+			return idx.findMethodInParentClass(methodName, phpClass.Parent, classes)
+		}
+	}
+	
+	// Default to mixed if we couldn't determine the type
+	return NewMixedType()
+}
+
+// findMethodInParentClass recursively checks parent classes for a method
+func (idx *PHPIndex) findMethodInParentClass(methodName, parentClass string, classes map[string]PHPClass) PHPType {
+	if parentClass == "" {
+		return NewMixedType()
+	}
+	
+	parentClassInfo, ok := classes[parentClass]
+	if !ok {
+		return NewMixedType()
+	}
+	
+	// Check for method in the parent class
+	if method, ok := parentClassInfo.Methods[methodName]; ok {
+		if method.ReturnType != nil {
+			return method.ReturnType
+		}
+	}
+	
+	// Continue up the inheritance chain
+	if parentClassInfo.Parent != "" {
+		return idx.findMethodInParentClass(methodName, parentClassInfo.Parent, classes)
+	}
+	
+	// Check implemented interfaces as well
+	for _, interfaceName := range parentClassInfo.Interfaces {
+		interfaceInfo, ok := classes[interfaceName]
+		if !ok {
+			continue
+		}
+		
+		if method, ok := interfaceInfo.Methods[methodName]; ok {
+			if method.ReturnType != nil {
+				return method.ReturnType
+			}
+		}
+	}
+	
+	return NewMixedType()
+}
+
+// GetAllClasses returns all PHP classes indexed, flattened into a single map
+// with class names as keys. This is used for type inference across class hierarchies.
+func (idx *PHPIndex) GetAllClasses() map[string]PHPClass {
+	allClasses := make(map[string]PHPClass)
+	
+	// Get all class values from the index
+	classValues, err := idx.dataIndexer.GetAllValues()
+	if err != nil {
+		log.Printf("Error fetching classes: %v", err)
+		return allClasses
+	}
+
+	// Add each class to our flattened map by its name
+	for _, class := range classValues {
+		allClasses[class.Name] = class
+	}
+
+	return allClasses
+}
+
 func (idx *PHPIndex) RemovedFiles(paths []string) error {
 	return idx.dataIndexer.BatchDeleteByFilePaths(paths)
 }

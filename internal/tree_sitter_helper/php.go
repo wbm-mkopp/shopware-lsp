@@ -2,7 +2,6 @@ package treesitterhelper
 
 import (
 	"fmt"
-
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
@@ -53,6 +52,39 @@ func IsPHPThisMethodCall(methodName string) Pattern {
 			4,
 		),
 	)
+}
+
+// IsThisMethodCall checks if the node represents a $this->method() call
+func IsThisMethodCall(node *tree_sitter.Node, fileContent []byte) bool {
+	// Check that this is a member call expression
+	if node == nil || node.Kind() != "member_call_expression" {
+		return false
+	}
+
+	// Find the object node (should be 'this')
+	varNode := GetFirstNodeOfKind(node, "variable_name")
+	if varNode == nil {
+		return false 
+	}
+
+	// Check if the variable is 'this'
+	return string(varNode.Utf8Text(fileContent)) == "this"
+}
+
+// GetMethodNameFromThisCall extracts the method name from a $this->method() call
+// Returns empty string if not a $this->method() call
+func GetMethodNameFromThisCall(node *tree_sitter.Node, fileContent []byte) string {
+	if !IsThisMethodCall(node, fileContent) {
+		return ""
+	}
+
+	// Get the method name
+	nameNode := GetFirstNodeOfKind(node, "name")
+	if nameNode == nil {
+		return ""
+	}
+
+	return string(nameNode.Utf8Text(fileContent))
 }
 
 func GetMethodFQCN(node *tree_sitter.Node, content []byte) string {
