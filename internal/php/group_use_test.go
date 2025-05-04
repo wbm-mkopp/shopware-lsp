@@ -8,7 +8,7 @@ import (
 )
 
 func TestGroupUseStatements(t *testing.T) {
-	idx, err := NewPHPIndex("")
+	idx, err := NewPHPIndex(t.TempDir())
 	assert.NoError(t, err)
 	path := filepath.Join("testdata", "05.php")
 	classes := idx.GetClassesOfFile(path)
