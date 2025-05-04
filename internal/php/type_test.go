@@ -1,10 +1,128 @@
 package php
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
+
+func TestIntersectionType(t *testing.T) {
+	testCases := []struct{
+		name string
+		typeName string
+		expectedName string
+		expectedTypes int
+	}{
+		{
+			name: "simple intersection type",
+			typeName: "Traversable&Countable",
+			expectedName: "Countable&Traversable", // Note: sorted alphabetically
+			expectedTypes: 2,
+		},
+		{
+			name: "complex intersection type",
+			typeName: "Serializable&Throwable&\\MyInterface",
+			expectedName: "\\MyInterface&Serializable&Throwable",
+			expectedTypes: 3,
+		},
+		{
+			name: "intersection with object types",
+			typeName: "Iterator&\\Foo\\Bar",
+			expectedName: "\\Foo\\Bar&Iterator", // sorted alphabetically
+			expectedTypes: 2,
+		},
+		{
+			name: "nullable intersection type (converted to union with null)",
+			typeName: "?Iterator&\\Foo\\Bar",
+			expectedName: "\\Foo\\Bar&Iterator|null", // intersection in union with null
+			expectedTypes: 2, // The union has 2 types: IntersectionType and NullType
+		},
+	}
+	
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			phpType := NewPHPType(tc.typeName)
+			
+			// Check if the complex intersection type is handled as a nullable union when needed
+			if strings.HasPrefix(tc.typeName, "?") && strings.Contains(tc.typeName, "&") {
+				// Should be a union type with an intersection type and null
+				unionType, ok := phpType.(*UnionType)
+				assert.True(t, ok, "Expected a UnionType for nullable intersection, got %T", phpType)
+				assert.Equal(t, tc.expectedTypes, len(unionType.types), "Expected %d types in the union", tc.expectedTypes)
+				assert.Equal(t, tc.expectedName, phpType.Name(), "Expected type name to be %s, got %s", tc.expectedName, phpType.Name())
+			} else if strings.Contains(tc.typeName, "&") {
+				// Should be an intersection type
+				intersectionType, ok := phpType.(*IntersectionType)
+				assert.True(t, ok, "Expected an IntersectionType, got %T", phpType)
+				assert.Equal(t, tc.expectedTypes, len(intersectionType.types), "Expected %d types in the intersection", tc.expectedTypes)
+				assert.Equal(t, tc.expectedName, phpType.Name(), "Expected type name to be %s, got %s", tc.expectedName, phpType.Name())
+			}
+		})
+	}
+}
+
+func TestIntersectionType_Matches(t *testing.T) {
+	testCases := []struct{
+		name string
+		type1 string
+		type2 string
+		expectedMatch bool
+	}{
+		{
+			name: "same intersection types match",
+			type1: "Traversable&Countable",
+			type2: "Traversable&Countable",
+			expectedMatch: true,
+		},
+		{
+			name: "different order intersection types match",
+			type1: "Traversable&Countable",
+			type2: "Countable&Traversable",
+			expectedMatch: true,
+		},
+		{
+			name: "subset intersection types match",
+			type1: "Traversable&Countable&Serializable",
+			type2: "Traversable&Countable",
+			expectedMatch: false,
+		},
+		{
+			name: "single type matches intersection if it implements all interfaces",
+			type1: "\\ArrayObject", // This class implements both Traversable and Countable
+			type2: "Traversable&Countable",
+			expectedMatch: true,
+		},
+		{
+			name: "intersection type matches single type if the single type is one of the interfaces",
+			type1: "Traversable&Countable",
+			type2: "Traversable",
+			expectedMatch: false,
+		},
+		{
+			name: "mixed matches any intersection type",
+			type1: "mixed",
+			type2: "Traversable&Countable",
+			expectedMatch: true,
+		},
+		{
+			name: "intersection with union types",
+			type1: "Traversable&Countable",
+			type2: "Traversable|Countable",
+			expectedMatch: false,
+		},
+	}
+	
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			type1 := NewPHPType(tc.type1)
+			type2 := NewPHPType(tc.type2)
+			
+			result := type1.Matches(type2)
+			assert.Equal(t, tc.expectedMatch, result, "Expected %s.Matches(%s) to be %v", tc.type1, tc.type2, tc.expectedMatch)
+		})
+	}
+}
 
 func TestUnionType(t *testing.T) {
 	testCases := []struct{
