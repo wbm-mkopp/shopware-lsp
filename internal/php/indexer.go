@@ -40,14 +40,14 @@ func findChildByKind(node *tree_sitter.Node, kind string) *tree_sitter.Node {
 }
 
 type PHPClass struct {
-	Name       string                 `json:"name"`
-	Path       string                 `json:"path"`
-	Line       int                    `json:"line"`
-	Methods    map[string]PHPMethod   `json:"methods"`
-	Properties map[string]PHPProperty `json:"properties"`
-	Parent     string                 `json:"parent,omitempty"` // The class this class extends from
-	Interfaces []string               `json:"interfaces,omitempty"` // Interfaces this class implements
-	IsInterface bool                  `json:"is_interface"` // Whether this is an interface or a class
+	Name        string                 `json:"name"`
+	Path        string                 `json:"path"`
+	Line        int                    `json:"line"`
+	Methods     map[string]PHPMethod   `json:"methods"`
+	Properties  map[string]PHPProperty `json:"properties"`
+	Parent      string                 `json:"parent,omitempty"`     // The class this class extends from
+	Interfaces  []string               `json:"interfaces,omitempty"` // Interfaces this class implements
+	IsInterface bool                   `json:"is_interface"`         // Whether this is an interface or a class
 }
 
 type PHPMethod struct {
@@ -263,7 +263,7 @@ func (idx *PHPIndex) GetClassesOfFileWithParser(path string, node *tree_sitter.N
 
 			if node.Kind() == "class_declaration" || node.Kind() == "interface_declaration" {
 				classNameNode := treesitterhelper.GetFirstNodeOfKind(node, "name")
-				
+
 				// Determine if this is an interface or a class
 				isInterface := node.Kind() == "interface_declaration"
 
@@ -277,12 +277,12 @@ func (idx *PHPIndex) GetClassesOfFileWithParser(path string, node *tree_sitter.N
 
 					// Create a new class with empty methods and properties maps
 					phpClass := PHPClass{
-						Name:       className,
-						Path:       path,
-						Line:       int(classNameNode.Range().StartPoint.Row) + 1,
-						Methods:    make(map[string]PHPMethod),
-						Properties: make(map[string]PHPProperty),
-						Interfaces: []string{},  // Initialize empty interfaces slice
+						Name:        className,
+						Path:        path,
+						Line:        int(classNameNode.Range().StartPoint.Row) + 1,
+						Methods:     make(map[string]PHPMethod),
+						Properties:  make(map[string]PHPProperty),
+						Interfaces:  []string{},  // Initialize empty interfaces slice
 						IsInterface: isInterface, // Set based on whether this is an interface or class
 					}
 
@@ -296,10 +296,10 @@ func (idx *PHPIndex) GetClassesOfFileWithParser(path string, node *tree_sitter.N
 								child := baseClauseNode.NamedChild(i)
 								if child != nil && child.Kind() == "name" {
 									parentInterfaceName := string(child.Utf8Text(fileContent))
-									
+
 									// Resolve the parent interface FQCN
 									var fqcn string
-									
+
 									// Similar resolution logic as for implemented interfaces
 									if _, found := useStatements[parentInterfaceName]; found && !strings.Contains(useStatements[parentInterfaceName], "\\\\") {
 										// This is a global interface imported directly
@@ -333,7 +333,7 @@ func (idx *PHPIndex) GetClassesOfFileWithParser(path string, node *tree_sitter.N
 								child := baseClauseNode.NamedChild(i)
 								if child != nil && child.Kind() == "name" {
 									parentName := string(child.Utf8Text(fileContent))
-									
+
 									// Resolve the parent class FQCN
 									aliasResolver := NewAliasResolver(currentNamespace, useStatements, aliases)
 									fqcn := aliasResolver.ResolveType(parentName)
@@ -352,11 +352,11 @@ func (idx *PHPIndex) GetClassesOfFileWithParser(path string, node *tree_sitter.N
 								interfaceNode := interfacesNode.NamedChild(i)
 								if interfaceNode != nil && interfaceNode.Kind() == "name" {
 									interfaceName := string(interfaceNode.Utf8Text(fileContent))
-									
+
 									// Resolve the interface FQCN
 									// Special handling for PHP global interfaces imported via use statements
 									var fqcn string
-									
+
 									// Check if it's a global interface that has been imported
 									// For global interfaces like Traversable, Countable, etc., that don't have a namespace,
 									// useStatements will contain an entry mapping the interface name to itself
@@ -408,38 +408,91 @@ func (idx *PHPIndex) GetClassesOfFileWithParser(path string, node *tree_sitter.N
 // searchParentClassMethod recursively searches for a method in parent classes
 // and returns the method's return type if found
 func (idx *PHPIndex) searchParentClassMethod(allClasses map[string]PHPClass, parentClassName, methodName string) PHPType {
-	// Find the parent class
+	if parentClassName == "" || methodName == "" {
+		return nil
+	}
+
+	// Get the parent class from the indexed classes
 	parentClass, ok := allClasses[parentClassName]
 	if !ok {
 		return nil
 	}
 
-	// Check if the method exists in this parent class
-	if method, ok := parentClass.Methods[methodName]; ok && method.ReturnType != nil {
+	// Check if the method exists in the parent class
+	method, ok := parentClass.Methods[methodName]
+	if ok {
 		log.Printf("Found method %s in parent class %s with return type", methodName, parentClassName)
 		return method.ReturnType
 	}
 
-	// If not found and this class has a parent, search in that parent
+	// If method not found in parent class, check the parent's parent
 	if parentClass.Parent != "" {
-		returnType := idx.searchParentClassMethod(allClasses, parentClass.Parent, methodName)
-		if returnType != nil {
-			return returnType
-		}
+		return idx.searchParentClassMethod(allClasses, parentClass.Parent, methodName)
 	}
 
-	// Check interfaces of this parent class
+	// Also check interfaces implemented by the parent class
 	for _, interfaceName := range parentClass.Interfaces {
-		interfaceClass, ok := allClasses[interfaceName]
-		if ok && interfaceClass.IsInterface {
-			if method, ok := interfaceClass.Methods[methodName]; ok && method.ReturnType != nil {
-				log.Printf("Found method %s in interface %s implemented by parent %s", 
-					methodName, interfaceName, parentClassName)
-				return method.ReturnType
-			}
+		interface_, ok := allClasses[interfaceName]
+		if !ok || !interface_.IsInterface {
+			continue
+		}
+
+		method, ok := interface_.Methods[methodName]
+		if ok {
+			log.Printf("Found method %s in interface %s with return type", methodName, interfaceName)
+			return method.ReturnType
 		}
 	}
 
+	return nil
+}
+
+// searchParentClassProperty recursively searches for a property in parent classes
+// and returns the property's type if found. It respects visibility rules, so private
+// properties from parent classes are not accessible.
+func (idx *PHPIndex) searchParentClassProperty(allClasses map[string]PHPClass, parentClassName, propertyName string) PHPType {
+	if parentClassName == "" || propertyName == "" {
+		log.Printf("Invalid parameters: class=%s, property=%s", parentClassName, propertyName)
+		return nil
+	}
+
+	// Get the parent class from the indexed classes
+	parentClass, ok := allClasses[parentClassName]
+	if !ok {
+		log.Printf("Class not found: %s", parentClassName)
+		return nil
+	}
+
+	// Debug: Check what properties are available
+	log.Printf("Searching for property %s in class %s", propertyName, parentClassName)
+	for name := range parentClass.Properties {
+		log.Printf("Available property: %s", name)
+	}
+
+	// Check if the property exists in the parent class
+	property, ok := parentClass.Properties[propertyName]
+	if ok {
+		// Check visibility - private properties from parent classes are not accessible
+		log.Printf("Found property %s in class %s with visibility %d", propertyName, parentClassName, property.Visibility)
+
+		// For the current class, we can access any property regardless of visibility
+		// For parent classes, we can only access public and protected properties
+		if property.Visibility != Private {
+			log.Printf("Property %s in class %s is accessible with type %s", propertyName, parentClassName, property.Type.Name())
+			return property.Type
+		} else {
+			log.Printf("Property %s in class %s is private and not accessible from child classes", propertyName, parentClassName)
+		}
+	}
+
+	// If property not found or is private, check the parent's parent
+	if parentClass.Parent != "" {
+		log.Printf("Checking parent class %s for property %s", parentClass.Parent, propertyName)
+		return idx.searchParentClassProperty(allClasses, parentClass.Parent, propertyName)
+	}
+
+	// We don't check interfaces for properties since interfaces don't define properties
+	log.Printf("Property %s not found in class hierarchy of %s", propertyName, parentClassName)
 	return nil
 }
 
@@ -463,6 +516,7 @@ func (idx *PHPIndex) GetClasses() map[string]PHPClass {
 // This is used for type inference in PHP code to provide accurate completions.
 // Currently supports:
 // - $this->method() expressions
+// - $this->property expressions
 func (idx *PHPIndex) GetTypeOfNode(node *tree_sitter.Node, fileContent []byte, currentClass string) PHPType {
 	if node == nil {
 		return nil
@@ -476,6 +530,11 @@ func (idx *PHPIndex) GetTypeOfNode(node *tree_sitter.Node, fileContent []byte, c
 		return idx.handleMemberCallExpression(node, fileContent, currentClass)
 	}
 
+	// Handle member expression (property access): $this->property
+	if nodeKind == "member_expression" {
+		return idx.handleMemberExpression(node, fileContent, currentClass)
+	}
+
 	// Default to mixed type if we can't determine a specific type
 	return NewMixedType()
 }
@@ -484,80 +543,63 @@ func (idx *PHPIndex) GetTypeOfNode(node *tree_sitter.Node, fileContent []byte, c
 func (idx *PHPIndex) handleMemberCallExpression(node *tree_sitter.Node, fileContent []byte, currentClass string) PHPType {
 	// Extract the object part of the expression (should be $this)
 	objectNode := treesitterhelper.GetFirstNodeOfKind(node, "variable_name")
-	
+
 	// Not a $this call
 	if objectNode == nil || string(objectNode.Utf8Text(fileContent)) != "this" {
 		return NewMixedType()
 	}
-	
+
 	// Find the method name being called
 	nameNode := treesitterhelper.GetFirstNodeOfKind(node, "name")
 	if nameNode == nil {
 		return NewMixedType()
 	}
-	
+
 	methodName := string(nameNode.Utf8Text(fileContent))
 	log.Printf("Found method call: $this->%s() in class %s", methodName, currentClass)
-	
-	// Look up the class and method in the index
-	classes := idx.GetClasses()
-	if phpClass, ok := classes[currentClass]; ok {
-		if method, ok := phpClass.Methods[methodName]; ok {
-			log.Printf("Found method: %s with return type", methodName)
-			// Use the method's return type if available
-			if method.ReturnType != nil {
-				return method.ReturnType
-			}
-		}
-		
-		// If the class has a parent, try to look up the method in the parent class
-		if phpClass.Parent != "" {
-			// Recursively check parent classes
-			return idx.findMethodInParentClass(methodName, phpClass.Parent, classes)
-		}
+
+	// Get all classes
+	allClasses := idx.GetAllClasses()
+
+	// Search in the current class and parent classes
+	returnType := idx.searchParentClassMethod(allClasses, currentClass, methodName)
+	if returnType != nil {
+		return returnType
 	}
-	
+
 	// Default to mixed if we couldn't determine the type
 	return NewMixedType()
 }
 
-// findMethodInParentClass recursively checks parent classes for a method
-func (idx *PHPIndex) findMethodInParentClass(methodName, parentClass string, classes map[string]PHPClass) PHPType {
-	if parentClass == "" {
+// handleMemberExpression processes $this->property property access expressions and returns the type of the property
+func (idx *PHPIndex) handleMemberExpression(node *tree_sitter.Node, fileContent []byte, currentClass string) PHPType {
+	// Extract the object part of the expression (should be $this)
+	objectNode := treesitterhelper.GetFirstNodeOfKind(node, "variable_name")
+
+	// Not a $this property access
+	if objectNode == nil || string(objectNode.Utf8Text(fileContent)) != "this" {
 		return NewMixedType()
 	}
-	
-	parentClassInfo, ok := classes[parentClass]
-	if !ok {
+
+	// Find the property name
+	nameNode := treesitterhelper.GetFirstNodeOfKind(node, "name")
+	if nameNode == nil {
 		return NewMixedType()
 	}
-	
-	// Check for method in the parent class
-	if method, ok := parentClassInfo.Methods[methodName]; ok {
-		if method.ReturnType != nil {
-			return method.ReturnType
-		}
+
+	propertyName := string(nameNode.Utf8Text(fileContent))
+	log.Printf("Found property access: $this->%s in class %s", propertyName, currentClass)
+
+	// Get all classes
+	allClasses := idx.GetAllClasses()
+
+	// Search in the current class and parent classes for the property
+	propertyType := idx.searchParentClassProperty(allClasses, currentClass, propertyName)
+	if propertyType != nil {
+		return propertyType
 	}
-	
-	// Continue up the inheritance chain
-	if parentClassInfo.Parent != "" {
-		return idx.findMethodInParentClass(methodName, parentClassInfo.Parent, classes)
-	}
-	
-	// Check implemented interfaces as well
-	for _, interfaceName := range parentClassInfo.Interfaces {
-		interfaceInfo, ok := classes[interfaceName]
-		if !ok {
-			continue
-		}
-		
-		if method, ok := interfaceInfo.Methods[methodName]; ok {
-			if method.ReturnType != nil {
-				return method.ReturnType
-			}
-		}
-	}
-	
+
+	// Default to mixed if we couldn't determine the type
 	return NewMixedType()
 }
 
@@ -565,7 +607,7 @@ func (idx *PHPIndex) findMethodInParentClass(methodName, parentClass string, cla
 // with class names as keys. This is used for type inference across class hierarchies.
 func (idx *PHPIndex) GetAllClasses() map[string]PHPClass {
 	allClasses := make(map[string]PHPClass)
-	
+
 	// Get all class values from the index
 	classValues, err := idx.dataIndexer.GetAllValues()
 	if err != nil {

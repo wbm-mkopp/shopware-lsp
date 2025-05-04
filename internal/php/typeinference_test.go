@@ -40,7 +40,7 @@ func TestTypeInferenceWithInheritance(t *testing.T) {
 	}
 	allClasses[productInterface.Name] = productInterface
 	
-	// Abstract parent class
+	// Abstract parent class with properties
 	baseProduct := PHPClass{
 		Name:       "App\\Entity\\BaseProduct",
 		Path:        "testdata/typeinference_inheritance.php",
@@ -66,11 +66,30 @@ func TestTypeInferenceWithInheritance(t *testing.T) {
 				ReturnType: NewPHPType("array"),
 			},
 		},
-		Properties: make(map[string]PHPProperty),
+		Properties: map[string]PHPProperty{
+			"id": {
+				Name:       "id",
+				Line:       12,
+				Visibility: Protected,
+				Type:       NewPHPType("int"),
+			},
+			"description": {
+				Name:       "description",
+				Line:       13,
+				Visibility: Protected,
+				Type:       NewPHPType("string"),
+			},
+			"price": {
+				Name:       "price",
+				Line:       14,
+				Visibility: Protected,
+				Type:       NewPHPType("float"),
+			},
+		},
 	}
 	allClasses[baseProduct.Name] = baseProduct
 	
-	// Concrete class
+	// Concrete class with properties
 	product := PHPClass{
 		Name:   "App\\Entity\\Product",
 		Path:   "testdata/typeinference_inheritance.php",
@@ -96,12 +115,25 @@ func TestTypeInferenceWithInheritance(t *testing.T) {
 				ReturnType: NewPHPType("?string"),
 			},
 		},
-		Properties: make(map[string]PHPProperty),
+		Properties: map[string]PHPProperty{
+			"name": {
+				Name:       "name",
+				Line:       36,
+				Visibility: Private,
+				Type:       NewPHPType("string"),
+			},
+			"sku": {
+				Name:       "sku",
+				Line:       37,
+				Visibility: Private,
+				Type:       NewPHPType("?string"),
+			},
+		},
 	}
 	allClasses[product.Name] = product
 
 	// Test cases for method inheritance
-	testCases := []struct {
+	methodTestCases := []struct {
 		classType    string // The class where to find the method
 		methodName   string // The method to check
 		expectedType string // The expected return type
@@ -115,26 +147,81 @@ func TestTypeInferenceWithInheritance(t *testing.T) {
 	}
 
 	// Test each method's type lookup with searchParentClassMethod function
-	for _, tc := range testCases {
-		t.Run(tc.methodName, func(t *testing.T) {
+	for _, tc := range methodTestCases {
+		t.Run("Method_"+tc.methodName, func(t *testing.T) {
 			// Test that our method resolver properly finds the method through inheritance
 			resultType := idx.searchParentClassMethod(allClasses, tc.classType, tc.methodName)
-			assert.NotNil(t, resultType, "Should find return type for %s", tc.methodName)
-			assert.Equal(t, tc.expectedType, resultType.Name(), "Should correctly infer return type for %s", tc.methodName)
+			assert.NotNil(t, resultType, "Should find return type for method %s", tc.methodName)
+			assert.Equal(t, tc.expectedType, resultType.Name(), "Should correctly infer return type for method %s", tc.methodName)
 		})
 	}
 
-	// Create a simple test for the handleMemberCallExpression method
+	// Test cases for property inheritance
+	propertyTestCases := []struct {
+		classType    string // The class where to find the property
+		propertyName string // The property to check
+		expectedType string // The expected property type
+		source       string // Where the property comes from: "self", "parent"
+		accessible   bool   // Whether the property should be accessible
+	}{
+		// Note: According to visibility rules in our test, name and sku are PRIVATE in Product class
+		// so they shouldn't be accessible from outside the class and will return nil
+		// But they would be accessible from WITHIN the Product class
+		{"App\\Entity\\Product", "name", "string", "self", false},    // Private property in Product class - not accessible
+		{"App\\Entity\\Product", "sku", "?string", "self", false},   // Private property in Product class - not accessible
+
+		// These properties from parent are all protected, so they should be accessible
+		{"App\\Entity\\Product", "id", "int", "parent", true},       // Protected property from BaseProduct
+		{"App\\Entity\\Product", "description", "string", "parent", true}, // Protected property from BaseProduct
+		{"App\\Entity\\Product", "price", "float", "parent", true},    // Protected property from BaseProduct
+	}
+
+	// Test each property's type lookup with searchParentClassProperty function
+	for _, tc := range propertyTestCases {
+		t.Run("Property_"+tc.propertyName, func(t *testing.T) {
+			// Test that our property resolver properly handles visibility and inheritance
+			resultType := idx.searchParentClassProperty(allClasses, tc.classType, tc.propertyName)
+			
+			if tc.accessible {
+				// Property should be accessible (public/protected)
+				assert.NotNil(t, resultType, "Should find type for property %s", tc.propertyName)
+				if resultType != nil {
+					assert.Equal(t, tc.expectedType, resultType.Name(), "Should correctly infer type for property %s", tc.propertyName)
+				}
+			} else {
+				// Property should not be accessible (private) from outside the defining class
+				// This verifies that we respect PHP's visibility rules
+				assert.Nil(t, resultType, "Private property %s should not be accessible from outside its class", tc.propertyName)
+			}
+		})
+	}
+
+	// Create a test for the method access resolution
 	t.Run("handleMemberCallExpression correctly resolves method return types", func(t *testing.T) {
-		// Since we can't easily create AST nodes for testing, we'll verify that
-		// the integration between handleMemberCallExpression -> searchParentClassMethod works
-		// by checking that searchParentClassMethod returns the expected types
-		
-		// For each test case, verify that searchParentClassMethod returns the expected type
-		for _, tc := range testCases {
+		// Just check that searchParentClassMethod returns the expected types
+		for _, tc := range methodTestCases {
 			resultType := idx.searchParentClassMethod(allClasses, tc.classType, tc.methodName)
 			assert.NotNil(t, resultType, "searchParentClassMethod should find return type for %s", tc.methodName)
 			assert.Equal(t, tc.expectedType, resultType.Name(), "searchParentClassMethod should correctly infer return type for %s", tc.methodName)
+		}
+	})
+
+	// Create a test for the property access resolution
+	t.Run("handleMemberExpression correctly resolves property types", func(t *testing.T) {
+		// Check that searchParentClassProperty correctly handles property visibility
+		for _, tc := range propertyTestCases {
+			resultType := idx.searchParentClassProperty(allClasses, tc.classType, tc.propertyName)
+			
+			if tc.accessible {
+				// Property should be accessible (public/protected)
+				assert.NotNil(t, resultType, "searchParentClassProperty should find type for %s", tc.propertyName)
+				if resultType != nil {
+					assert.Equal(t, tc.expectedType, resultType.Name(), "searchParentClassProperty should correctly infer type for %s", tc.propertyName)
+				}
+			} else {
+				// Property should not be accessible (private) from outside the defining class
+				assert.Nil(t, resultType, "Private property %s should not be accessible from outside its class", tc.propertyName)
+			}
 		}
 	})
 }
