@@ -47,6 +47,7 @@ type PHPClass struct {
 	Properties map[string]PHPProperty `json:"properties"`
 	Parent     string                 `json:"parent,omitempty"` // The class this class extends from
 	Interfaces []string               `json:"interfaces,omitempty"` // Interfaces this class implements
+	IsInterface bool                  `json:"is_interface"` // Whether this is an interface or a class
 }
 
 type PHPMethod struct {
@@ -260,12 +261,16 @@ func (idx *PHPIndex) GetClassesOfFileWithParser(path string, node *tree_sitter.N
 				}
 			}
 
-			if node.Kind() == "class_declaration" {
+			if node.Kind() == "class_declaration" || node.Kind() == "interface_declaration" {
 				classNameNode := treesitterhelper.GetFirstNodeOfKind(node, "name")
+				
+				// Determine if this is an interface or a class
+				isInterface := node.Kind() == "interface_declaration"
 
 				if classNameNode != nil {
 					className := string(classNameNode.Utf8Text(fileContent))
 
+					// If we have a namespace, add it to the class name
 					if currentNamespace != "" {
 						className = currentNamespace + "\\" + className
 					}
@@ -278,64 +283,103 @@ func (idx *PHPIndex) GetClassesOfFileWithParser(path string, node *tree_sitter.N
 						Methods:    make(map[string]PHPMethod),
 						Properties: make(map[string]PHPProperty),
 						Interfaces: []string{},  // Initialize empty interfaces slice
+						IsInterface: isInterface, // Set based on whether this is an interface or class
 					}
 
-					// Extract parent class if the class extends another class
-					// In the AST, the parent class is located in the 'base_clause' node
-					baseClauseNode := treesitterhelper.GetFirstNodeOfKind(node, "base_clause")
-					if baseClauseNode != nil {
-						// The base_clause node contains the parent class name directly
-						for i := uint(0); i < baseClauseNode.NamedChildCount(); i++ {
-							child := baseClauseNode.NamedChild(i)
-							if child != nil && child.Kind() == "name" {
-								parentName := string(child.Utf8Text(fileContent))
-								
-								// Resolve the parent class FQCN
-								aliasResolver := NewAliasResolver(currentNamespace, useStatements, aliases)
-								fqcn := aliasResolver.ResolveType(parentName)
-								phpClass.Parent = fqcn
-								log.Printf("Class %s extends %s", className, fqcn)
-								break // There's only one parent class, so we can break after finding it
+					// Handle inheritance differently based on whether this is a class or interface
+					if isInterface {
+						// For interfaces, the 'base_clause' contains interfaces that this interface extends
+						baseClauseNode := treesitterhelper.GetFirstNodeOfKind(node, "base_clause")
+						if baseClauseNode != nil {
+							// Interfaces can extend multiple other interfaces
+							for i := uint(0); i < baseClauseNode.NamedChildCount(); i++ {
+								child := baseClauseNode.NamedChild(i)
+								if child != nil && child.Kind() == "name" {
+									parentInterfaceName := string(child.Utf8Text(fileContent))
+									
+									// Resolve the parent interface FQCN
+									var fqcn string
+									
+									// Similar resolution logic as for implemented interfaces
+									if _, found := useStatements[parentInterfaceName]; found && !strings.Contains(useStatements[parentInterfaceName], "\\\\") {
+										// This is a global interface imported directly
+										fqcn = parentInterfaceName
+										log.Printf("Resolved global extended interface: %s", parentInterfaceName)
+									} else if fqcnFromUse, ok := useStatements[parentInterfaceName]; ok {
+										// Interface is explicitly imported with a use statement
+										fqcn = fqcnFromUse
+										log.Printf("Resolved use statement: %s -> %s", parentInterfaceName, fqcn)
+									} else if fqcnFromAlias, ok := aliases[parentInterfaceName]; ok {
+										// Interface is imported with an alias
+										fqcn = fqcnFromAlias
+										log.Printf("Resolved alias: %s -> %s", parentInterfaceName, fqcn)
+									} else {
+										// If not found in use statements or aliases, use the standard resolver
+										aliasResolver := NewAliasResolver(currentNamespace, useStatements, aliases)
+										fqcn = aliasResolver.ResolveType(parentInterfaceName)
+									}
+									phpClass.Interfaces = append(phpClass.Interfaces, fqcn)
+									log.Printf("Interface %s extends %s", className, fqcn)
+								}
 							}
 						}
-					}
-
-					// Extract implemented interfaces
-					// In the AST, interfaces are in a 'class_interface_clause' node
-					interfacesNode := treesitterhelper.GetFirstNodeOfKind(node, "class_interface_clause")
-					if interfacesNode != nil {
-						// Each 'name' child is an interface that the class implements
-						for i := uint(0); i < interfacesNode.NamedChildCount(); i++ {
-							interfaceNode := interfacesNode.NamedChild(i)
-							if interfaceNode != nil && interfaceNode.Kind() == "name" {
-								interfaceName := string(interfaceNode.Utf8Text(fileContent))
-								
-								// Resolve the interface FQCN
-								// Special handling for PHP global interfaces imported via use statements
-								var fqcn string
-								
-								// Check if it's a global interface that has been imported
-								// For global interfaces like Traversable, Countable, etc., that don't have a namespace,
-								// useStatements will contain an entry mapping the interface name to itself
-								if _, found := useStatements[interfaceName]; found && !strings.Contains(useStatements[interfaceName], "\\\\" ) {
-									// This is a global interface imported directly
-									fqcn = interfaceName
-									log.Printf("Resolved global interface: %s", interfaceName)
-								} else if fqcnFromUse, ok := useStatements[interfaceName]; ok {
-									// Interface is explicitly imported with a use statement
-									fqcn = fqcnFromUse
-									log.Printf("Resolved use statement: %s -> %s", interfaceName, fqcn)
-								} else if fqcnFromAlias, ok := aliases[interfaceName]; ok {
-									// Interface is imported with an alias
-									fqcn = fqcnFromAlias
-									log.Printf("Resolved alias: %s -> %s", interfaceName, fqcn)
-								} else {
-									// If not found in use statements or aliases, use the standard resolver
+					} else {
+						// Extract parent class if the class extends another class
+						// In the AST, the parent class is located in the 'base_clause' node
+						baseClauseNode := treesitterhelper.GetFirstNodeOfKind(node, "base_clause")
+						if baseClauseNode != nil {
+							// The base_clause node contains the parent class name directly
+							for i := uint(0); i < baseClauseNode.NamedChildCount(); i++ {
+								child := baseClauseNode.NamedChild(i)
+								if child != nil && child.Kind() == "name" {
+									parentName := string(child.Utf8Text(fileContent))
+									
+									// Resolve the parent class FQCN
 									aliasResolver := NewAliasResolver(currentNamespace, useStatements, aliases)
-									fqcn = aliasResolver.ResolveType(interfaceName)
+									fqcn := aliasResolver.ResolveType(parentName)
+									phpClass.Parent = fqcn
+									log.Printf("Class %s extends %s", className, fqcn)
 								}
-								phpClass.Interfaces = append(phpClass.Interfaces, fqcn)
-								log.Printf("Class %s implements %s", className, fqcn)
+							}
+						}
+
+						// Extract implemented interfaces
+						// In the AST, interfaces are in a 'class_interface_clause' node
+						interfacesNode := treesitterhelper.GetFirstNodeOfKind(node, "class_interface_clause")
+						if interfacesNode != nil {
+							// Each 'name' child is an interface that the class implements
+							for i := uint(0); i < interfacesNode.NamedChildCount(); i++ {
+								interfaceNode := interfacesNode.NamedChild(i)
+								if interfaceNode != nil && interfaceNode.Kind() == "name" {
+									interfaceName := string(interfaceNode.Utf8Text(fileContent))
+									
+									// Resolve the interface FQCN
+									// Special handling for PHP global interfaces imported via use statements
+									var fqcn string
+									
+									// Check if it's a global interface that has been imported
+									// For global interfaces like Traversable, Countable, etc., that don't have a namespace,
+									// useStatements will contain an entry mapping the interface name to itself
+									if _, found := useStatements[interfaceName]; found && !strings.Contains(useStatements[interfaceName], "\\\\") {
+										// This is a global interface imported directly
+										fqcn = interfaceName
+										log.Printf("Resolved global interface: %s", interfaceName)
+									} else if fqcnFromUse, ok := useStatements[interfaceName]; ok {
+										// Interface is explicitly imported with a use statement
+										fqcn = fqcnFromUse
+										log.Printf("Resolved use statement: %s -> %s", interfaceName, fqcn)
+									} else if fqcnFromAlias, ok := aliases[interfaceName]; ok {
+										// Interface is imported with an alias
+										fqcn = fqcnFromAlias
+										log.Printf("Resolved alias: %s -> %s", interfaceName, fqcn)
+									} else {
+										// If not found in use statements or aliases, use the standard resolver
+										aliasResolver := NewAliasResolver(currentNamespace, useStatements, aliases)
+										fqcn = aliasResolver.ResolveType(interfaceName)
+									}
+									phpClass.Interfaces = append(phpClass.Interfaces, fqcn)
+									log.Printf("Class %s implements %s", className, fqcn)
+								}
 							}
 						}
 					}
