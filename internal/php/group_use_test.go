@@ -32,6 +32,6 @@ func TestGroupUseStatements(t *testing.T) {
 
 	for propName, expectedType := range expectedTypes {
 		assert.Contains(t, class.Properties, propName, "Property %s should exist", propName)
-		assert.Equal(t, expectedType, class.Properties[propName].Type, "Property %s should have type %s", propName, expectedType)
+		assert.Equal(t, expectedType, class.Properties[propName].Type.Name(), "Property %s should have type %s", propName, expectedType)
 	}
 }

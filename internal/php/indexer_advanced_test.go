@@ -32,31 +32,31 @@ func TestAdvancedNamespaceAliases(t *testing.T) {
 	assert.Contains(t, properties, "request")
 	assert.Equal(t, "request", properties["request"].Name)
 	assert.Equal(t, Private, properties["request"].Visibility)
-	assert.Equal(t, "Symfony\\Component\\HttpFoundation\\Request", properties["request"].Type)
+	assert.Equal(t, "Symfony\\Component\\HttpFoundation\\Request", properties["request"].Type.Name())
 
 	// Check property with group use statement type (Response)
 	assert.Contains(t, properties, "response")
 	assert.Equal(t, "response", properties["response"].Name)
 	assert.Equal(t, Private, properties["response"].Visibility)
-	assert.Equal(t, "Symfony\\Component\\HttpFoundation\\Response", properties["response"].Type)
+	assert.Equal(t, "Symfony\\Component\\HttpFoundation\\Response", properties["response"].Type.Name())
 
 	// Check property with group use statement type (Kernel)
 	assert.Contains(t, properties, "kernel")
 	assert.Equal(t, "kernel", properties["kernel"].Name)
 	assert.Equal(t, Private, properties["kernel"].Visibility)
-	assert.Equal(t, "Symfony\\Component\\HttpKernel\\Kernel", properties["kernel"].Type)
+	assert.Equal(t, "Symfony\\Component\\HttpKernel\\Kernel", properties["kernel"].Type.Name())
 
 	// Check property with aliased type (DbConnection)
 	assert.Contains(t, properties, "connection")
 	assert.Equal(t, "connection", properties["connection"].Name)
 	assert.Equal(t, Private, properties["connection"].Visibility)
-	assert.Equal(t, "Doctrine\\DBAL\\Connection", properties["connection"].Type)
+	assert.Equal(t, "Doctrine\\DBAL\\Connection", properties["connection"].Type.Name())
 
 	// Check property with aliased type (Repository)
 	assert.Contains(t, properties, "productRepository")
 	assert.Equal(t, "productRepository", properties["productRepository"].Name)
 	assert.Equal(t, Private, properties["productRepository"].Visibility)
-	assert.Equal(t, "Shopware\\Core\\Framework\\DataAbstractionLayer\\EntityRepository", properties["productRepository"].Type)
+	assert.Equal(t, "Shopware\\Core\\Framework\\DataAbstractionLayer\\EntityRepository", properties["productRepository"].Type.Name())
 
 	// Verify the methods
 	methods := classes[expectedClassName].Methods
@@ -78,5 +78,5 @@ func TestAdvancedNamespaceAliases(t *testing.T) {
 	assert.Contains(t, methods, "getData")
 	assert.Equal(t, "getData", methods["getData"].Name)
 	assert.Equal(t, Public, methods["getData"].Visibility)
-	assert.Equal(t, "mixed", methods["getData"].ReturnType)
+	assert.Equal(t, "mixed", methods["getData"].ReturnType.Name())
 }

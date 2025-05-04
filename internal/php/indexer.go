@@ -50,7 +50,7 @@ type PHPMethod struct {
 	Name       string     `json:"name"`
 	Line       int        `json:"line"`
 	Visibility Visibility `json:"visibility"`
-	ReturnType string     `json:"returnType"`
+	ReturnType PHPType    `json:"returnType"`
 }
 
 // Visibility constants for PHP properties and methods
@@ -67,7 +67,7 @@ type PHPProperty struct {
 	Name       string     `json:"name"`
 	Line       int        `json:"line"`
 	Visibility Visibility `json:"visibility"`
-	Type       string     `json:"type"`
+	Type       PHPType    `json:"type"`
 }
 
 type PHPIndex struct {
@@ -371,7 +371,9 @@ func (idx *PHPIndex) extractMethodsFromClass(node *tree_sitter.Node, fileContent
 				}
 				
 				// Extract method return type if available
-				returnType := ""
+				var returnType PHPType
+				// Default to void type
+				returnType = NewVoidType()
 				
 				// Try to find return type declaration
 				// First look for named_type (class types)
@@ -387,14 +389,17 @@ func (idx *PHPIndex) extractMethodsFromClass(node *tree_sitter.Node, fileContent
 						log.Printf("Resolving FQCN for %s", shortClassName)
 						// Create an alias resolver
 						aliasResolver := NewAliasResolver(currentNamespace, useStatements, aliases)
-						// Resolve the type
-						returnType = aliasResolver.ResolveType(shortClassName)
+						// Resolve the type string
+						typeString := aliasResolver.ResolveType(shortClassName)
+						// Create PHPType from the resolved type string
+						returnType = NewPHPType(typeString)
 					}
 				} else {
 					// Try primitive type (int, string, etc.)
 					primitiveTypeNode := treesitterhelper.GetFirstNodeOfKind(child, "primitive_type")
 					if primitiveTypeNode != nil {
-						returnType = string(primitiveTypeNode.Utf8Text(fileContent))
+						typeString := string(primitiveTypeNode.Utf8Text(fileContent))
+						returnType = NewPHPType(typeString)
 					}
 				}
 				
@@ -474,7 +479,9 @@ func (idx *PHPIndex) extractPropertiesFromClass(node *tree_sitter.Node, fileCont
 						}
 						
 						// Extract property type if available
-						propType := ""
+						var propType PHPType
+						// Default to mixed type
+						propType = NewMixedType()
 						
 						// Try to find named_type (class types) first
 						namedTypeNode := treesitterhelper.GetFirstNodeOfKind(child, "named_type")
@@ -489,14 +496,17 @@ func (idx *PHPIndex) extractPropertiesFromClass(node *tree_sitter.Node, fileCont
 								log.Printf("Resolving property type for %s", shortClassName)
 								// Create an alias resolver
 								aliasResolver := NewAliasResolver(currentNamespace, useStatements, aliases)
-								// Resolve the type
-								propType = aliasResolver.ResolveType(shortClassName)
+								// Resolve the type string
+								typeString := aliasResolver.ResolveType(shortClassName)
+								// Create PHPType from the resolved type string
+								propType = NewPHPType(typeString)
 							}
 						} else {
 							// Try primitive type (int, string, etc.)
 							primitiveTypeNode := treesitterhelper.GetFirstNodeOfKind(child, "primitive_type")
 							if primitiveTypeNode != nil {
-								propType = string(primitiveTypeNode.Utf8Text(fileContent))
+								typeString := string(primitiveTypeNode.Utf8Text(fileContent))
+								propType = NewPHPType(typeString)
 							}
 						}
 
@@ -557,7 +567,9 @@ func (idx *PHPIndex) extractPropertiesFromClass(node *tree_sitter.Node, fileCont
 							}
 							
 							// Extract property type if available
-							propType := ""
+							var propType PHPType
+							// Default to mixed type
+							propType = NewMixedType()
 							
 							// Try to find named_type (class types) first
 							namedTypeNode := treesitterhelper.GetFirstNodeOfKind(param, "named_type")
@@ -572,14 +584,17 @@ func (idx *PHPIndex) extractPropertiesFromClass(node *tree_sitter.Node, fileCont
 									log.Printf("Resolving constructor property type for %s", shortClassName)
 									// Create an alias resolver
 									aliasResolver := NewAliasResolver(currentNamespace, useStatements, aliases)
-									// Resolve the type
-									propType = aliasResolver.ResolveType(shortClassName)
+									// Resolve the type string
+									typeString := aliasResolver.ResolveType(shortClassName)
+									// Create PHPType from the resolved type string
+									propType = NewPHPType(typeString)
 								}
 							} else {
 								// Try primitive type (int, string, etc.)
 								primitiveTypeNode := treesitterhelper.GetFirstNodeOfKind(param, "primitive_type")
 								if primitiveTypeNode != nil {
-									propType = string(primitiveTypeNode.Utf8Text(fileContent))
+									typeString := string(primitiveTypeNode.Utf8Text(fileContent))
+									propType = NewPHPType(typeString)
 								}
 							}
 
