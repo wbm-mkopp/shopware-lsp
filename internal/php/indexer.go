@@ -820,9 +820,6 @@ func (idx *PHPIndex) extractPropertiesFromClass(node *tree_sitter.Node, fileCont
 							if nameNode != nil {
 								// Get the short class name
 								shortClassName := string(nameNode.Utf8Text(fileContent))
-
-								// Try to resolve the FQCN using the use statements or aliases
-								log.Printf("Resolving property type for %s", shortClassName)
 								// Create an alias resolver
 								aliasResolver := NewAliasResolver(currentNamespace, useStatements, aliases)
 								// Resolve the type string
