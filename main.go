@@ -18,6 +18,7 @@ import (
 	"github.com/shopware/shopware-lsp/internal/snippet"
 	"github.com/shopware/shopware-lsp/internal/symfony"
 	"github.com/shopware/shopware-lsp/internal/systemconfig"
+	"github.com/shopware/shopware-lsp/internal/theme"
 	"github.com/shopware/shopware-lsp/internal/twig"
 )
 
@@ -52,6 +53,7 @@ func main() {
 	server.RegisterIndexer(snippet.NewSnippetIndexer(cacheDir))
 	server.RegisterIndexer(feature.NewFeatureIndexer(cacheDir))
 	server.RegisterIndexer(systemconfig.NewSystemConfigIndexer(cacheDir))
+	server.RegisterIndexer(theme.NewThemeConfigIndexer(cacheDir))
 
 	server.RegisterCompletionProvider(completion.NewServiceCompletionProvider(server))
 	server.RegisterCompletionProvider(completion.NewTwigCompletionProvider(server))
@@ -59,6 +61,7 @@ func main() {
 	server.RegisterCompletionProvider(completion.NewSnippetCompletionProvider(server))
 	server.RegisterCompletionProvider(completion.NewFeatureCompletionProvider(server))
 	server.RegisterCompletionProvider(completion.NewSystemConfigCompletion(server))
+	server.RegisterCompletionProvider(completion.NewThemeCompletionProvider(server))
 
 	server.RegisterDefinitionProvider(definition.NewServiceXMLDefinitionProvider(server))
 	server.RegisterDefinitionProvider(definition.NewTwigDefinitionProvider(server))
@@ -66,6 +69,7 @@ func main() {
 	server.RegisterDefinitionProvider(definition.NewSnippetDefinitionProvider(server))
 	server.RegisterDefinitionProvider(definition.NewFeatureDefinitionProvider(server))
 	server.RegisterDefinitionProvider(definition.NewSystemConfigDefinitionProvider(server))
+	server.RegisterDefinitionProvider(definition.NewThemeDefinitionProvider(server))
 
 	server.RegisterCodeLensProvider(codelens.NewPHPCodeLensProvider(server))
 	server.RegisterCodeLensProvider(codelens.NewTwigCodeLensProvider(server))
