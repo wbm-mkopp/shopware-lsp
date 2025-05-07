@@ -161,6 +161,30 @@ func (p *serviceXMLDefinitionProvider) xmlDefinition(ctx context.Context, params
 		}
 	}
 
+	// <service id="<caret>">
+	if treesitterhelper.SymfonyServiceIsServiceId(params.Node, params.DocumentContent) {
+		nodeText := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
+
+		phpClass := p.phpIndex.GetClass(nodeText)
+		if phpClass != nil {
+			return []protocol.Location{
+				{
+					URI: "file://" + phpClass.Path,
+					Range: protocol.Range{
+						Start: protocol.Position{
+							Line:      phpClass.Line - 1, // LSP uses 0-based line numbers
+							Character: 0,
+						},
+						End: protocol.Position{
+							Line:      phpClass.Line - 1,
+							Character: 0,
+						},
+					},
+				},
+			}
+		}
+	}
+
 	return []protocol.Location{}
 }
 
