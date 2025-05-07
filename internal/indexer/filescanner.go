@@ -334,7 +334,6 @@ func (fs *FileScanner) Close() error {
 }
 
 func (fs *FileScanner) IndexAll(ctx context.Context) error {
-	startTime := time.Now()
 	var files []string
 
 	err := filepath.Walk(fs.projectRoot, func(path string, info os.FileInfo, err error) error {
@@ -371,6 +370,10 @@ func (fs *FileScanner) IndexAll(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to walk project directory: %w", err)
 	}
+
+	log.Printf("Found %d files to index", len(files))
+
+	startTime := time.Now()
 
 	if err := fs.IndexFiles(ctx, files); err != nil {
 		return fmt.Errorf("failed to index files: %w", err)
@@ -420,14 +423,11 @@ func (fs *FileScanner) fileNeedsIndexing(path string) (bool, []byte, error) {
 
 // RemoveFiles removes multiple files from the index
 func (fs *FileScanner) RemoveFiles(ctx context.Context, paths []string) error {
-	log.Printf("Test 1")
 	for _, indexer := range fs.indexer {
 		if err := indexer.RemovedFiles(paths); err != nil {
 			return err
 		}
 	}
-
-	log.Printf("Test 2")
 
 	err := fs.db.Update(func(tx *bbolt.Tx) error {
 		hashBucket := tx.Bucket([]byte("file_hashes"))
@@ -439,13 +439,9 @@ func (fs *FileScanner) RemoveFiles(ctx context.Context, paths []string) error {
 		return nil
 	})
 
-	log.Printf("Test 3")
-
 	if err != nil {
 		return err
 	}
-
-	log.Printf("Test 4")
 
 	if fs.onUpdate != nil {
 		fs.onUpdate()

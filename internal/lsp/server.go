@@ -520,28 +520,6 @@ func (s *Server) initialize(ctx context.Context, params *protocol.InitializePara
 	}
 }
 
-// completion handles textDocument/completion requests
-func (s *Server) completion(ctx context.Context, params *protocol.CompletionParams) *protocol.CompletionList {
-	node, docText, ok := s.documentManager.GetNodeAtPosition(params.TextDocument.URI, params.Position.Line, params.Position.Character)
-	if ok {
-		params.Node = node
-		params.DocumentContent = docText.Text
-	}
-
-	// Collect completion items from all providers
-	var items []protocol.CompletionItem
-	for _, provider := range s.completionProviders {
-		providerItems := provider.GetCompletions(ctx, params)
-		items = append(items, providerItems...)
-	}
-
-	// Return the completion list
-	return &protocol.CompletionList{
-		IsIncomplete: false,
-		Items:        items,
-	}
-}
-
 // extractRootPath extracts the root path from the initialize params
 func (s *Server) extractRootPath(params *protocol.InitializeParams) {
 	// Try to get from RootPath
