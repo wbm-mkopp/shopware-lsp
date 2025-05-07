@@ -1,19 +1,15 @@
 package php
 
 import (
-	"log"
 	"sort"
 	"strings"
-
-	tree_sitter_helper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
-	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 // PHPType represents a PHP type with methods to compare and match against other types
 type PHPType interface {
 	// Name returns the string representation of the type
 	Name() string
-	
+
 	// Matches determines if this type matches another type
 	// For example, 'int' would match 'integer' or 'mixed' would match any type
 	Matches(other PHPType) bool
@@ -42,16 +38,16 @@ func NewPHPType(typeName string) PHPType {
 	if strings.Contains(typeName, "|") {
 		typeNames := strings.Split(typeName, "|")
 		types := make([]PHPType, 0, len(typeNames))
-		
+
 		// Add all types from the union
 		for _, name := range typeNames {
 			types = append(types, NewPHPType(name))
 		}
-		
+
 		// If the entire union is nullable, add null type
 		if isNullable {
 			hasNullType := false
-			
+
 			// Check if null type already exists in the union
 			for _, t := range types {
 				if _, ok := t.(*NullType); ok {
@@ -59,16 +55,16 @@ func NewPHPType(typeName string) PHPType {
 					break
 				}
 			}
-			
+
 			// Add null type if not already present
 			if !hasNullType {
 				types = append(types, NewNullType())
 			}
 		}
-		
+
 		return NewUnionType(types)
 	}
-	
+
 	// Handle intersection types (e.g., Traversable&Countable)
 	if strings.Contains(typeName, "&") {
 		// PHP 8.1 intersection types cannot be nullable
@@ -76,23 +72,23 @@ func NewPHPType(typeName string) PHPType {
 			// Return a union type of null and the intersection type
 			typeNames := strings.Split(typeName, "&")
 			types := make([]PHPType, 0, len(typeNames))
-			
+
 			for _, name := range typeNames {
 				types = append(types, NewPHPType(name))
 			}
-			
+
 			intersectionType := NewIntersectionType(types)
 			return NewUnionType([]PHPType{intersectionType, NewNullType()})
 		}
-		
+
 		// Create an intersection type
 		typeNames := strings.Split(typeName, "&")
 		types := make([]PHPType, 0, len(typeNames))
-		
+
 		for _, name := range typeNames {
 			types = append(types, NewPHPType(name))
 		}
-		
+
 		return NewIntersectionType(types)
 	}
 
@@ -156,12 +152,12 @@ func NewPHPType(typeName string) PHPType {
 		// If not a recognized primitive type, assume it's a class/interface
 		baseType = NewObjectType(typeName, false)
 	}
-	
+
 	// If nullable, create a union with null
 	if isNullable {
 		return NewUnionType([]PHPType{baseType, NewNullType()})
 	}
-	
+
 	return baseType
 }
 
@@ -615,23 +611,23 @@ func NewIntersectionType(types []PHPType) *IntersectionType {
 	// Sort types by name for consistent representation
 	sortedTypes := make([]PHPType, len(types))
 	copy(sortedTypes, types)
-	
+
 	// Custom sort to ensure fully qualified class names are properly sorted
 	// This ensures our tests have predictable ordering
 	sort.Slice(sortedTypes, func(i, j int) bool {
 		name1 := sortedTypes[i].Name()
 		name2 := sortedTypes[j].Name()
-		
+
 		// Place fully qualified class names first
 		hasBackslash1 := strings.Contains(name1, "\\")
 		hasBackslash2 := strings.Contains(name2, "\\")
-		
+
 		if hasBackslash1 && !hasBackslash2 {
-			return true  // name1 has backslash, name2 doesn't - name1 comes first
+			return true // name1 has backslash, name2 doesn't - name1 comes first
 		} else if !hasBackslash1 && hasBackslash2 {
 			return false // name2 has backslash, name1 doesn't - name2 comes first
 		}
-		
+
 		// If both have backslash or both don't, sort alphabetically
 		return name1 < name2
 	})
@@ -660,7 +656,7 @@ func (t *IntersectionType) Matches(other PHPType) bool {
 	if otherInter, ok := other.(*IntersectionType); ok {
 		// For intersection types to match, they must both match each other's types
 		// This handles cases like A&B vs B&A and A&B&C vs A&B
-		
+
 		// First check if other has all types we have
 		for _, ourType := range t.types {
 			matched := false
@@ -688,10 +684,10 @@ func (t *IntersectionType) Matches(other PHPType) bool {
 				return false
 			}
 		}
-		
+
 		return true
 	}
-	
+
 	// Check if other is a union type
 	if otherUnion, ok := other.(*UnionType); ok {
 		// For an intersection type to match a union type, at least one type in the union
@@ -710,19 +706,19 @@ func (t *IntersectionType) Matches(other PHPType) bool {
 		}
 		return false
 	}
-	
+
 	// Special case: Objects that implement all interfaces in the intersection
 	if objType, ok := other.(*ObjectType); ok {
 		// In PHP, a class type can match an intersection type if it implements all the interfaces
 		// This is a simplification since we don't have full inheritance information
 		// We'll assume object types can potentially implement interfaces in the intersection
 		// Real PHP would check this against actual inheritance/implementation info
-		if objType.name == "\\ArrayObject" { 
+		if objType.name == "\\ArrayObject" {
 			// Special case for our test - in real code we'd have better class hierarchy info
 			return true
 		}
 	}
-	
+
 	// For any other non-intersection type to match, it must match ALL of our types
 	// (this makes intersection types very strict)
 	for _, ourType := range t.types {
@@ -742,7 +738,7 @@ func (t *UnionType) Matches(other PHPType) bool {
 
 	// If the other type is an intersection type
 	if otherIntersection, ok := other.(*IntersectionType); ok {
-		// For a union to match an intersection type, at least one of our types 
+		// For a union to match an intersection type, at least one of our types
 		// must match all of the intersection types
 		for _, ourType := range t.types {
 			if ourType.Matches(otherIntersection) {
@@ -771,14 +767,14 @@ func (t *UnionType) Matches(other PHPType) bool {
 		}
 		return hasOverlap
 	}
-	
+
 	// If other is a simple type, check if any of our types match it
 	for _, typ := range t.types {
 		if typ.Matches(other) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -828,60 +824,4 @@ func getTypeNullability(t PHPType) bool {
 	default:
 		return false
 	}
-}
-
-// GetTypeOfNode determines the PHP type of a given AST node.
-// This is used for type inference in PHP code to provide accurate completions.
-// Currently supports:
-// - $this->method() expressions
-func GetTypeOfNode(node *tree_sitter.Node, fileContent []byte, phpIndex *PHPIndex, currentClass string) PHPType {
-	if node == nil {
-		return nil
-	}
-
-	nodeKind := node.Kind()
-	log.Printf("Getting type of node: %s", nodeKind)
-
-	// Handle member call expression: $this->method()
-	if nodeKind == "member_call_expression" {
-		return handleMemberCallExpression(node, fileContent, phpIndex, currentClass)
-	}
-
-	// Default to mixed type if we can't determine a specific type
-	return NewPHPType("mixed")
-}
-
-// handleMemberCallExpression processes $this->method() calls and returns the return type of that method
-func handleMemberCallExpression(node *tree_sitter.Node, fileContent []byte, phpIndex *PHPIndex, currentClass string) PHPType {
-	// Extract the object part of the expression (should be $this)
-	objectNode := tree_sitter_helper.GetFirstNodeOfKind(node, "variable_name")
-	
-	// Not a $this call
-	if objectNode == nil || string(objectNode.Utf8Text(fileContent)) != "this" {
-		return NewPHPType("mixed")
-	}
-	
-	// Find the method name being called
-	nameNode := tree_sitter_helper.GetFirstNodeOfKind(node, "name")
-	if nameNode == nil {
-		return NewPHPType("mixed")
-	}
-	
-	methodName := string(nameNode.Utf8Text(fileContent))
-	log.Printf("Found method call: $this->%s() in class %s", methodName, currentClass)
-	
-	// Look up the class and method in the index - use GetClass for better performance
-	phpClass := phpIndex.GetClass(currentClass)
-	if phpClass != nil {
-		if method, ok := phpClass.Methods[methodName]; ok {
-			log.Printf("Found method: %s with return type", methodName)
-			// Use the method's return type
-			if method.ReturnType != nil {
-				return method.ReturnType
-			}
-		}
-	}
-	
-	// Default to mixed if we couldn't determine the type
-	return NewPHPType("mixed")
 }

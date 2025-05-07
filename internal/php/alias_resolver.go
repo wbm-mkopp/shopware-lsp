@@ -1,7 +1,6 @@
 package php
 
 import (
-	"log"
 	"strings"
 )
 
@@ -61,20 +60,17 @@ func (r *AliasResolver) ResolveType(typeName string) string {
 
 	// First check if the type is an alias
 	if fqcn, ok := r.aliases[typeName]; ok {
-		log.Printf("Resolved alias: %s -> %s", typeName, fqcn)
 		return fqcn
 	}
 
 	// Then check if it's a use statement
 	if fqcn, ok := r.useStatements[typeName]; ok {
-		log.Printf("Resolved use statement: %s -> %s", typeName, fqcn)
 		return fqcn
 	}
 
 	// If not found in aliases or use statements, assume it's in the current namespace
 	if r.currentNamespace != "" {
 		fqcn := r.currentNamespace + "\\" + typeName
-		log.Printf("Assuming in current namespace: %s -> %s", typeName, fqcn)
 		return fqcn
 	}
 
@@ -92,9 +88,9 @@ func (r *AliasResolver) ResolveType(typeName string) string {
 //   - true if the type is a PHP primitive type, false otherwise
 func isPrimitiveType(typeName string) bool {
 	switch typeName {
-	case "string", "int", "integer", "float", "double", "bool", "boolean", 
-	     "array", "object", "callable", "iterable", "void", "null", 
-	     "mixed", "never", "resource", "false", "true", "number":
+	case "string", "int", "integer", "float", "double", "bool", "boolean",
+		"array", "object", "callable", "iterable", "void", "null",
+		"mixed", "never", "resource", "false", "true", "number":
 		return true
 	default:
 		return false

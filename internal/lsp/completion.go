@@ -8,8 +8,8 @@ import (
 	"github.com/shopware/shopware-lsp/internal/php"
 )
 
-// definition handles textDocument/definition requests
-func (s *Server) definition(ctx context.Context, params *protocol.DefinitionParams) []protocol.Location {
+// completion handles textDocument/completion requests
+func (s *Server) completion(ctx context.Context, params *protocol.CompletionParams) *protocol.CompletionList {
 	node, docText, ok := s.documentManager.GetNodeAtPosition(params.TextDocument.URI, params.Position.Line, params.Position.Character)
 	if ok {
 		params.Node = node
@@ -21,12 +21,16 @@ func (s *Server) definition(ctx context.Context, params *protocol.DefinitionPara
 		}
 	}
 
-	// Collect definition locations from all providers
-	var locations []protocol.Location
-	for _, provider := range s.definitionProviders {
-		providerLocations := provider.GetDefinition(ctx, params)
-		locations = append(locations, providerLocations...)
+	// Collect completion items from all providers
+	var items []protocol.CompletionItem
+	for _, provider := range s.completionProviders {
+		providerItems := provider.GetCompletions(ctx, params)
+		items = append(items, providerItems...)
 	}
 
-	return locations
+	// Return the completion list
+	return &protocol.CompletionList{
+		IsIncomplete: false,
+		Items:        items,
+	}
 }

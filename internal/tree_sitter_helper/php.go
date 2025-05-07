@@ -2,6 +2,7 @@ package treesitterhelper
 
 import (
 	"fmt"
+
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
@@ -64,7 +65,7 @@ func IsThisMethodCall(node *tree_sitter.Node, fileContent []byte) bool {
 	// Find the object node (should be 'this')
 	varNode := GetFirstNodeOfKind(node, "variable_name")
 	if varNode == nil {
-		return false 
+		return false
 	}
 
 	// Check if the variable is 'this'
@@ -130,4 +131,38 @@ func GetMethodFQCN(node *tree_sitter.Node, content []byte) string {
 	ns := string(nsCapture.GetCapturedNode().Utf8Text(content))
 
 	return fmt.Sprintf("%s\\%s::%s", ns, className, string(node.Utf8Text(content)))
+}
+
+func GetClassName(node *tree_sitter.Node, content []byte) string {
+	nsCapture := Capture("namespace", NodeKind("namespace_name"))
+	classNameCapture := Capture("class_name", NodeKind("name"))
+
+	if !Ancestor(
+		And(
+			NodeKind("class_declaration"),
+			HasChild(classNameCapture),
+			Ancestor(
+				And(
+					NodeKind("program"),
+					HasChild(
+						And(
+							NodeKind("namespace_definition"),
+							HasChild(
+								nsCapture,
+							),
+						),
+					),
+				),
+				5,
+			),
+		),
+		50,
+	).Matches(node, content) {
+		return ""
+	}
+
+	className := string(classNameCapture.GetCapturedNode().Utf8Text(content))
+	ns := string(nsCapture.GetCapturedNode().Utf8Text(content))
+
+	return fmt.Sprintf("%s\\%s", ns, className)
 }

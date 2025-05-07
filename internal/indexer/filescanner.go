@@ -420,14 +420,11 @@ func (fs *FileScanner) fileNeedsIndexing(path string) (bool, []byte, error) {
 
 // RemoveFiles removes multiple files from the index
 func (fs *FileScanner) RemoveFiles(ctx context.Context, paths []string) error {
-	log.Printf("Test 1")
 	for _, indexer := range fs.indexer {
 		if err := indexer.RemovedFiles(paths); err != nil {
 			return err
 		}
 	}
-
-	log.Printf("Test 2")
 
 	err := fs.db.Update(func(tx *bbolt.Tx) error {
 		hashBucket := tx.Bucket([]byte("file_hashes"))
@@ -439,13 +436,9 @@ func (fs *FileScanner) RemoveFiles(ctx context.Context, paths []string) error {
 		return nil
 	})
 
-	log.Printf("Test 3")
-
 	if err != nil {
 		return err
 	}
-
-	log.Printf("Test 4")
 
 	if fs.onUpdate != nil {
 		fs.onUpdate()
