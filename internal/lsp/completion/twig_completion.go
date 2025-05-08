@@ -52,6 +52,31 @@ func (p *TwigCompletionProvider) twigCompletions(ctx context.Context, params *pr
 		return completionItems
 	}
 
+	if params.Node.Kind() == "template" {
+		functions, _ := p.twigIndexer.GetAllTwigFunctions()
+		uniqueFunctions := make(map[string]struct{})
+
+		var completionItems []protocol.CompletionItem
+		for _, function := range functions {
+			if strings.Contains(function.Name, "*") {
+				continue
+			}
+
+			if _, ok := uniqueFunctions[function.Name]; ok {
+				continue
+			}
+			uniqueFunctions[function.Name] = struct{}{}
+
+			completionItems = append(completionItems, protocol.CompletionItem{
+				Label:            function.Usage,
+				InsertText:       function.Name + "($0)",
+				InsertTextFormat: int(protocol.SnippetTextFormat),
+			})
+		}
+
+		return completionItems
+	}
+
 	return []protocol.CompletionItem{}
 }
 

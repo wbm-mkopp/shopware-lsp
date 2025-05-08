@@ -6,3 +6,4 @@ node_modules
 /.opencode
 internal/php/alias_resolver.go
 internal/php/php.db
+**/.claude/settings.local.json
