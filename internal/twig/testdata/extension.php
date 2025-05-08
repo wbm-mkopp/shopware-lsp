@@ -12,6 +12,7 @@ class TwigExt extends AbstractExtension
     {
         return [
             new TwigFunction('test', [$this, 'test']),
+            new TwigFunction('test2', $this->test(...)),
         ];
     }
 
@@ -19,6 +20,8 @@ class TwigExt extends AbstractExtension
     {
         return [
             new TwigFilter('abs', 'abs'),
+            new TwigFilter('test', [$this, 'test']),
+            new TwigFilter('test2', $this->test(...)),
         ];
     }
 

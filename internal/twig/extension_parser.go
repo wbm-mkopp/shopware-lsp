@@ -6,38 +6,36 @@ import (
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
-// TwigExtension represents a parsed Twig extension class
-type TwigExtension struct {
-	// Fully qualified class name
-	ClassName string
-	// Functions defined in the extension
-	Functions []TwigFunction
-	// Filters defined in the extension
-	Filters []TwigFilter
-}
-
 // TwigFunction represents a function defined in a Twig extension
 type TwigFunction struct {
 	// Name of the function as used in Twig templates
 	Name string
+
+	Usage string
 	// Method name in the PHP class
 	Method string
 	// Line number where the function is defined
 	Line int
 	// Parameters required by the function
 	Parameters []TwigParameter
+	// FilePath is the path to the file where the TwigFunction is defined.
+	FilePath string
 }
 
 // TwigFilter represents a filter defined in a Twig extension
 type TwigFilter struct {
 	// Name of the filter as used in Twig templates
 	Name string
+
+	Usage string
 	// Method name in the PHP class
 	Method string
 	// Line number where the filter is defined
 	Line int
 	// Parameters required by the filter
 	Parameters []TwigParameter
+	// FilePath is the path to the file where the TwigFilter is defined.
+	FilePath string
 }
 
 // TwigParameter represents a parameter for a function or filter
@@ -51,40 +49,49 @@ type TwigParameter struct {
 }
 
 // ParseTwigExtension parses a PHP file for Twig extension classes
-func ParseTwigExtension(filePath string, rootNode *tree_sitter.Node, content []byte) (*TwigExtension, error) {
+func ParseTwigExtension(filePath string, rootNode *tree_sitter.Node, content []byte) ([]TwigFunction, []TwigFilter, error) {
 	// Check if the class extends AbstractExtension
 	if !isAbstractExtension(rootNode, content) {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	// Get the class name
 	className := getClassName(rootNode, content)
 	if className == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 
-	extension := &TwigExtension{
-		ClassName: className,
-		Functions: []TwigFunction{},
-		Filters:   []TwigFilter{},
-	}
+	var functions []TwigFunction
+	var filters []TwigFilter
 
 	// Parse functions and filters
-	parseFunctionsDirectly(rootNode, content, extension)
-	parseFiltersDirectly(rootNode, content, extension)
+	parseFunctionsDirectly(filePath, rootNode, content, &functions)
+	parseFiltersDirectly(filePath, rootNode, content, &filters)
 
 	// Parse parameters for functions
-	for i, function := range extension.Functions {
-		extension.Functions[i].Parameters = parseMethodParameters(rootNode, content, function.Method)
+	for i, function := range functions {
+		functions[i].Parameters = parseMethodParameters(rootNode, content, function.Method)
+
+		functions[i].Usage = function.Name + "("
+
+		for _, param := range functions[i].Parameters {
+			functions[i].Usage += param.Name + ", "
+		}
+
+		if len(functions[i].Parameters) > 0 {
+			functions[i].Usage = functions[i].Usage[:len(functions[i].Usage)-2]
+		}
+
+		functions[i].Usage += ")"
 	}
 
 	// Parse parameters for filters that are class methods
-	for i, filter := range extension.Filters {
+	for i, filter := range filters {
 		// Skip PHP built-in functions
 		if !strings.Contains(filter.Method, "::") && !strings.Contains(filter.Method, "->") {
 			continue
 		}
-		
+
 		methodName := filter.Method
 		if strings.Contains(methodName, "::") {
 			parts := strings.Split(methodName, "::")
@@ -93,11 +100,23 @@ func ParseTwigExtension(filePath string, rootNode *tree_sitter.Node, content []b
 			parts := strings.Split(methodName, "->")
 			methodName = parts[1]
 		}
-		
-		extension.Filters[i].Parameters = parseMethodParameters(rootNode, content, methodName)
+
+		filters[i].Parameters = parseMethodParameters(rootNode, content, methodName)
+
+		filters[i].Usage = filter.Name + "("
+
+		for _, param := range filters[i].Parameters {
+			filters[i].Usage += param.Name + ", "
+		}
+
+		if len(filters[i].Parameters) > 0 {
+			filters[i].Usage = filters[i].Usage[:len(filters[i].Usage)-2]
+		}
+
+		filters[i].Usage += ")"
 	}
 
-	return extension, nil
+	return functions, filters, nil
 }
 
 // isAbstractExtension checks if a class extends AbstractExtension
@@ -107,7 +126,7 @@ func isAbstractExtension(rootNode *tree_sitter.Node, content []byte) bool {
 	if classNode == nil {
 		return false
 	}
-	
+
 	// Check if it extends AbstractExtension
 	for i := 0; i < int(classNode.NamedChildCount()); i++ {
 		child := classNode.NamedChild(uint(i))
@@ -118,7 +137,7 @@ func isAbstractExtension(rootNode *tree_sitter.Node, content []byte) bool {
 			}
 		}
 	}
-	
+
 	return false
 }
 
@@ -138,13 +157,13 @@ func getClassName(rootNode *tree_sitter.Node, content []byte) string {
 			}
 		}
 	}
-	
+
 	// Find the class name
 	classNode := findClassNode(rootNode)
 	if classNode == nil {
 		return ""
 	}
-	
+
 	var className string
 	for i := 0; i < int(classNode.NamedChildCount()); i++ {
 		child := classNode.NamedChild(uint(i))
@@ -153,22 +172,22 @@ func getClassName(rootNode *tree_sitter.Node, content []byte) string {
 			break
 		}
 	}
-	
+
 	if namespace != "" && className != "" {
 		return namespace + "\\" + className
 	}
-	
+
 	return className
 }
 
 // Direct traversal of the AST to find functions and filters
-func parseFunctionsDirectly(rootNode *tree_sitter.Node, content []byte, extension *TwigExtension) {
+func parseFunctionsDirectly(filePath string, rootNode *tree_sitter.Node, content []byte, functions *[]TwigFunction) {
 	// Find the class
 	classNode := findClassNode(rootNode)
 	if classNode == nil {
 		return
 	}
-	
+
 	// Find the declaration list
 	var declList *tree_sitter.Node
 	for i := 0; i < int(classNode.NamedChildCount()); i++ {
@@ -178,11 +197,11 @@ func parseFunctionsDirectly(rootNode *tree_sitter.Node, content []byte, extensio
 			break
 		}
 	}
-	
+
 	if declList == nil {
 		return
 	}
-	
+
 	// Find the getFunctions method
 	var funcMethod *tree_sitter.Node
 	for i := 0; i < int(declList.NamedChildCount()); i++ {
@@ -202,11 +221,11 @@ func parseFunctionsDirectly(rootNode *tree_sitter.Node, content []byte, extensio
 			}
 		}
 	}
-	
+
 	if funcMethod == nil {
 		return
 	}
-	
+
 	// Find the compound statement
 	var compound *tree_sitter.Node
 	for i := 0; i < int(funcMethod.NamedChildCount()); i++ {
@@ -216,11 +235,11 @@ func parseFunctionsDirectly(rootNode *tree_sitter.Node, content []byte, extensio
 			break
 		}
 	}
-	
+
 	if compound == nil {
 		return
 	}
-	
+
 	// Find the return statement
 	var returnStmt *tree_sitter.Node
 	for i := 0; i < int(compound.NamedChildCount()); i++ {
@@ -230,11 +249,11 @@ func parseFunctionsDirectly(rootNode *tree_sitter.Node, content []byte, extensio
 			break
 		}
 	}
-	
+
 	if returnStmt == nil {
 		return
 	}
-	
+
 	// Find the array creation
 	var arrayCreate *tree_sitter.Node
 	for i := 0; i < int(returnStmt.NamedChildCount()); i++ {
@@ -244,18 +263,18 @@ func parseFunctionsDirectly(rootNode *tree_sitter.Node, content []byte, extensio
 			break
 		}
 	}
-	
+
 	if arrayCreate == nil {
 		return
 	}
-	
+
 	// Process array elements
 	for i := 0; i < int(arrayCreate.NamedChildCount()); i++ {
 		element := arrayCreate.NamedChild(uint(i))
-		
+
 		if element.Kind() == "array_element_initializer" && element.NamedChildCount() > 0 {
 			objNode := element.NamedChild(0)
-			
+
 			if objNode.Kind() == "object_creation_expression" {
 				// Get class name
 				var className string
@@ -266,7 +285,7 @@ func parseFunctionsDirectly(rootNode *tree_sitter.Node, content []byte, extensio
 						break
 					}
 				}
-				
+
 				if className == "TwigFunction" {
 					// Get arguments
 					var argsNode *tree_sitter.Node
@@ -277,7 +296,7 @@ func parseFunctionsDirectly(rootNode *tree_sitter.Node, content []byte, extensio
 							break
 						}
 					}
-					
+
 					if argsNode != nil && argsNode.NamedChildCount() >= 2 {
 						// First argument - name
 						firstArg := argsNode.NamedChild(0)
@@ -291,7 +310,7 @@ func parseFunctionsDirectly(rootNode *tree_sitter.Node, content []byte, extensio
 								}
 							}
 						}
-						
+
 						// Second argument - callback
 						secondArg := argsNode.NamedChild(1)
 						var method string
@@ -304,7 +323,7 @@ func parseFunctionsDirectly(rootNode *tree_sitter.Node, content []byte, extensio
 									method = string(contentNode.Utf8Text(content))
 								}
 							}
-							
+
 							// Check for array callback: e.g., [$this, 'test']
 							if method == "" {
 								arrayNode := findNodeByKind(secondArg, "array_creation_expression")
@@ -318,7 +337,7 @@ func parseFunctionsDirectly(rootNode *tree_sitter.Node, content []byte, extensio
 											thisRef = string(varNameNode.Utf8Text(content))
 										}
 									}
-									
+
 									// Get second element (method name)
 									secondElem := arrayNode.NamedChild(1)
 									var methodName string
@@ -331,7 +350,7 @@ func parseFunctionsDirectly(rootNode *tree_sitter.Node, content []byte, extensio
 											}
 										}
 									}
-									
+
 									if thisRef != "" && methodName != "" {
 										method = thisRef + "->" + methodName
 									} else if methodName != "" {
@@ -339,16 +358,35 @@ func parseFunctionsDirectly(rootNode *tree_sitter.Node, content []byte, extensio
 									}
 								}
 							}
+
+							// Check for member call with spread operator: e.g., $this->test(...)
+							if method == "" {
+								// For spread operator expressions like $this->methodName(...),
+								// extract the method name from the text directly as tree-sitter parsing is complex for this construct
+								text := string(secondArg.Utf8Text(content))
+								if strings.Contains(text, "$this->") && strings.Contains(text, "...") {
+									parts := strings.Split(text, "$this->")
+									if len(parts) > 1 {
+										methodParts := strings.Split(parts[1], "(")
+										if len(methodParts) > 0 {
+											methodName := strings.TrimSpace(methodParts[0])
+											if methodName != "" {
+												method = "$this->" + methodName
+											}
+										}
+									}
+								}
+							}
 						}
-						
+
 						if name != "" && method != "" {
 							lineNum := int(objNode.Range().StartPoint.Row) + 1
-							extension.Functions = append(extension.Functions, TwigFunction{
-								Name:   name,
-								Method: method,
-								Line:   lineNum,
+							*functions = append(*functions, TwigFunction{
+								Name:     name,
+								Method:   method,
+								Line:     lineNum,
+								FilePath: filePath,
 							})
-						} else {
 						}
 					}
 				}
@@ -358,13 +396,13 @@ func parseFunctionsDirectly(rootNode *tree_sitter.Node, content []byte, extensio
 }
 
 // Similar logic for filters
-func parseFiltersDirectly(rootNode *tree_sitter.Node, content []byte, extension *TwigExtension) {
+func parseFiltersDirectly(filePath string, rootNode *tree_sitter.Node, content []byte, filters *[]TwigFilter) {
 	// Find the class
 	classNode := findClassNode(rootNode)
 	if classNode == nil {
 		return
 	}
-	
+
 	// Find the declaration list
 	var declList *tree_sitter.Node
 	for i := 0; i < int(classNode.NamedChildCount()); i++ {
@@ -374,11 +412,11 @@ func parseFiltersDirectly(rootNode *tree_sitter.Node, content []byte, extension 
 			break
 		}
 	}
-	
+
 	if declList == nil {
 		return
 	}
-	
+
 	// Find the getFilters method
 	var funcMethod *tree_sitter.Node
 	for i := 0; i < int(declList.NamedChildCount()); i++ {
@@ -396,11 +434,11 @@ func parseFiltersDirectly(rootNode *tree_sitter.Node, content []byte, extension 
 			}
 		}
 	}
-	
+
 	if funcMethod == nil {
 		return
 	}
-	
+
 	// Find the compound statement
 	var compound *tree_sitter.Node
 	for i := 0; i < int(funcMethod.NamedChildCount()); i++ {
@@ -410,11 +448,11 @@ func parseFiltersDirectly(rootNode *tree_sitter.Node, content []byte, extension 
 			break
 		}
 	}
-	
+
 	if compound == nil {
 		return
 	}
-	
+
 	// Find the return statement
 	var returnStmt *tree_sitter.Node
 	for i := 0; i < int(compound.NamedChildCount()); i++ {
@@ -424,11 +462,11 @@ func parseFiltersDirectly(rootNode *tree_sitter.Node, content []byte, extension 
 			break
 		}
 	}
-	
+
 	if returnStmt == nil {
 		return
 	}
-	
+
 	// Find the array creation
 	var arrayCreate *tree_sitter.Node
 	for i := 0; i < int(returnStmt.NamedChildCount()); i++ {
@@ -438,18 +476,18 @@ func parseFiltersDirectly(rootNode *tree_sitter.Node, content []byte, extension 
 			break
 		}
 	}
-	
+
 	if arrayCreate == nil {
 		return
 	}
-	
+
 	// Process array elements
 	for i := 0; i < int(arrayCreate.NamedChildCount()); i++ {
 		element := arrayCreate.NamedChild(uint(i))
-		
+
 		if element.Kind() == "array_element_initializer" && element.NamedChildCount() > 0 {
 			objNode := element.NamedChild(0)
-			
+
 			if objNode.Kind() == "object_creation_expression" {
 				// Get class name
 				var className string
@@ -460,7 +498,7 @@ func parseFiltersDirectly(rootNode *tree_sitter.Node, content []byte, extension 
 						break
 					}
 				}
-				
+
 				if className == "TwigFilter" {
 					// Get arguments
 					var argsNode *tree_sitter.Node
@@ -471,7 +509,7 @@ func parseFiltersDirectly(rootNode *tree_sitter.Node, content []byte, extension 
 							break
 						}
 					}
-					
+
 					if argsNode != nil && argsNode.NamedChildCount() >= 2 {
 						// First argument - name
 						firstArg := argsNode.NamedChild(0)
@@ -485,7 +523,7 @@ func parseFiltersDirectly(rootNode *tree_sitter.Node, content []byte, extension 
 								}
 							}
 						}
-						
+
 						// Second argument - callback
 						secondArg := argsNode.NamedChild(1)
 						var method string
@@ -498,7 +536,7 @@ func parseFiltersDirectly(rootNode *tree_sitter.Node, content []byte, extension 
 									method = string(contentNode.Utf8Text(content))
 								}
 							}
-							
+
 							// Check for array callback: e.g., [$this, 'test']
 							if method == "" {
 								arrayNode := findNodeByKind(secondArg, "array_creation_expression")
@@ -512,7 +550,7 @@ func parseFiltersDirectly(rootNode *tree_sitter.Node, content []byte, extension 
 											thisRef = string(varNameNode.Utf8Text(content))
 										}
 									}
-									
+
 									// Get second element (method name)
 									secondElem := arrayNode.NamedChild(1)
 									var methodName string
@@ -525,7 +563,7 @@ func parseFiltersDirectly(rootNode *tree_sitter.Node, content []byte, extension 
 											}
 										}
 									}
-									
+
 									if thisRef != "" && methodName != "" {
 										method = thisRef + "->" + methodName
 									} else if methodName != "" {
@@ -533,14 +571,34 @@ func parseFiltersDirectly(rootNode *tree_sitter.Node, content []byte, extension 
 									}
 								}
 							}
+
+							// Check for member call with spread operator: e.g., $this->methodName(...)
+							if method == "" {
+								// For spread operator expressions like $this->methodName(...),
+								// extract the method name from the text directly as tree-sitter parsing is complex for this construct
+								text := string(secondArg.Utf8Text(content))
+								if strings.Contains(text, "$this->") && strings.Contains(text, "...") {
+									parts := strings.Split(text, "$this->")
+									if len(parts) > 1 {
+										methodParts := strings.Split(parts[1], "(")
+										if len(methodParts) > 0 {
+											methodName := strings.TrimSpace(methodParts[0])
+											if methodName != "" {
+												method = "$this->" + methodName
+											}
+										}
+									}
+								}
+							}
 						}
-						
+
 						if name != "" && method != "" {
 							lineNum := int(objNode.Range().StartPoint.Row) + 1
-							extension.Filters = append(extension.Filters, TwigFilter{
-								Name:   name,
-								Method: method,
-								Line:   lineNum,
+							*filters = append(*filters, TwigFilter{
+								Name:     name,
+								Method:   method,
+								Line:     lineNum,
+								FilePath: filePath,
 							})
 						}
 					}
@@ -568,7 +626,7 @@ func findClassNode(rootNode *tree_sitter.Node) *tree_sitter.Node {
 		if child.Kind() == "class_declaration" {
 			return child
 		}
-		
+
 		// Look in children too (for nested structures)
 		if child.NamedChildCount() > 0 {
 			classNode := findClassNodeInChildren(child)
@@ -577,7 +635,7 @@ func findClassNode(rootNode *tree_sitter.Node) *tree_sitter.Node {
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -588,7 +646,7 @@ func findClassNodeInChildren(node *tree_sitter.Node) *tree_sitter.Node {
 		if child.Kind() == "class_declaration" {
 			return child
 		}
-		
+
 		if child.NamedChildCount() > 0 {
 			classNode := findClassNodeInChildren(child)
 			if classNode != nil {
@@ -596,7 +654,7 @@ func findClassNodeInChildren(node *tree_sitter.Node) *tree_sitter.Node {
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -607,7 +665,7 @@ func parseMethodParameters(rootNode *tree_sitter.Node, content []byte, methodNam
 	if classNode == nil {
 		return []TwigParameter{}
 	}
-	
+
 	// Find the declaration list
 	var declList *tree_sitter.Node
 	for i := 0; i < int(classNode.NamedChildCount()); i++ {
@@ -617,11 +675,11 @@ func parseMethodParameters(rootNode *tree_sitter.Node, content []byte, methodNam
 			break
 		}
 	}
-	
+
 	if declList == nil {
 		return []TwigParameter{}
 	}
-	
+
 	// Find the method
 	// For $this->method format, extract just the method name
 	searchMethodName := methodName
@@ -631,7 +689,7 @@ func parseMethodParameters(rootNode *tree_sitter.Node, content []byte, methodNam
 			searchMethodName = parts[1]
 		}
 	}
-	
+
 	var methodNode *tree_sitter.Node
 	for i := 0; i < int(declList.NamedChildCount()); i++ {
 		child := declList.NamedChild(uint(i))
@@ -645,7 +703,7 @@ func parseMethodParameters(rootNode *tree_sitter.Node, content []byte, methodNam
 					break
 				}
 			}
-			
+
 			if nameNode != nil {
 				foundName := string(nameNode.Utf8Text(content))
 				if foundName == searchMethodName {
@@ -655,11 +713,11 @@ func parseMethodParameters(rootNode *tree_sitter.Node, content []byte, methodNam
 			}
 		}
 	}
-	
+
 	if methodNode == nil {
 		return []TwigParameter{}
 	}
-	
+
 	// Find the parameters
 	var paramsNode *tree_sitter.Node
 	for i := 0; i < int(methodNode.NamedChildCount()); i++ {
@@ -669,18 +727,18 @@ func parseMethodParameters(rootNode *tree_sitter.Node, content []byte, methodNam
 			break
 		}
 	}
-	
+
 	if paramsNode == nil {
 		return []TwigParameter{}
 	}
-	
+
 	// Process each parameter
 	var params []TwigParameter
 	for i := 0; i < int(paramsNode.NamedChildCount()); i++ {
 		child := paramsNode.NamedChild(uint(i))
 		if child.Kind() == "simple_parameter" {
 			param := TwigParameter{}
-			
+
 			// Get parameter name
 			for j := 0; j < int(child.NamedChildCount()); j++ {
 				subChild := child.NamedChild(uint(j))
@@ -690,7 +748,7 @@ func parseMethodParameters(rootNode *tree_sitter.Node, content []byte, methodNam
 					param.Type = string(subChild.Utf8Text(content))
 				}
 			}
-			
+
 			// Check if the parameter is optional (has default value)
 			for j := 0; j < int(child.NamedChildCount()); j++ {
 				subChild := child.NamedChild(uint(j))
@@ -699,12 +757,12 @@ func parseMethodParameters(rootNode *tree_sitter.Node, content []byte, methodNam
 					break
 				}
 			}
-			
+
 			if param.Name != "" {
 				params = append(params, param)
 			}
 		}
 	}
-	
+
 	return params
 }

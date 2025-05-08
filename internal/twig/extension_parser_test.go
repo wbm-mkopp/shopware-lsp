@@ -5,10 +5,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	tree_sitter "github.com/tree-sitter/go-tree-sitter"
-	tree_sitter_php "github.com/tree-sitter/tree-sitter-php/bindings/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	tree_sitter "github.com/tree-sitter/go-tree-sitter"
+	tree_sitter_php "github.com/tree-sitter/tree-sitter-php/bindings/go"
 )
 
 func TestParseTwigExtension(t *testing.T) {
@@ -26,29 +26,60 @@ func TestParseTwigExtension(t *testing.T) {
 	rootNode := tree.RootNode()
 
 	// Parse Twig extension
-	extension, err := ParseTwigExtension(filePath, rootNode, content)
+	functions, filters, err := ParseTwigExtension(filePath, rootNode, content)
 	require.NoError(t, err)
-	require.NotNil(t, extension)
-
-
-	// Verify class name
-	assert.Equal(t, "App\\Twig\\TwigExt", extension.ClassName)
 
 	// Verify functions
-	require.Len(t, extension.Functions, 1)
-	assert.Equal(t, "test", extension.Functions[0].Name)
-	assert.Equal(t, "$this->test", extension.Functions[0].Method)
+	require.Len(t, functions, 2)
+	assert.Equal(t, "test", functions[0].Name)
+	assert.Equal(t, filePath, functions[0].FilePath)
+
+	assert.Equal(t, "test2", functions[1].Name)
+	assert.Equal(t, filePath, functions[1].FilePath)
 
 	// Verify function parameters
-	require.Len(t, extension.Functions[0].Parameters, 1)
-	assert.Equal(t, "$test", extension.Functions[0].Parameters[0].Name)
-	assert.Equal(t, "string", extension.Functions[0].Parameters[0].Type)
-	assert.False(t, extension.Functions[0].Parameters[0].Optional)
+	require.Len(t, functions[0].Parameters, 1)
+	assert.Equal(t, "$test", functions[0].Parameters[0].Name)
+	assert.Equal(t, "string", functions[0].Parameters[0].Type)
+	assert.False(t, functions[0].Parameters[0].Optional)
 
 	// Verify filters
-	require.Len(t, extension.Filters, 1)
-	assert.Equal(t, "abs", extension.Filters[0].Name)
-	assert.Equal(t, "abs", extension.Filters[0].Method)
+	require.Len(t, filters, 3)
+	assert.Equal(t, "abs", filters[0].Name)
+	assert.Equal(t, filePath, filters[0].FilePath)
+
+	assert.Equal(t, "test", filters[1].Name)
+	assert.Equal(t, filePath, filters[1].FilePath)
+
+	assert.Equal(t, "test2", filters[2].Name)
+	assert.Equal(t, filePath, filters[2].FilePath)
+}
+
+func TestParseTwigExtension2(t *testing.T) {
+	// Read test file
+	filePath := filepath.Join("testdata", "extension2.php")
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+
+	// Parse the file with tree-sitter
+	parser := tree_sitter.NewParser()
+	err = parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_php.LanguagePHP()))
+	require.NoError(t, err)
+	tree := parser.Parse(content, nil)
+	defer tree.Close()
+	rootNode := tree.RootNode()
+
+	// Parse Twig extension
+	functions, _, err := ParseTwigExtension(filePath, rootNode, content)
+	require.NoError(t, err)
+
+	// Verify functions
+	require.Len(t, functions, 2)
+	assert.Equal(t, "inAppPurchase", functions[0].Name)
+	assert.Equal(t, filePath, functions[0].FilePath)
+
+	assert.Equal(t, "allInAppPurchases", functions[1].Name)
+	assert.Equal(t, filePath, functions[1].FilePath)
 }
 
 func TestParseTwigExtensionNotExtending(t *testing.T) {
@@ -74,7 +105,8 @@ class NotExtension
 	rootNode := tree.RootNode()
 
 	// Parse Twig extension
-	extension, err := ParseTwigExtension(tmpFile, rootNode, content)
+	functions, filters, err := ParseTwigExtension(tmpFile, rootNode, content)
 	require.NoError(t, err)
-	assert.Nil(t, extension, "Should return nil for non-extension classes")
+	assert.Nil(t, functions, "Should return nil functions for non-extension classes")
+	assert.Nil(t, filters, "Should return nil filters for non-extension classes")
 }

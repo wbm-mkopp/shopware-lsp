@@ -64,6 +64,56 @@ func (p *TwigDefinitionProvider) twigDefinitions(ctx context.Context, params *pr
 		return locations
 	}
 
+	if params.Node.Kind() == "function" {
+		functionName := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
+		parentNode := params.Node.Parent()
+
+		if parentNode != nil && parentNode.Kind() == "filter_expression" {
+			filters, _ := p.twigIndexer.GetTwigFilter(functionName)
+
+			var locations []protocol.Location
+			for _, filter := range filters {
+				locations = append(locations, protocol.Location{
+					URI: filter.FilePath,
+					Range: protocol.Range{
+						Start: protocol.Position{
+							Line:      int(filter.Line) - 1,
+							Character: 0,
+						},
+						End: protocol.Position{
+							Line:      int(filter.Line) - 1,
+							Character: 0,
+						},
+					},
+				})
+			}
+
+			return locations
+
+		} else {
+			functions, _ := p.twigIndexer.GetTwigFunction(functionName)
+
+			var locations []protocol.Location
+			for _, function := range functions {
+				locations = append(locations, protocol.Location{
+					URI: function.FilePath,
+					Range: protocol.Range{
+						Start: protocol.Position{
+							Line:      int(function.Line) - 1,
+							Character: 0,
+						},
+						End: protocol.Position{
+							Line:      int(function.Line) - 1,
+							Character: 0,
+						},
+					},
+				})
+			}
+
+			return locations
+		}
+	}
+
 	return []protocol.Location{}
 }
 
