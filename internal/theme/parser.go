@@ -148,6 +148,10 @@ func parseFields(node *tree_sitter.Node, content []byte, filePath string) []Them
 										field.Order = order
 									}
 								}
+							case "block":
+								if fieldPropValue.Kind() == "string" {
+									field.Block = extractStringContent(fieldPropValue, content)
+								}
 							}
 						}
 					}
