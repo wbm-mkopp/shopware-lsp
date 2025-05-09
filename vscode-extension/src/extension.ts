@@ -319,6 +319,41 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       vscode.window.showInformationMessage(`Block ${blockName} extended successfully in ${selected.label}`);
     }
   }));
+
+  context.subscriptions.push(vscode.commands.registerCommand('shopware.insertSnippet', async () => {
+    if (!client) {
+      vscode.window.showErrorMessage('Shopware LSP is not running');
+      return;
+    }
+
+    const snippets: {key: string, text: string, file: string}[] = await client.sendRequest('shopware/snippet/all');
+
+    if (!snippets || snippets.length === 0) {
+      vscode.window.showErrorMessage('No snippets found');
+      return;
+    }
+
+    const items = snippets.map(snippet => ({
+      label: snippet.key,
+      description: snippet.text,
+    }));
+
+    const selected = await vscode.window.showQuickPick(items, {
+      placeHolder: 'Select a snippet to insert',
+      matchOnDescription: true,
+      matchOnDetail: true
+    });
+    if (!selected) {
+      return;
+    }
+
+    const text = `{{ '${selected.label}'|trans }}`;
+
+    const editor = vscode.window.activeTextEditor;
+    if (editor) {
+      editor.insertSnippet(new vscode.SnippetString(text));
+    }
+  }));
 }
 
 export function deactivate(): Thenable<void> | undefined {

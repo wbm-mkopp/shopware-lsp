@@ -56,8 +56,30 @@
       {
         "command": "shopwareLSP.forceReindex",
         "title": "Shopware: Force Reindex"
+      },
+      {
+        "command": "shopware.insertSnippet",
+        "title": "Shopware: Insert Snippet"
+      },
+      {
+        "command": "shopware.createSnippetFromSelection",
+        "title": "Shopware: Create Snippet from Selection"
       }
-    ]
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "when": "resourceLangId == twig",
+          "command": "shopware.insertSnippet",
+          "group": "shopware"
+        },
+        {
+          "when": "resourceLangId == twig && editorHasSelection",
+          "command": "shopware.createSnippetFromSelection",
+          "group": "shopware"
+        }
+      ]
+    }
   },
   "scripts": {
     "compile": "npm run check-types && node esbuild.js",

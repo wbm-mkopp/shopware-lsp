@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/shopware/shopware-lsp/internal/lsp"
@@ -28,7 +29,57 @@ func (s *SnippetCommandProvider) GetCommands(ctx context.Context) map[string]lsp
 	return map[string]lsp.CommandFunc{
 		"shopware/snippet/getPossibleSnippetFilse": s.getPossibleSnippets,
 		"shopware/snippet/create":                  s.createSnippet,
+		"shopware/snippet/all":                     s.allSnippets,
 	}
+}
+
+func (s *SnippetCommandProvider) allSnippets(ctx context.Context, args *json.RawMessage) (interface{}, error) {
+	indexer, _ := s.lsp.GetIndexer("snippet.indexer")
+	snippetIndexer := indexer.(*SnippetIndexer)
+
+	type snippetItem struct {
+		Key  string `json:"key"`
+		Text string `json:"text"`
+		File string `json:"file"`
+	}
+
+	var allSnippets = make(map[string]snippetItem)
+
+	storefrontSnippets, err := snippetIndexer.GetAllSnippets()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get storefront snippets: %w", err)
+	}
+
+	for _, snippet := range storefrontSnippets {
+		if _, ok := allSnippets[snippet.Key]; !ok {
+			allSnippets[snippet.Key] = snippetItem{
+				Key:  snippet.Key,
+				Text: snippet.Text,
+				File: snippet.File,
+			}
+		}
+
+		fileName := filepath.Base(snippet.File)
+		if strings.Contains(fileName, "en_GB") {
+			// Prefer en_GB snippets
+			allSnippets[snippet.Key] = snippetItem{
+				Key:  snippet.Key,
+				Text: snippet.Text,
+				File: snippet.File,
+			}
+		}
+	}
+
+	var allSnippetsList []snippetItem
+	for _, snippet := range allSnippets {
+		allSnippetsList = append(allSnippetsList, snippet)
+	}
+
+	slices.SortFunc(allSnippetsList, func(a, b snippetItem) int {
+		return strings.Compare(a.Key, b.Key)
+	})
+
+	return allSnippetsList, nil
 }
 
 func (s *SnippetCommandProvider) getPossibleSnippets(ctx context.Context, args *json.RawMessage) (interface{}, error) {

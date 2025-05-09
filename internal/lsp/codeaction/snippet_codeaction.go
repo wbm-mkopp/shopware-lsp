@@ -42,6 +42,15 @@ func (s *SnippetCodeActionProvider) GetCodeActions(ctx context.Context, params *
 
 	var codeActions []protocol.CodeAction
 
+	codeActions = append(codeActions, protocol.CodeAction{
+		Title: "Insert Snippet",
+		Kind:  protocol.CodeActionQuickFix,
+		Command: &protocol.CommandAction{
+			Title:   "Insert Snippet",
+			Command: "shopware.insertSnippet",
+		},
+	})
+
 	// Process only snippet-related diagnostics
 	for _, diagnostic := range params.Context.Diagnostics {
 		if diagnostic.Code != "frontend.snippet.missing" {

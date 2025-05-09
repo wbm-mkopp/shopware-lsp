@@ -7,6 +7,7 @@ import (
 )
 
 type Snippet struct {
+	Key  string
 	Text string
 	File string
 	Line int
@@ -69,6 +70,7 @@ func extractValues(prefix string, node *tree_sitter.Node, content []byte, result
 							valueText = strings.Trim(valueText, "\"")
 						}
 						result[newPrefix] = Snippet{
+							Key:  newPrefix,
 							Text: valueText,
 							File: filePath,
 							Line: int(value.Range().StartPoint.Row) + 1,
@@ -77,6 +79,7 @@ func extractValues(prefix string, node *tree_sitter.Node, content []byte, result
 						// For non-string primitive values, convert to string
 						valueText := string(value.Utf8Text(content))
 						result[newPrefix] = Snippet{
+							Key:  newPrefix,
 							Text: valueText,
 							File: filePath,
 							Line: int(value.Range().StartPoint.Row) + 1,

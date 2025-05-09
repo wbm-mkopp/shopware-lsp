@@ -70,3 +70,7 @@ func (s *SnippetIndexer) GetFrontendSnippets() ([]string, error) {
 func (s *SnippetIndexer) GetFrontendSnippet(key string) ([]Snippet, error) {
 	return s.frontendIndex.GetValues(key)
 }
+
+func (s *SnippetIndexer) GetAllSnippets() ([]Snippet, error) {
+	return s.frontendIndex.GetAllValues()
+}
