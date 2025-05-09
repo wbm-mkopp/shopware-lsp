@@ -46,6 +46,10 @@ func (p *TwigDefinitionProvider) twigDefinitions(ctx context.Context, params *pr
 
 		var locations []protocol.Location
 		for _, file := range files {
+			if file.Path == strings.TrimPrefix(params.TextDocument.URI, "file://") {
+				continue
+			}
+
 			locations = append(locations, protocol.Location{
 				URI: file.Path,
 				Range: protocol.Range{
