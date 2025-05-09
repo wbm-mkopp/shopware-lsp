@@ -9,7 +9,7 @@ import (
 
 // GetTextForRange extracts text from the document content for the given range
 func GetTextForRange(content []byte, rng protocol.Range) string {
-	if content == nil || len(content) == 0 {
+	if len(content) == 0 {
 		return ""
 	}
 
