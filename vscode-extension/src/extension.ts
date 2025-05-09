@@ -354,6 +354,68 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       editor.insertSnippet(new vscode.SnippetString(text));
     }
   }));
+
+  context.subscriptions.push(vscode.commands.registerCommand('shopware.createSnippetFromSelection', async (fileUri: string, selectedText: string) => {
+    try {
+      if (!client) {
+        vscode.window.showErrorMessage('Shopware LSP is not running');
+        return;
+      }
+
+      // Ask for snippet key
+      const snippetKey = await vscode.window.showInputBox({
+        prompt: 'Enter a key for the snippet',
+        placeHolder: 'e.g. my-component.title',
+        validateInput: (value: string) => {
+          if (!value || value.trim() === '') {
+            return 'Snippet key cannot be empty';
+          }
+          return null;
+        }
+      });
+
+      if (!snippetKey) {
+        return; // User cancelled
+      }
+
+      // Get possible snippet files
+      const result = await client.sendRequest<{paths: SnippetFile[]}>('shopware/snippet/getPossibleSnippetFilse', {
+        fileUri,
+      });
+
+      if (!result || !result.paths || result.paths.length === 0) {
+        vscode.window.showErrorMessage('No snippet files found');
+        return;
+      }
+
+      // Set the selected text as value for all snippet files
+      for (const snippetFile of result.paths) {
+        snippetFile.value = selectedText;
+      }
+
+      // Create the snippet
+      await client.sendRequest('shopware/snippet/create', {
+        fileUri,
+        snippetKey,
+        snippets: result.paths
+      });
+
+      // Get the editor
+      const editor = vscode.window.activeTextEditor;
+      if (editor) {
+        // Replace the selected text with the snippet reference
+        const snippetReference = `{{ '${snippetKey}'|trans }}`;
+        editor.edit(editBuilder => {
+          const selection = editor.selection;
+          editBuilder.replace(selection, snippetReference);
+        });
+      }
+
+      vscode.window.showInformationMessage(`Snippet ${snippetKey} created successfully`);
+    } catch (error) {
+      vscode.window.showErrorMessage(`Error creating snippet from selection: ${error}`);
+    }
+  }));
 }
 
 export function deactivate(): Thenable<void> | undefined {

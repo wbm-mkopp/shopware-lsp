@@ -123,7 +123,11 @@ func (s *SnippetCommandProvider) getPossibleSnippets(ctx context.Context, args *
 
 	// The user didn't created one yet, we create for him one
 	if len(possibleSnippets) == 0 {
-		if err := os.Mkdir(filepath.Join(snippetDir, "en_GB"), os.ModePerm); err != nil {
+		if err := os.MkdirAll(filepath.Join(snippetDir, "en_GB"), os.ModePerm); err != nil {
+			return nil, err
+		}
+
+		if err := os.WriteFile(filepath.Join(snippetDir, "en_GB", "storefront.en-GB.json"), []byte("{}"), os.ModePerm); err != nil {
 			return nil, err
 		}
 
@@ -192,6 +196,10 @@ func findPossibleSnippets(dirPath string) []SnippetFile {
 	var possibleSnippets []SnippetFile
 
 	_ = filepath.WalkDir(dirPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
 		if d.IsDir() {
 			return nil
 		}

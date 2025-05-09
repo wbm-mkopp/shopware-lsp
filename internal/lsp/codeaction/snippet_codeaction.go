@@ -9,6 +9,7 @@ import (
 	"github.com/shopware/shopware-lsp/internal/lsp"
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
 	"github.com/shopware/shopware-lsp/internal/snippet"
+	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
 )
 
 // SnippetCodeActionProvider provides code actions for snippet diagnostics
@@ -42,14 +43,33 @@ func (s *SnippetCodeActionProvider) GetCodeActions(ctx context.Context, params *
 
 	var codeActions []protocol.CodeAction
 
-	codeActions = append(codeActions, protocol.CodeAction{
-		Title: "Insert Snippet",
-		Kind:  protocol.CodeActionQuickFix,
-		Command: &protocol.CommandAction{
-			Title:   "Insert Snippet",
-			Command: "shopware.insertSnippet",
-		},
-	})
+	if params.Range.Start.Line == params.Range.End.Line && params.Range.Start.Character == params.Range.End.Character {
+		// No selection, so we can't create a snippet from selection
+		codeActions = append(codeActions, protocol.CodeAction{
+			Title: "Insert Snippet",
+			Kind:  protocol.CodeActionQuickFix,
+			Command: &protocol.CommandAction{
+				Title:   "Insert Snippet",
+				Command: "shopware.insertSnippet",
+			},
+		})
+	}
+
+	if params.Range.Start.Line != params.Range.End.Line || params.Range.Start.Character != params.Range.End.Character {
+		// There is a text selection
+		selectedText := treesitterhelper.GetTextForRange(params.DocumentContent, params.Range)
+		if selectedText != "" {
+			codeActions = append(codeActions, protocol.CodeAction{
+				Title: "Create snippet from selection",
+				Kind:  protocol.CodeActionQuickFix,
+				Command: &protocol.CommandAction{
+					Title:     "Create Snippet from Selection",
+					Command:   "shopware.createSnippetFromSelection",
+					Arguments: []any{params.TextDocument.URI, selectedText},
+				},
+			})
+		}
+	}
 
 	// Process only snippet-related diagnostics
 	for _, diagnostic := range params.Context.Diagnostics {
