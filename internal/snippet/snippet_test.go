@@ -30,11 +30,13 @@ func TestParseSnippetFile(t *testing.T) {
 
 	expected := map[string]Snippet{
 		"foo.foo.name": {
+			Key:  "foo.foo.name",
 			Text: "title",
 			File: "testdata/nested.json",
 			Line: 5,
 		},
 		"foo.name": {
+			Key:  "foo.name",
 			Text: "title",
 			File: "testdata/nested.json",
 			Line: 3,
