@@ -269,6 +269,56 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       vscode.window.showErrorMessage(`Error creating snippet: ${error}`);
     }
   }));
+
+  context.subscriptions.push(vscode.commands.registerCommand('shopware.twig.extendBlock', async (textUri: string, blockName: string) => {
+    if (!client) {
+      vscode.window.showErrorMessage('Shopware LSP is not running');
+      return;
+    }
+
+    const extensions: { Name: string; }[] = await client.sendRequest('shopware/extension/all');
+
+    if (!extensions || extensions.length === 0) {
+      vscode.window.showErrorMessage('No extensions found');
+      return;
+    }
+
+    const items = extensions.map(ext => ({
+      label: ext.Name,
+      description: `Extend block in ${ext.Name}`,
+      detail: `Block name: ${blockName}`,
+    }));
+    const selected = await vscode.window.showQuickPick(items, {
+      placeHolder: 'Select an extension to extend the block',
+      matchOnDescription: true,
+      matchOnDetail: true
+    });
+    if (!selected) {
+      vscode.window.showErrorMessage('No extension selected');
+      return;
+    }
+
+    const result: {code: string, message: string} | {uri: string, line: number} = await client.sendRequest('shopware/twig/extendBlock', {
+      textUri,
+      blockName,
+      extension: selected.label,
+    });
+
+    if ('code' in result) {
+      vscode.window.showErrorMessage(`Error extending block: ${result.message}`);
+      return;
+    }
+
+    if ('uri' in result) {
+      const document = await vscode.workspace.openTextDocument(vscode.Uri.parse(result.uri));
+      const editor = await vscode.window.showTextDocument(document);
+
+      const position = new vscode.Position(result.line, 0);
+      editor.selection = new vscode.Selection(position, position);
+
+      vscode.window.showInformationMessage(`Block ${blockName} extended successfully in ${selected.label}`);
+    }
+  }));
 }
 
 export function deactivate(): Thenable<void> | undefined {

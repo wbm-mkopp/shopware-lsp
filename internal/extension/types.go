@@ -16,8 +16,5 @@ type ShopwareExtension struct {
 }
 
 func (e ShopwareExtension) GetStorefrontViewsPath() string {
-	if e.Type == ShopwareExtensionTypeBundle {
-		return filepath.Join(e.Path, "Resources", "views")
-	}
-	return filepath.Join(e.Path, "src", "Resources", "views")
+	return filepath.Join(e.Path, "Resources", "views")
 }

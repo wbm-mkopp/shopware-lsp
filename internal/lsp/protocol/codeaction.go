@@ -1,12 +1,17 @@
 package protocol
 
+import tree_sitter "github.com/tree-sitter/go-tree-sitter"
+
 // CodeActionParams represents the parameters for a textDocument/codeAction request
 type CodeActionParams struct {
 	TextDocument struct {
 		URI string `json:"uri"`
 	} `json:"textDocument"`
-	Range        Range             `json:"range"`
-	Context      CodeActionContext `json:"context"`
+	Range   Range             `json:"range"`
+	Context CodeActionContext `json:"context"`
+
+	Node            *tree_sitter.Node `json:"-"`
+	DocumentContent []byte            `json:"-"`
 }
 
 // CodeActionContext represents the context for a code action request
@@ -37,12 +42,12 @@ const (
 
 // CodeAction represents a code action
 type CodeAction struct {
-	Title       string                 `json:"title"`
-	Kind        CodeActionKind         `json:"kind,omitempty"`
-	Diagnostics []Diagnostic           `json:"diagnostics,omitempty"`
-	Edit        *WorkspaceEdit         `json:"edit,omitempty"`
-	Command     *CommandAction         `json:"command,omitempty"`
-	Data        interface{}            `json:"data,omitempty"`
+	Title       string         `json:"title"`
+	Kind        CodeActionKind `json:"kind,omitempty"`
+	Diagnostics []Diagnostic   `json:"diagnostics,omitempty"`
+	Edit        *WorkspaceEdit `json:"edit,omitempty"`
+	Command     *CommandAction `json:"command,omitempty"`
+	Data        interface{}    `json:"data,omitempty"`
 }
 
 // CommandAction represents a command to be executed
@@ -67,16 +72,16 @@ type WorkspaceEdit struct {
 
 // DocumentChange represents a change to a document
 type DocumentChange struct {
-	TextDocument        OptionalVersionedTextDocumentIdentifier `json:"textDocument"`
-	Edits               []TextEdit                             `json:"edits"`
-	AnnotationID        string                                 `json:"annotationId,omitempty"`
+	TextDocument OptionalVersionedTextDocumentIdentifier `json:"textDocument"`
+	Edits        []TextEdit                              `json:"edits"`
+	AnnotationID string                                  `json:"annotationId,omitempty"`
 }
 
 // ChangeAnnotation represents an annotation for a change
 type ChangeAnnotation struct {
-	Label         string  `json:"label"`
-	NeedsConfirmation bool    `json:"needsConfirmation,omitempty"`
-	Description   string  `json:"description,omitempty"`
+	Label             string `json:"label"`
+	NeedsConfirmation bool   `json:"needsConfirmation,omitempty"`
+	Description       string `json:"description,omitempty"`
 }
 
 // OptionalVersionedTextDocumentIdentifier represents a text document identifier with an optional version

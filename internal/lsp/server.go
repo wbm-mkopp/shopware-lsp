@@ -717,10 +717,10 @@ func (s *Server) diagnostic(ctx context.Context, params *protocol.DiagnosticPara
 
 // codeAction handles textDocument/codeAction requests
 func (s *Server) codeAction(ctx context.Context, params *protocol.CodeActionParams) []protocol.CodeAction {
-	// Get document content and node at position
-	node := s.documentManager.GetRootNode(params.TextDocument.URI)
-	if node == nil {
-		return []protocol.CodeAction{}
+	node, docText, ok := s.documentManager.GetNodeAtPosition(params.TextDocument.URI, params.Range.Start.Line, params.Range.Start.Character)
+	if ok {
+		params.Node = node
+		params.DocumentContent = docText.Text
 	}
 
 	// Collect code actions from all providers

@@ -17,3 +17,15 @@ func TwigTransPattern() Pattern {
 		),
 	)
 }
+
+func TwigBlockWithNamePattern(blockName string) Pattern {
+	return And(
+		NodeKind("block"),
+		HasChild(
+			And(
+				NodeKind("identifier"),
+				NodeText(blockName),
+			),
+		),
+	)
+}

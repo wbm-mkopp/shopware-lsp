@@ -51,7 +51,6 @@ func (idx *ExtensionIndexer) indexBundle(path string, node *tree_sitter.Node, fi
 	for _, class := range classes {
 		if isShopwareBundle(class) {
 			extension := createBundleFromClass(class)
-			log.Printf("Indexing bundle: %s in %s", extension.Name, path)
 			return idx.indexer.SaveItem(path, extension.Name, extension)
 		}
 	}
@@ -80,9 +79,20 @@ func (idx *ExtensionIndexer) indexApp(path string, node *tree_sitter.Node, fileC
 		Path: filepath.Dir(path),
 	}
 
-	log.Printf("Indexing app: %s in %s", app.Name, path)
-
 	return idx.indexer.SaveItem(path, manifest.Name, app)
+}
+
+func (idx *ExtensionIndexer) GetExtensionByName(name string) *ShopwareExtension {
+	extension, err := idx.indexer.GetValues(name)
+	if err != nil {
+		return nil
+	}
+
+	if len(extension) == 0 {
+		return nil
+	}
+
+	return &extension[0]
 }
 
 func (idx *ExtensionIndexer) RemovedFiles(paths []string) error {

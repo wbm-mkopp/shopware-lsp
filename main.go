@@ -82,8 +82,11 @@ func main() {
 
 	// Register code action providers
 	server.RegisterCodeActionProvider(codeaction.NewSnippetCodeActionProvider(server))
+	server.RegisterCodeActionProvider(codeaction.NewTwigCodeActionProvider(server))
 
 	server.RegisterCommandProvider(snippet.NewSnippetCommandProvider(server))
+	server.RegisterCommandProvider(extension.NewExtensionCommandProvider(server))
+	server.RegisterCommandProvider(twig.NewTwigCommandProvider(server))
 
 	if err := server.Start(os.Stdin, os.Stdout); err != nil {
 		log.Fatalf("LSP server error: %v", err)

@@ -115,3 +115,49 @@ func TestDataIndexer_GetAllValues_SpecificKeyRetrievalStillWorks(t *testing.T) {
 	assert.Len(t, keyBValues, 1, "Incorrect number of values for keyB")
 	assert.ElementsMatch(t, []testStruct{item3}, keyBValues, "Incorrect values returned for keyB")
 }
+
+func TestDataIndexer_GetAllKeysByPath(t *testing.T) {
+	indexer, cleanup := setupTestDB[testStruct](t)
+	defer cleanup()
+
+	// Prepare test data with different keys and files
+	item1 := testStruct{Name: "Item1", Value: 10}
+	item2 := testStruct{Name: "Item2", Value: 20}
+	item3 := testStruct{Name: "Item3", Value: 30}
+	item4 := testStruct{Name: "Item4", Value: 40}
+	item5 := testStruct{Name: "Item5", Value: 50}
+
+	// Structure: map[filePath]map[key]value
+	itemsToSave := map[string]map[string]testStruct{
+		"file1.txt": {
+			"keyA": item1,
+			"keyB": item2,
+			"keyC": item3,
+		},
+		"file2.txt": {
+			"keyA": item4,
+			"keyD": item5,
+		},
+	}
+
+	// Save items
+	err := indexer.BatchSaveItems(itemsToSave)
+	require.NoError(t, err, "BatchSaveItems failed")
+
+	// Test GetAllKeysByPath for file1.txt
+	file1Keys, err := indexer.GetAllKeysByPath("file1.txt")
+	require.NoError(t, err, "GetAllKeysByPath failed for file1.txt")
+	assert.Len(t, file1Keys, 3, "Incorrect number of keys for file1.txt")
+	assert.ElementsMatch(t, []string{"keyA", "keyB", "keyC"}, file1Keys, "Incorrect keys returned for file1.txt")
+
+	// Test GetAllKeysByPath for file2.txt
+	file2Keys, err := indexer.GetAllKeysByPath("file2.txt")
+	require.NoError(t, err, "GetAllKeysByPath failed for file2.txt")
+	assert.Len(t, file2Keys, 2, "Incorrect number of keys for file2.txt")
+	assert.ElementsMatch(t, []string{"keyA", "keyD"}, file2Keys, "Incorrect keys returned for file2.txt")
+
+	// Test GetAllKeysByPath for non-existent file
+	nonExistentKeys, err := indexer.GetAllKeysByPath("non-existent.txt")
+	require.NoError(t, err, "GetAllKeysByPath should not error for non-existent file")
+	assert.Empty(t, nonExistentKeys, "Expected empty keys for non-existent file")
+}

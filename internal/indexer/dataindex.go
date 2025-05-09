@@ -329,6 +329,56 @@ func (idx *DataIndexer[T]) DeleteByFilePath(filePath string) error {
 	})
 }
 
+// GetAllKeysByPath returns all unique keys associated with a specific file path
+func (idx *DataIndexer[T]) GetAllKeysByPath(filePath string) ([]string, error) {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	keyMap := make(map[string]struct{})
+
+	err := idx.db.View(func(tx *bbolt.Tx) error {
+		filesBucket := tx.Bucket(idx.filesBucket)
+		if filesBucket == nil {
+			return fmt.Errorf("files bucket not found")
+		}
+
+		// Get the file entries
+		fileEntries := filesBucket.Get([]byte(filePath))
+		if fileEntries == nil {
+			// No entries for this file path
+			return nil
+		}
+
+		// Unmarshal file entries
+		var entries []string
+		if err := msgpack.Unmarshal(fileEntries, &entries); err != nil {
+			return fmt.Errorf("failed to unmarshal file entries: %w", err)
+		}
+
+		// Extract keys from IDs
+		for _, id := range entries {
+			sep := strings.IndexByte(id, ':')
+			if sep > 0 {
+				keyMap[id[:sep]] = struct{}{}
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert map to slice
+	keys := make([]string, 0, len(keyMap))
+	for key := range keyMap {
+		keys = append(keys, key)
+	}
+
+	return keys, nil
+}
+
 // BatchDeleteByFilePaths deletes all items associated with the given file paths in a single transaction
 func (idx *DataIndexer[T]) BatchDeleteByFilePaths(filePaths []string) error {
 	idx.mu.Lock()
