@@ -9,13 +9,13 @@ const (
 	ShopwareExtensionTypeApp
 )
 
-type ShopwareExension struct {
+type ShopwareExtension struct {
 	Name string
 	Type ShopwareExtensionType
 	Path string
 }
 
-func (e ShopwareExension) GetStorefrontViewsPath() string {
+func (e ShopwareExtension) GetStorefrontViewsPath() string {
 	if e.Type == ShopwareExtensionTypeBundle {
 		return filepath.Join(e.Path, "Resources", "views")
 	}

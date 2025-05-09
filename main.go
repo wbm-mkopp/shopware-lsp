@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/shopware/shopware-lsp/internal/extension"
 	"github.com/shopware/shopware-lsp/internal/feature"
 	"github.com/shopware/shopware-lsp/internal/indexer"
 	"github.com/shopware/shopware-lsp/internal/lsp"
@@ -54,6 +55,7 @@ func main() {
 	server.RegisterIndexer(feature.NewFeatureIndexer(cacheDir))
 	server.RegisterIndexer(systemconfig.NewSystemConfigIndexer(cacheDir))
 	server.RegisterIndexer(theme.NewThemeConfigIndexer(cacheDir))
+	server.RegisterIndexer(extension.NewExtensionIndexer(cacheDir))
 
 	server.RegisterCompletionProvider(completion.NewServiceCompletionProvider(server))
 	server.RegisterCompletionProvider(completion.NewTwigCompletionProvider(server))
