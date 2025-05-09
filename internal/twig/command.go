@@ -72,7 +72,7 @@ func (t *TwigCommandProvider) extendBlock(ctx context.Context, args *json.RawMes
 	_, err := os.Stat(extensionViewPath)
 
 	if os.IsNotExist(err) {
-		if err := os.WriteFile(extensionViewPath, []byte("{% sw_extends \""+storefrontRelativePath+"\" %}\n"), 0644); err != nil {
+		if err := os.WriteFile(extensionViewPath, []byte("{% sw_extends \"@Storefront/"+storefrontRelativePath+"\" %}\n"), 0644); err != nil {
 			log.Printf("Failed to create file: %s", extensionViewPath)
 			return protocol.NewLspError("Failed to create file", "file.create_failed"), nil
 		}
