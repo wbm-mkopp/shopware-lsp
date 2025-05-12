@@ -3,9 +3,11 @@ package lsp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -31,10 +33,12 @@ type Server struct {
 	indexerMu            sync.RWMutex
 	documentManager      *DocumentManager
 	fileScanner          *indexer.FileScanner
+	cacheDir             string
+	version              string
 }
 
 // NewServer creates a new LSP server
-func NewServer(filescanner *indexer.FileScanner) *Server {
+func NewServer(filescanner *indexer.FileScanner, cacheDir, version string) *Server {
 	s := &Server{
 		completionProviders:  make([]CompletionProvider, 0),
 		definitionProviders:  make([]GotoDefinitionProvider, 0),
@@ -47,6 +51,8 @@ func NewServer(filescanner *indexer.FileScanner) *Server {
 		commandMap:           make(map[string]CommandFunc),
 		documentManager:      NewDocumentManager(),
 		fileScanner:          filescanner,
+		cacheDir:             cacheDir,
+		version:              version,
 	}
 
 	// Set the update callback to publish diagnostics
@@ -102,6 +108,39 @@ func (s *Server) GetIndexer(id string) (indexer.Indexer, bool) {
 	defer s.indexerMu.RUnlock()
 	indexer, ok := s.indexers[id]
 	return indexer, ok
+}
+
+// shouldForceReindex checks if the current version differs from the last run
+// and updates the stored version file
+func (s *Server) shouldForceReindex() (bool, error) {
+	if s.cacheDir == "" || s.version == "" || s.version == "dev" {
+		return false, nil
+	}
+
+	versionFile := filepath.Join(s.cacheDir, "version.txt")
+
+	// Check if version file exists
+	previousVersion := ""
+	forceReindex := false
+
+	data, err := os.ReadFile(versionFile)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return false, fmt.Errorf("failed to read version file: %w", err)
+		}
+		// File doesn't exist, will create it below
+		forceReindex = true
+	} else {
+		previousVersion = strings.TrimSpace(string(data))
+		forceReindex = previousVersion != s.version
+	}
+
+	// Update the version file with current version
+	if err := os.WriteFile(versionFile, []byte(s.version), 0644); err != nil {
+		return forceReindex, fmt.Errorf("failed to write version file: %w", err)
+	}
+
+	return forceReindex, nil
 }
 
 // indexAll builds or updates all registered indexes
@@ -218,9 +257,21 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 	case "initialized":
 		// Build the index when the client is initialized
 		go func() {
-			// Index all registered indexersq
-			if err := s.indexAll(ctx, false); err != nil {
+			// Check if we need to force reindex due to version change
+			forceReindex, err := s.shouldForceReindex()
+			if err != nil {
+				log.Printf("Warning: Failed to check version for reindex: %v", err)
+			}
+
+			if forceReindex {
+				log.Printf("Version changed to %s, forcing reindex", s.version)
+			}
+
+			// Index all registered indexers
+			if err := s.indexAll(ctx, forceReindex); err != nil {
 				log.Printf("Error indexing: %v", err)
+			} else if forceReindex {
+				log.Println("Force reindex completed successfully")
 			}
 		}()
 		return nil, nil

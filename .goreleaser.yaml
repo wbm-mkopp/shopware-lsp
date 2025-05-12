@@ -12,8 +12,9 @@ builds:
       - PKG_CONFIG_PATH=/sysroot/macos/amd64/usr/local/lib/pkgconfig
       - CC=o64-clang
       - CXX=o64-clang++
+      - CGO_ENABLED=1
     ldflags:
-      - -s -w
+      - -s -w -X main.version={{.Version}}
   - id: darwin-arm64
     main: ./
     binary: shopware-lsp
@@ -26,8 +27,9 @@ builds:
       - PKG_CONFIG_PATH=/sysroot/macos/arm64/usr/local/lib/pkgconfig
       - CC=oa64-clang
       - CXX=oa64-clang++
+      - CGO_ENABLED=1
     ldflags:
-      - -s -w
+      - -s -w -X main.version={{.Version}}
   - id: linux-amd64
     main: ./
     binary: shopware-lsp
@@ -36,12 +38,13 @@ builds:
     goarch:
       - amd64
     ldflags:
-      - -s -w -linkmode external -extldflags -static
+      - -s -w -linkmode external -extldflags -static -X main.version={{.Version}}
     env:
       - PKG_CONFIG_SYSROOT_DIR=/sysroot/linux/amd64
       - PKG_CONFIG_PATH=/sysroot/linux/amd64/usr/local/lib/pkgconfig
       - CC=x86_64-linux-gnu-gcc
       - CXX=x86_64-linux-gnu-g++
+      - CGO_ENABLED=1
   - id: linux-arm64
     main: ./
     binary: shopware-lsp
@@ -50,12 +53,13 @@ builds:
     goarch:
       - arm64
     ldflags:
-      - -s -w -linkmode external -extldflags -static
+      - -s -w -linkmode external -extldflags -static -X main.version={{.Version}}
     env:
       - PKG_CONFIG_SYSROOT_DIR=/sysroot/linux/arm64
       - PKG_CONFIG_PATH=/sysroot/linux/arm64/usr/local/lib/pkgconfig
       - CC=aarch64-linux-gnu-gcc
       - CXX=aarch64-linux-gnu-g++
+      - CGO_ENABLED=1
 archives:
   - id: golang-cross
     ids:
@@ -78,3 +82,19 @@ release:
   github:
     owner: shopwareLabs
     name: shopware-lsp
+
+brews:
+  - repository:
+      owner: shopware
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    commit_author:
+      name: Frosh Automation
+      email: ci@fos.gg
+    goarm: "7"
+    homepage: https://shopware.com
+    description: Shopware Language Server
+    license: MIT
+    directory: Formula
+    install: |-
+      bin.install "shopware-lsp"

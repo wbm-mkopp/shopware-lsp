@@ -23,6 +23,9 @@ import (
 	"github.com/shopware/shopware-lsp/internal/twig"
 )
 
+// Version is set during build by goreleaser
+var version = "dev"
+
 func main() {
 	log.SetFlags(0)
 
@@ -38,13 +41,14 @@ func main() {
 	}
 
 	log.Printf("Using cache directory: %s", cacheDir)
+	log.Printf("Shopware LSP version: %s", version)
 
 	filescanner, err := indexer.NewFileScanner(projectRoot, filepath.Join(cacheDir, "file_scanner.db"))
 	if err != nil {
 		log.Fatalf("Failed to create file scanner: %v", err)
 	}
 
-	server := lsp.NewServer(filescanner)
+	server := lsp.NewServer(filescanner, cacheDir, version)
 
 	server.RegisterIndexer(symfony.NewServiceIndex(projectRoot, cacheDir))
 	server.RegisterIndexer(symfony.NewRouteIndexer(cacheDir))

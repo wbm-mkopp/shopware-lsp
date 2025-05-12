@@ -19,6 +19,7 @@ release:
 		--rm \
 		-e CGO_ENABLED=1 \
 		-e GITHUB_TOKEN \
+		-e HOMEBREW_TAP_GITHUB_TOKEN \
 		-v `pwd`:/go/src/$(PACKAGE_NAME) \
 		-w /go/src/$(PACKAGE_NAME) \
 		ghcr.io/goreleaser/goreleaser-cross:${GOLANG_CROSS_VERSION} \

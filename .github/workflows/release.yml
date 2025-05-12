@@ -18,10 +18,19 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Gather Homebrew Token
+        uses: octo-sts/action@6177b4481c00308b3839969c3eca88c96a91775f # ratchet:octo-sts/action@v1.0.0
+        id: sts-shopware
+        with:
+          scope: shopware/homebrew-tap
+          identity: lsp
+
       - name: Release
         run: make release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ steps.sts-shopware.outputs.token }}
+
   build-vscode:
     name: Build VSCode
     runs-on: ubuntu-latest
