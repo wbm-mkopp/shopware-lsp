@@ -320,7 +320,12 @@ func (idx *PHPIndex) GetTypeOfNode(ctx context.Context, node *tree_sitter.Node, 
 		return nil
 	}
 
-	phpCtx := GetPHPContext(ctx)
+	// Get the PHP context safely
+	phpCtx, ok := ctx.Value(PHPContextKey).(*PHPContext)
+	if !ok || phpCtx == nil || phpCtx.InsideClass == nil {
+		// If we don't have the necessary context, return a mixed type
+		return NewMixedType()
+	}
 
 	nodeKind := node.Kind()
 
