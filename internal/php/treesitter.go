@@ -36,5 +36,17 @@ func (s *PHPIndex) IsMethodCalledOnClass(ctx context.Context, node *tree_sitter.
 		return false
 	}
 
-	return s.GetTypeOfNode(ctx, current, content).Matches(NewPHPType(className))
+	// Get context information safely - check if PHPContext exists in the context
+	_, ok := ctx.Value(PHPContextKey).(*PHPContext)
+	if !ok {
+		// If we don't have the necessary context, we can't determine the class type
+		return false
+	}
+
+	nodeType := s.GetTypeOfNode(ctx, current, content)
+	if nodeType == nil {
+		return false
+	}
+	
+	return nodeType.Matches(NewPHPType(className))
 }
