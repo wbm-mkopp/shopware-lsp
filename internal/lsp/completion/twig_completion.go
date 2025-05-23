@@ -52,6 +52,30 @@ func (p *TwigCompletionProvider) twigCompletions(ctx context.Context, params *pr
 		return completionItems
 	}
 
+	if treesitterhelper.TwigAutocompleteFilterPattern().Matches(params.Node, params.DocumentContent) {
+		filters, _ := p.twigIndexer.GetAllTwigFilters()
+		uniqueFilters := make(map[string]struct{})
+
+		var completionItems []protocol.CompletionItem
+		for _, filter := range filters {
+			if strings.Contains(filter.Name, "*") {
+				continue
+			}
+
+			if _, ok := uniqueFilters[filter.Name]; ok {
+				continue
+			}
+			uniqueFilters[filter.Name] = struct{}{}
+
+			completionItems = append(completionItems, protocol.CompletionItem{
+				Label:            filter.Usage,
+				InsertText:       filter.Name + "($0)",
+				InsertTextFormat: int(protocol.SnippetTextFormat),
+			})
+		}
+		return completionItems
+	}
+
 	if params.Node.Kind() == "template" {
 		functions, _ := p.twigIndexer.GetAllTwigFunctions()
 		uniqueFunctions := make(map[string]struct{})
@@ -98,5 +122,5 @@ func (p *TwigCompletionProvider) phpCompletions(ctx context.Context, params *pro
 }
 
 func (p *TwigCompletionProvider) GetTriggerCharacters() []string {
-	return []string{"\"", "'"}
+	return []string{"\"", "'", "|"}
 }

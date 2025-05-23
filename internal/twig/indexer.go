@@ -207,7 +207,15 @@ func (idx *TwigIndexer) GetTwigFilter(name string) ([]TwigFilter, error) {
 }
 
 func (idx *TwigIndexer) GetAllTwigFilters() ([]TwigFilter, error) {
-	return idx.twigFilterIndex.GetAllValues()
+	values, err := idx.twigFilterIndex.GetAllValues()
+
+	if err != nil {
+		return nil, err
+	}
+
+	values = append(values, TwigFilter{Name: "raw", Usage: "raw()"})
+
+	return values, nil
 }
 
 func (idx *TwigIndexer) GetTwigFilesByRelPath(relPath string) ([]TwigFile, error) {

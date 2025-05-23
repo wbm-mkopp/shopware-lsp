@@ -133,10 +133,52 @@ func (m *DocumentManager) GetNodeAtPosition(uri string, line int, character int)
 		Column: uint(character),
 	}
 
-	// Find the node at the cursor position
-	node := doc.Tree.RootNode().NamedDescendantForPointRange(treeSitterPos, treeSitterPos)
-
+	// Manual tree traversal to find the most specific node at position
+	node := m.findNodeAtPosition(doc.Tree.RootNode(), treeSitterPos, doc.Text)
+	if node != nil {
+		return node, doc, true
+	}
+	
+	// Fallback to standard method
+	node = doc.Tree.RootNode().NamedDescendantForPointRange(treeSitterPos, treeSitterPos)
 	return node, doc, true
+}
+
+func (m *DocumentManager) findNodeAtPosition(node *tree_sitter.Node, pos tree_sitter.Point, text []byte) *tree_sitter.Node {
+	if node == nil {
+		return nil
+	}
+	
+	// Convert position to byte offset
+	lines := string(text)
+	targetOffset := 0
+	for i, line := range strings.Split(lines, "\n") {
+		if uint(i) == pos.Row {
+			targetOffset += int(pos.Column)
+			break
+		}
+		if uint(i) < pos.Row {
+			targetOffset += len(line) + 1 // +1 for newline
+		}
+	}
+	
+	// Check if this node contains the target position
+	if node.StartByte() <= uint(targetOffset) && uint(targetOffset) <= node.EndByte() {
+		// Check all children (including unnamed ones)
+		for i := uint(0); i < node.ChildCount(); i++ {
+			child := node.Child(i)
+			if child != nil {
+				childResult := m.findNodeAtPosition(child, pos, text)
+				if childResult != nil {
+					return childResult
+				}
+			}
+		}
+		// If no child contains it, this node is the most specific
+		return node
+	}
+	
+	return nil
 }
 
 func (m *DocumentManager) GetRootNode(uri string) *tree_sitter.Node {

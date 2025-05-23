@@ -8,10 +8,10 @@ import (
 	"path"
 	"strings"
 
-	tree_sitter_twig "github.com/kaermorchen/tree-sitter-twig/bindings/go"
 	"github.com/shopware/shopware-lsp/internal/extension"
 	"github.com/shopware/shopware-lsp/internal/lsp"
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
+	tree_sitter_twig "github.com/shopware/shopware-lsp/internal/tree_sitter_grammars/twig/bindings/go"
 	tree_sitter_helper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )

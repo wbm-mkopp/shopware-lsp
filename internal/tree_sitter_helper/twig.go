@@ -29,3 +29,19 @@ func TwigBlockWithNamePattern(blockName string) Pattern {
 		),
 	)
 }
+
+func TwigAutocompleteFilterPattern() Pattern {
+	return Or(
+		// {{ foo|<caret> }}
+		And(
+			NodeKind("operator"),
+			Ancestor(NodeKind("filter_expression"), 1),
+		),
+
+		// {{ foo|test<caret> }}
+		And(
+			NodeKind("function"),
+			Ancestor(NodeKind("filter_expression"), 1),
+		),
+	)
+}

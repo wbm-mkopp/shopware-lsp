@@ -9,7 +9,6 @@ replace github.com/tree-sitter-grammars/tree-sitter-scss => github.com/shyim/tre
 require (
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/kaermorchen/tree-sitter-twig v0.7.1-0.20250417181424-8ab106232948
 	github.com/sourcegraph/jsonrpc2 v0.2.0
 	github.com/stretchr/testify v1.10.0
 	github.com/tidwall/pretty v1.2.1

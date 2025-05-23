@@ -3,7 +3,7 @@ package treesitterhelper
 import (
 	"testing"
 
-	tree_sitter_twig "github.com/kaermorchen/tree-sitter-twig/bindings/go"
+	tree_sitter_twig "github.com/shopware/shopware-lsp/internal/tree_sitter_grammars/twig/bindings/go"
 	"github.com/stretchr/testify/assert"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )

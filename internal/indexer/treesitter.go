@@ -1,7 +1,7 @@
 package indexer
 
 import (
-	tree_sitter_twig "github.com/kaermorchen/tree-sitter-twig/bindings/go"
+	tree_sitter_twig "github.com/shopware/shopware-lsp/internal/tree_sitter_grammars/twig/bindings/go"
 	tree_sitter_scss "github.com/tree-sitter-grammars/tree-sitter-scss/bindings/go"
 	tree_sitter_xml "github.com/tree-sitter-grammars/tree-sitter-xml/bindings/go"
 	tree_sitter_yaml "github.com/tree-sitter-grammars/tree-sitter-yaml/bindings/go"
