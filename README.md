@@ -29,6 +29,7 @@ A Language Server Protocol (LSP) implementation for Shopware development.
 - Diagnostics for missing snippets in Twig templates
     - Quick Fix to add missing snippets
 - Go-to-definition for snippet keys
+- Hover support showing all available translations for a snippet key
 
 ### Route Support
 - Route name completion in PHP (`redirectToRoute` method) and Twig files (`seoUrl`, `url`, `path` functions)

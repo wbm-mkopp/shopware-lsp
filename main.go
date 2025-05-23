@@ -87,6 +87,7 @@ func main() {
 
 	// Register hover providers
 	server.RegisterHoverProvider(hover.NewTwigHoverProvider(projectRoot, server))
+	server.RegisterHoverProvider(hover.NewSnippetHoverProvider(projectRoot, server))
 
 	// Register code action providers
 	server.RegisterCodeActionProvider(codeaction.NewSnippetCodeActionProvider(server))
