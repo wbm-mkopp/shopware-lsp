@@ -138,7 +138,7 @@ func (m *DocumentManager) GetNodeAtPosition(uri string, line int, character int)
 	if node != nil {
 		return node, doc, true
 	}
-	
+
 	// Fallback to standard method
 	node = doc.Tree.RootNode().NamedDescendantForPointRange(treeSitterPos, treeSitterPos)
 	return node, doc, true
@@ -148,7 +148,7 @@ func (m *DocumentManager) findNodeAtPosition(node *tree_sitter.Node, pos tree_si
 	if node == nil {
 		return nil
 	}
-	
+
 	// Convert position to byte offset
 	lines := string(text)
 	targetOffset := 0
@@ -161,7 +161,7 @@ func (m *DocumentManager) findNodeAtPosition(node *tree_sitter.Node, pos tree_si
 			targetOffset += len(line) + 1 // +1 for newline
 		}
 	}
-	
+
 	// Check if this node contains the target position
 	if node.StartByte() <= uint(targetOffset) && uint(targetOffset) <= node.EndByte() {
 		// Check all children (including unnamed ones)
@@ -177,7 +177,7 @@ func (m *DocumentManager) findNodeAtPosition(node *tree_sitter.Node, pos tree_si
 		// If no child contains it, this node is the most specific
 		return node
 	}
-	
+
 	return nil
 }
 

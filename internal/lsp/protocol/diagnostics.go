@@ -10,8 +10,8 @@ type DiagnosticParams struct {
 
 // DiagnosticResult represents the result of a textDocument/diagnostic request
 type DiagnosticResult struct {
-	Items []Diagnostic `json:"items"`
-	ResultId string    `json:"resultId,omitempty"`
+	Items    []Diagnostic `json:"items"`
+	ResultId string       `json:"resultId,omitempty"`
 }
 
 // DiagnosticSeverity represents the severity of a diagnostic
@@ -40,14 +40,14 @@ const (
 
 // Diagnostic represents a diagnostic, such as a compiler error or warning
 type Diagnostic struct {
-	Range              Range              `json:"range"`
-	Severity           DiagnosticSeverity `json:"severity,omitempty"`
-	Code               interface{}        `json:"code,omitempty"`
-	Source             string             `json:"source,omitempty"`
-	Message            string             `json:"message"`
-	Tags               []DiagnosticTag    `json:"tags,omitempty"`
+	Range              Range                          `json:"range"`
+	Severity           DiagnosticSeverity             `json:"severity,omitempty"`
+	Code               interface{}                    `json:"code,omitempty"`
+	Source             string                         `json:"source,omitempty"`
+	Message            string                         `json:"message"`
+	Tags               []DiagnosticTag                `json:"tags,omitempty"`
 	RelatedInformation []DiagnosticRelatedInformation `json:"relatedInformation,omitempty"`
-	Data               interface{}        `json:"data,omitempty"`
+	Data               interface{}                    `json:"data,omitempty"`
 }
 
 // DiagnosticRelatedInformation represents additional information related to a diagnostic
@@ -65,9 +65,9 @@ type PublishDiagnosticsParams struct {
 
 // DocumentDiagnosticReport represents a diagnostic report for a document
 type DocumentDiagnosticReport struct {
-	Kind     string           `json:"kind"`
-	ResultId string           `json:"resultId,omitempty"`
-	Items    []Diagnostic     `json:"items,omitempty"`
+	Kind     string       `json:"kind"`
+	ResultId string       `json:"resultId,omitempty"`
+	Items    []Diagnostic `json:"items,omitempty"`
 }
 
 // WorkspaceDiagnosticReport represents a diagnostic report for the workspace
@@ -77,7 +77,7 @@ type WorkspaceDiagnosticReport struct {
 
 // WorkspaceDocumentDiagnosticReport represents a diagnostic report for a document in the workspace
 type WorkspaceDocumentDiagnosticReport struct {
-	URI     string                  `json:"uri"`
-	Version int                     `json:"version"`
+	URI     string                   `json:"uri"`
+	Version int                      `json:"version"`
 	Report  DocumentDiagnosticReport `json:"report"`
 }

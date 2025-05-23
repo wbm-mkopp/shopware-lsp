@@ -18,12 +18,12 @@ func TestInterfaceIndexing(t *testing.T) {
 
 	// Check that the interface was indexed
 	assert.Contains(t, classes, "App\\Interfaces\\CustomInterface", "Interface should be indexed")
-	
+
 	customInterface := classes["App\\Interfaces\\CustomInterface"]
-	
+
 	// Check that the interface is correctly identified
 	assert.True(t, customInterface.IsInterface, "CustomInterface should be identified as an interface")
-	
+
 	// Check that extended interfaces are correctly identified
 	// Note: Current namespace resolution results in local namespace prefixing for Traversable
 	assert.Contains(t, customInterface.Interfaces, "App\\Interfaces\\Traversable", "Interface should extend Traversable")
@@ -34,10 +34,10 @@ func TestInterfaceIndexing(t *testing.T) {
 	assert.Len(t, customInterface.Methods, 2, "Interface should have 2 methods")
 	assert.Contains(t, customInterface.Methods, "getCustomValue", "Interface should have getCustomValue method")
 	assert.Contains(t, customInterface.Methods, "setCustomValue", "Interface should have setCustomValue method")
-	
+
 	// Verify properties - interfaces shouldn't have properties
 	assert.Len(t, customInterface.Properties, 0, "Interface should have 0 properties")
-	
+
 	// Verify parent is empty for interfaces
 	assert.Empty(t, customInterface.Parent, "Interface should not have a parent class")
 }

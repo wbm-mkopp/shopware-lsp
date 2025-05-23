@@ -145,3 +145,41 @@ func TestTwigTagStructure(t *testing.T) {
 			"String in sw_extends tag should match [extends, sw_extends]")
 	}
 }
+
+func TestExtractSwIconObjectToMap(t *testing.T) {
+	parser := tree_sitter.NewParser()
+
+	// Skip the test if we don't have the Twig language available
+	err := parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_twig.Language()))
+	if err != nil {
+		t.Skip("Skipping test that requires tree-sitter-twig")
+		return
+	}
+
+	twigCode := []byte(`{% sw_icon 'file' style {'size': 'xs', 'color': 'red'} %}`)
+
+	tree := parser.Parse(twigCode, nil)
+	defer tree.Close()
+
+	// Find the tag node
+	var tagNode *tree_sitter.Node
+	for i := 0; i < int(tree.RootNode().ChildCount()); i++ {
+		node := tree.RootNode().Child(uint(i))
+		if node != nil && node.Kind() == "tag" {
+			tagNode = node
+			break
+		}
+	}
+
+	assert.NotNil(t, tagNode, "Should find tag node")
+
+	if tagNode != nil {
+		// Extract the object to map
+		result := ExtractSwIconObjectToMap(tagNode, twigCode)
+
+		// Verify the extracted map
+		assert.Equal(t, "xs", result["size"], "Should extract size value")
+		assert.Equal(t, "red", result["color"], "Should extract color value")
+		assert.Len(t, result, 2, "Should have exactly 2 pairs")
+	}
+}

@@ -14,7 +14,7 @@ func TestTypeInferenceWithInheritance(t *testing.T) {
 
 	// We'll register test classes directly in the dataIndexer so they're available
 	// via GetClass() used by our implementation
-	
+
 	// Create all the test classes
 	// Interface definition
 	productInterface := PHPClass{
@@ -38,12 +38,12 @@ func TestTypeInferenceWithInheritance(t *testing.T) {
 		},
 		Properties: make(map[string]PHPProperty),
 	}
-	
+
 	// Abstract parent class with properties
 	baseProduct := PHPClass{
 		Name:       "App\\Entity\\BaseProduct",
-		Path:        "testdata/typeinference_inheritance.php",
-		Line:        11,
+		Path:       "testdata/typeinference_inheritance.php",
+		Line:       11,
 		Interfaces: []string{"App\\Entity\\ProductInterface"},
 		Methods: map[string]PHPMethod{
 			"getId": {
@@ -86,13 +86,13 @@ func TestTypeInferenceWithInheritance(t *testing.T) {
 			},
 		},
 	}
-	
+
 	// Child class with additional properties and overridden methods
 	product := PHPClass{
-		Name:       "App\\Entity\\Product",
-		Path:        "testdata/typeinference_inheritance.php",
-		Line:        31,
-		Parent:     "App\\Entity\\BaseProduct",
+		Name:   "App\\Entity\\Product",
+		Path:   "testdata/typeinference_inheritance.php",
+		Line:   31,
+		Parent: "App\\Entity\\BaseProduct",
 		Methods: map[string]PHPMethod{
 			"getName": {
 				Name:       "getName",
@@ -100,7 +100,7 @@ func TestTypeInferenceWithInheritance(t *testing.T) {
 				Visibility: Public,
 				ReturnType: NewPHPType("string"),
 			},
-			"getPrice": {  // Override parent method
+			"getPrice": { // Override parent method
 				Name:       "getPrice",
 				Line:       43,
 				Visibility: Public,
@@ -122,7 +122,7 @@ func TestTypeInferenceWithInheritance(t *testing.T) {
 			},
 		},
 	}
-	
+
 	// Save all classes to the index using BatchSaveItems
 	classes := map[string]map[string]PHPClass{
 		"testdata/typeinference_inheritance.php": {
@@ -131,7 +131,7 @@ func TestTypeInferenceWithInheritance(t *testing.T) {
 			product.Name:          product,
 		},
 	}
-	
+
 	err = idx.dataIndexer.BatchSaveItems(classes)
 	assert.NoError(t, err)
 
@@ -142,10 +142,10 @@ func TestTypeInferenceWithInheritance(t *testing.T) {
 		expectedType string // The expected return type
 		source       string // Where the method comes from: "self", "parent", "interface"
 	}{
-		{"App\\Entity\\Product", "getName", "string", "self"},          // Method defined in Product class
-		{"App\\Entity\\Product", "getId", "int", "parent"},            // Method inherited from BaseProduct
-		{"App\\Entity\\Product", "getDescription", "string", "parent"}, // Method from interface, implemented in BaseProduct
-		{"App\\Entity\\Product", "getPrice", "float", "self"},     // Method from interface, implemented in Product
+		{"App\\Entity\\Product", "getName", "string", "self"},             // Method defined in Product class
+		{"App\\Entity\\Product", "getId", "int", "parent"},                // Method inherited from BaseProduct
+		{"App\\Entity\\Product", "getDescription", "string", "parent"},    // Method from interface, implemented in BaseProduct
+		{"App\\Entity\\Product", "getPrice", "float", "self"},             // Method from interface, implemented in Product
 		{"App\\Entity\\Product", "getBaseInformation", "array", "parent"}, // Method from BaseProduct
 	}
 
@@ -161,22 +161,22 @@ func TestTypeInferenceWithInheritance(t *testing.T) {
 
 	// Test cases for property inheritance
 	propertyTestCases := []struct {
-		classType      string // The class where to find the property
-		propertyName   string // The property to check
-		expectedType   string // The expected property type
-		source         string // Where the property comes from: "self", "parent"
-		accessible     bool   // Whether the property should be accessible
+		classType    string // The class where to find the property
+		propertyName string // The property to check
+		expectedType string // The expected property type
+		source       string // Where the property comes from: "self", "parent"
+		accessible   bool   // Whether the property should be accessible
 	}{
 		// Note: According to visibility rules in our test, name and sku are PRIVATE in Product class
 		// so they shouldn't be accessible from outside the class and will return nil
 		// But they would be accessible from WITHIN the Product class
-		{"App\\Entity\\Product", "name", "string", "self", false},    // Private property in Product class - not accessible
-		{"App\\Entity\\Product", "sku", "?string", "self", false},   // Private property in Product class - not accessible
+		{"App\\Entity\\Product", "name", "string", "self", false}, // Private property in Product class - not accessible
+		{"App\\Entity\\Product", "sku", "?string", "self", false}, // Private property in Product class - not accessible
 
 		// These properties from parent are all protected, so they should be accessible
-		{"App\\Entity\\Product", "id", "int", "parent", true},       // Protected property from BaseProduct
+		{"App\\Entity\\Product", "id", "int", "parent", true},             // Protected property from BaseProduct
 		{"App\\Entity\\Product", "description", "string", "parent", true}, // Protected property from BaseProduct
-		{"App\\Entity\\Product", "price", "float", "parent", true},    // Protected property from BaseProduct
+		{"App\\Entity\\Product", "price", "float", "parent", true},        // Protected property from BaseProduct
 	}
 
 	// Test each property's type lookup with searchParentClassProperty function
@@ -184,7 +184,7 @@ func TestTypeInferenceWithInheritance(t *testing.T) {
 		t.Run("Property_"+tc.propertyName, func(t *testing.T) {
 			// Test that our property resolver properly handles visibility and inheritance
 			resultType := idx.searchParentClassProperty(tc.classType, tc.propertyName)
-			
+
 			if tc.accessible {
 				// Property should be accessible (public/protected)
 				assert.NotNil(t, resultType, "Should find type for property %s", tc.propertyName)
@@ -214,7 +214,7 @@ func TestTypeInferenceWithInheritance(t *testing.T) {
 		// Check that searchParentClassProperty correctly handles property visibility
 		for _, tc := range propertyTestCases {
 			resultType := idx.searchParentClassProperty(tc.classType, tc.propertyName)
-			
+
 			if tc.accessible {
 				// Property should be accessible (public/protected)
 				assert.NotNil(t, resultType, "searchParentClassProperty should find type for %s", tc.propertyName)

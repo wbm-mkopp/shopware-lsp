@@ -2,24 +2,33 @@ package definition
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 
+	"github.com/shopware/shopware-lsp/internal/extension"
 	"github.com/shopware/shopware-lsp/internal/lsp"
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
+	"github.com/shopware/shopware-lsp/internal/theme"
 	"github.com/shopware/shopware-lsp/internal/twig"
 
 	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
 )
 
 type TwigDefinitionProvider struct {
-	twigIndexer *twig.TwigIndexer
+	twigIndexer  *twig.TwigIndexer
+	iconProvider *theme.IconProvider
 }
 
-func NewTwigDefinitionProvider(lspServer *lsp.Server) *TwigDefinitionProvider {
+func NewTwigDefinitionProvider(projectRoot string, lspServer *lsp.Server) *TwigDefinitionProvider {
 	twigIndexer, _ := lspServer.GetIndexer("twig.indexer")
+	extensionIndexer, _ := lspServer.GetIndexer("extension.indexer")
+
+	iconProvider := theme.NewIconProvider(projectRoot, extensionIndexer.(*extension.ExtensionIndexer))
+
 	return &TwigDefinitionProvider{
-		twigIndexer: twigIndexer.(*twig.TwigIndexer),
+		twigIndexer:  twigIndexer.(*twig.TwigIndexer),
+		iconProvider: iconProvider,
 	}
 }
 
@@ -116,6 +125,40 @@ func (p *TwigDefinitionProvider) twigDefinitions(ctx context.Context, params *pr
 
 			return locations
 		}
+	}
+
+	if treesitterhelper.TwigStringInTagPattern("sw_icon").Matches(params.Node, []byte(params.DocumentContent)) {
+		text := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
+
+		cfg := treesitterhelper.ExtractSwIconObjectToMap(params.Node.Parent(), params.DocumentContent)
+
+		pack, ok := cfg["pack"]
+		if !ok {
+			pack = "default"
+		}
+
+		icon := p.iconProvider.GetIcon(pack, text)
+
+		if icon != "" {
+			locations := []protocol.Location{
+				{
+					URI: fmt.Sprintf("file://%s", icon),
+					Range: protocol.Range{
+						Start: protocol.Position{
+							Line:      0,
+							Character: 0,
+						},
+						End: protocol.Position{
+							Line:      0,
+							Character: 0,
+						},
+					},
+				},
+			}
+
+			return locations
+		}
+
 	}
 
 	return []protocol.Location{}

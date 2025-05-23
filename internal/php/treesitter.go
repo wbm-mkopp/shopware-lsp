@@ -47,6 +47,6 @@ func (s *PHPIndex) IsMethodCalledOnClass(ctx context.Context, node *tree_sitter.
 	if nodeType == nil {
 		return false
 	}
-	
+
 	return nodeType.Matches(NewPHPType(className))
 }

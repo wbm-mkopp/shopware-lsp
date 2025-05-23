@@ -422,8 +422,8 @@ type hasChildPattern struct {
 }
 
 func (p *hasChildPattern) Matches(node *tree_sitter.Node, content []byte) bool {
-	for i := 0; i < int(node.NamedChildCount()); i++ {
-		child := node.NamedChild(uint(i))
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(uint(i))
 		if p.pattern.Matches(child, content) {
 			return true
 		}

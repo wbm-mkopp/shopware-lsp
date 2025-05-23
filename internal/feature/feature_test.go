@@ -22,7 +22,7 @@ func TestParseFeatureFile(t *testing.T) {
 	parser := sitter.NewParser()
 	err = parser.SetLanguage(sitter.NewLanguage(tree_sitter_yaml.Language()))
 	require.NoError(t, err, "Setting language should not fail")
-	
+
 	tree := parser.Parse(content, nil)
 	require.NotNil(t, tree, "Parsing YAML should not fail")
 
@@ -33,13 +33,13 @@ func TestParseFeatureFile(t *testing.T) {
 
 	// Verify the expected features are present
 	expectedFeatures := map[string]int{
-		"v6.5.0.0":                          4,
-		"v6.6.0.0":                          8,
-		"v6.7.0.0":                          12,
-		"v6.8.0.0":                          16,
-		"DISABLE_VUE_COMPAT":                20,
-		"ACCESSIBILITY_TWEAKS":              24,
-		"TELEMETRY_METRICS":                 29,
+		"v6.5.0.0":                              4,
+		"v6.6.0.0":                              8,
+		"v6.7.0.0":                              12,
+		"v6.8.0.0":                              16,
+		"DISABLE_VUE_COMPAT":                    20,
+		"ACCESSIBILITY_TWEAKS":                  24,
+		"TELEMETRY_METRICS":                     29,
 		"FLOW_EXECUTION_AFTER_BUSINESS_PROCESS": 34,
 	}
 

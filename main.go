@@ -62,7 +62,7 @@ func main() {
 	server.RegisterIndexer(extension.NewExtensionIndexer(cacheDir))
 
 	server.RegisterCompletionProvider(completion.NewServiceCompletionProvider(server))
-	server.RegisterCompletionProvider(completion.NewTwigCompletionProvider(server))
+	server.RegisterCompletionProvider(completion.NewTwigCompletionProvider(projectRoot, server))
 	server.RegisterCompletionProvider(completion.NewRouteCompletionProvider(server))
 	server.RegisterCompletionProvider(completion.NewSnippetCompletionProvider(server))
 	server.RegisterCompletionProvider(completion.NewFeatureCompletionProvider(server))
@@ -70,7 +70,7 @@ func main() {
 	server.RegisterCompletionProvider(completion.NewThemeCompletionProvider(server))
 
 	server.RegisterDefinitionProvider(definition.NewServiceXMLDefinitionProvider(server))
-	server.RegisterDefinitionProvider(definition.NewTwigDefinitionProvider(server))
+	server.RegisterDefinitionProvider(definition.NewTwigDefinitionProvider(projectRoot, server))
 	server.RegisterDefinitionProvider(definition.NewRouteDefinitionProvider(server))
 	server.RegisterDefinitionProvider(definition.NewSnippetDefinitionProvider(server))
 	server.RegisterDefinitionProvider(definition.NewFeatureDefinitionProvider(server))

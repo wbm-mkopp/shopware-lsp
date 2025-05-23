@@ -7,9 +7,9 @@ import (
 )
 
 type Feature struct {
-	Name     string
-	File     string
-	Line     int
+	Name string
+	File string
+	Line int
 }
 
 func ParseFeatureFile(root *tree_sitter.Node, document []byte, filePath string) ([]Feature, error) {
@@ -37,7 +37,7 @@ func traverseForFeatures(node *tree_sitter.Node, document []byte, filePath strin
 						textNode := child.NamedChild(j)
 						if textNode.Kind() == "string_scalar" {
 							keyText := string(textNode.Utf8Text(document))
-							
+
 							// If this is a "name" key
 							if keyText == "name" {
 								// Look for the value
@@ -73,4 +73,3 @@ func traverseForFeatures(node *tree_sitter.Node, document []byte, filePath strin
 		traverseForFeatures(node.NamedChild(i), document, filePath, features)
 	}
 }
-

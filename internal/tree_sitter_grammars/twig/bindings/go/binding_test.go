@@ -19,7 +19,9 @@ func TestLanguage(t *testing.T) {
 
 func TestParseTwig(t *testing.T) {
 	parser := treesitter.NewParser()
-	parser.SetLanguage(treesitter.NewLanguage(Language()))
+	if err := parser.SetLanguage(treesitter.NewLanguage(Language())); err != nil {
+		t.Fatalf("Failed to set language: %v", err)
+	}
 
 	source := []byte(`{% extends "base.html" %}`)
 	tree := parser.Parse(source, nil)

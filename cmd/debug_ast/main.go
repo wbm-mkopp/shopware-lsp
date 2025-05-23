@@ -15,6 +15,6 @@ func main() {
 
 	filePath := os.Args[1]
 	fmt.Printf("Analyzing AST for file: %s\n\n", filePath)
-	
+
 	php.DebugAST(filePath)
 }

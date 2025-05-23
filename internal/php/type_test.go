@@ -8,42 +8,42 @@ import (
 )
 
 func TestIntersectionType(t *testing.T) {
-	testCases := []struct{
-		name string
-		typeName string
-		expectedName string
+	testCases := []struct {
+		name          string
+		typeName      string
+		expectedName  string
 		expectedTypes int
 	}{
 		{
-			name: "simple intersection type",
-			typeName: "Traversable&Countable",
-			expectedName: "Countable&Traversable", // Note: sorted alphabetically
+			name:          "simple intersection type",
+			typeName:      "Traversable&Countable",
+			expectedName:  "Countable&Traversable", // Note: sorted alphabetically
 			expectedTypes: 2,
 		},
 		{
-			name: "complex intersection type",
-			typeName: "Serializable&Throwable&\\MyInterface",
-			expectedName: "\\MyInterface&Serializable&Throwable",
+			name:          "complex intersection type",
+			typeName:      "Serializable&Throwable&\\MyInterface",
+			expectedName:  "\\MyInterface&Serializable&Throwable",
 			expectedTypes: 3,
 		},
 		{
-			name: "intersection with object types",
-			typeName: "Iterator&\\Foo\\Bar",
-			expectedName: "\\Foo\\Bar&Iterator", // sorted alphabetically
+			name:          "intersection with object types",
+			typeName:      "Iterator&\\Foo\\Bar",
+			expectedName:  "\\Foo\\Bar&Iterator", // sorted alphabetically
 			expectedTypes: 2,
 		},
 		{
-			name: "nullable intersection type (converted to union with null)",
-			typeName: "?Iterator&\\Foo\\Bar",
-			expectedName: "\\Foo\\Bar&Iterator|null", // intersection in union with null
-			expectedTypes: 2, // The union has 2 types: IntersectionType and NullType
+			name:          "nullable intersection type (converted to union with null)",
+			typeName:      "?Iterator&\\Foo\\Bar",
+			expectedName:  "\\Foo\\Bar&Iterator|null", // intersection in union with null
+			expectedTypes: 2,                          // The union has 2 types: IntersectionType and NullType
 		},
 	}
-	
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			phpType := NewPHPType(tc.typeName)
-			
+
 			// Check if the complex intersection type is handled as a nullable union when needed
 			if strings.HasPrefix(tc.typeName, "?") && strings.Contains(tc.typeName, "&") {
 				// Should be a union type with an intersection type and null
@@ -63,61 +63,61 @@ func TestIntersectionType(t *testing.T) {
 }
 
 func TestIntersectionType_Matches(t *testing.T) {
-	testCases := []struct{
-		name string
-		type1 string
-		type2 string
+	testCases := []struct {
+		name          string
+		type1         string
+		type2         string
 		expectedMatch bool
 	}{
 		{
-			name: "same intersection types match",
-			type1: "Traversable&Countable",
-			type2: "Traversable&Countable",
+			name:          "same intersection types match",
+			type1:         "Traversable&Countable",
+			type2:         "Traversable&Countable",
 			expectedMatch: true,
 		},
 		{
-			name: "different order intersection types match",
-			type1: "Traversable&Countable",
-			type2: "Countable&Traversable",
+			name:          "different order intersection types match",
+			type1:         "Traversable&Countable",
+			type2:         "Countable&Traversable",
 			expectedMatch: true,
 		},
 		{
-			name: "subset intersection types match",
-			type1: "Traversable&Countable&Serializable",
-			type2: "Traversable&Countable",
+			name:          "subset intersection types match",
+			type1:         "Traversable&Countable&Serializable",
+			type2:         "Traversable&Countable",
 			expectedMatch: false,
 		},
 		{
-			name: "single type matches intersection if it implements all interfaces",
-			type1: "\\ArrayObject", // This class implements both Traversable and Countable
-			type2: "Traversable&Countable",
+			name:          "single type matches intersection if it implements all interfaces",
+			type1:         "\\ArrayObject", // This class implements both Traversable and Countable
+			type2:         "Traversable&Countable",
 			expectedMatch: true,
 		},
 		{
-			name: "intersection type matches single type if the single type is one of the interfaces",
-			type1: "Traversable&Countable",
-			type2: "Traversable",
+			name:          "intersection type matches single type if the single type is one of the interfaces",
+			type1:         "Traversable&Countable",
+			type2:         "Traversable",
 			expectedMatch: false,
 		},
 		{
-			name: "mixed matches any intersection type",
-			type1: "mixed",
-			type2: "Traversable&Countable",
+			name:          "mixed matches any intersection type",
+			type1:         "mixed",
+			type2:         "Traversable&Countable",
 			expectedMatch: true,
 		},
 		{
-			name: "intersection with union types",
-			type1: "Traversable&Countable",
-			type2: "Traversable|Countable",
+			name:          "intersection with union types",
+			type1:         "Traversable&Countable",
+			type2:         "Traversable|Countable",
 			expectedMatch: false,
 		},
 	}
-	
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			type1 := NewPHPType(tc.type1)
 			type2 := NewPHPType(tc.type2)
-			
+
 			result := type1.Matches(type2)
 			assert.Equal(t, tc.expectedMatch, result, "Expected %s.Matches(%s) to be %v", tc.type1, tc.type2, tc.expectedMatch)
 		})
@@ -125,73 +125,73 @@ func TestIntersectionType_Matches(t *testing.T) {
 }
 
 func TestUnionType(t *testing.T) {
-	testCases := []struct{
-		name string
-		typeName string
-		expectedName string
+	testCases := []struct {
+		name          string
+		typeName      string
+		expectedName  string
 		expectedTypes int
 	}{
 		{
-			name: "simple union type",
-			typeName: "string|int",
-			expectedName: "int|string", // Note: sorted alphabetically
+			name:          "simple union type",
+			typeName:      "string|int",
+			expectedName:  "int|string", // Note: sorted alphabetically
 			expectedTypes: 2,
 		},
 		{
-			name: "complex union type",
-			typeName: "array|bool|float|int|string",
-			expectedName: "array|bool|float|int|string",
+			name:          "complex union type",
+			typeName:      "array|bool|float|int|string",
+			expectedName:  "array|bool|float|int|string",
 			expectedTypes: 5,
 		},
 		{
-			name: "union with object types",
-			typeName: "string|\\Foo\\Bar",
-			expectedName: "\\Foo\\Bar|string", // sorted alphabetically
+			name:          "union with object types",
+			typeName:      "string|\\Foo\\Bar",
+			expectedName:  "\\Foo\\Bar|string", // sorted alphabetically
 			expectedTypes: 2,
 		},
 		{
-			name: "union with array type",
-			typeName: "array|string[]",
-			expectedName: "array|string[]",
+			name:          "union with array type",
+			typeName:      "array|string[]",
+			expectedName:  "array|string[]",
 			expectedTypes: 2,
 		},
 		{
-			name: "nullable union type",
-			typeName: "?string|int",
-			expectedName: "int|null|string", // includes null type
+			name:          "nullable union type",
+			typeName:      "?string|int",
+			expectedName:  "int|null|string", // includes null type
 			expectedTypes: 3,
 		},
 		{
-			name: "nullable type normalized to union",
-			typeName: "?string",
-			expectedName: "null|string", // normalized to union
+			name:          "nullable type normalized to union",
+			typeName:      "?string",
+			expectedName:  "null|string", // normalized to union
 			expectedTypes: 2,
 		},
 		{
-			name: "nullable array type",
-			typeName: "?string[]",
-			expectedName: "null|string[]", // normalized to union
+			name:          "nullable array type",
+			typeName:      "?string[]",
+			expectedName:  "null|string[]", // normalized to union
 			expectedTypes: 2,
 		},
 		{
-			name: "nullable object type",
-			typeName: "?\\Foo\\Bar",
-			expectedName: "\\Foo\\Bar|null", // normalized to union
+			name:          "nullable object type",
+			typeName:      "?\\Foo\\Bar",
+			expectedName:  "\\Foo\\Bar|null", // normalized to union
 			expectedTypes: 2,
 		},
 	}
-	
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			phpType := NewPHPType(tc.typeName)
-			
+
 			// Check that it's a union type
 			unionType, ok := phpType.(*UnionType)
 			assert.True(t, ok, "Expected a UnionType, got %T", phpType)
-			
+
 			// Check the name
 			assert.Equal(t, tc.expectedName, unionType.Name())
-			
+
 			// Check the number of types
 			assert.Equal(t, tc.expectedTypes, len(unionType.types))
 		})
@@ -199,61 +199,61 @@ func TestUnionType(t *testing.T) {
 }
 
 func TestNullableTypeMatching(t *testing.T) {
-	testCases := []struct{
-		name string
-		type1 string
-		type2 string
+	testCases := []struct {
+		name          string
+		type1         string
+		type2         string
 		expectedMatch bool
 	}{
 		{
-			name: "nullable string matches string",
-			type1: "?string",
-			type2: "string",
+			name:          "nullable string matches string",
+			type1:         "?string",
+			type2:         "string",
 			expectedMatch: true,
 		},
 		{
-			name: "string doesn't match nullable string",
-			type1: "string",
-			type2: "?string",
+			name:          "string doesn't match nullable string",
+			type1:         "string",
+			type2:         "?string",
 			expectedMatch: false,
 		},
 		{
-			name: "nullable string matches null",
-			type1: "?string",
-			type2: "null",
+			name:          "nullable string matches null",
+			type1:         "?string",
+			type2:         "null",
 			expectedMatch: true,
 		},
 		{
-			name: "null matches nullable string",
-			type1: "null",
-			type2: "?string",
+			name:          "null matches nullable string",
+			type1:         "null",
+			type2:         "?string",
 			expectedMatch: true,
 		},
 		{
-			name: "normalized nullable object type matches original object type",
-			type1: "?\\Foo\\Bar",
-			type2: "\\Foo\\Bar",
+			name:          "normalized nullable object type matches original object type",
+			type1:         "?\\Foo\\Bar",
+			type2:         "\\Foo\\Bar",
 			expectedMatch: true,
 		},
 		{
-			name: "nullable union type matches any of its components",
-			type1: "?string|int",
-			type2: "string",
+			name:          "nullable union type matches any of its components",
+			type1:         "?string|int",
+			type2:         "string",
 			expectedMatch: true,
 		},
 		{
-			name: "nullable union type matches null",
-			type1: "?string|int",
-			type2: "null",
+			name:          "nullable union type matches null",
+			type1:         "?string|int",
+			type2:         "null",
 			expectedMatch: true,
 		},
 	}
-	
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			type1 := NewPHPType(tc.type1)
 			type2 := NewPHPType(tc.type2)
-			
+
 			result := type1.Matches(type2)
 			assert.Equal(t, tc.expectedMatch, result, "Expected %s.Matches(%s) to be %v", tc.type1, tc.type2, tc.expectedMatch)
 		})
@@ -261,73 +261,73 @@ func TestNullableTypeMatching(t *testing.T) {
 }
 
 func TestUnionType_Matches(t *testing.T) {
-	testCases := []struct{
-		name string
-		type1 string
-		type2 string
+	testCases := []struct {
+		name          string
+		type1         string
+		type2         string
 		expectedMatch bool
 	}{
 		{
-			name: "same union types match",
-			type1: "string|int",
-			type2: "string|int",
+			name:          "same union types match",
+			type1:         "string|int",
+			type2:         "string|int",
 			expectedMatch: true,
 		},
 		{
-			name: "different order union types match",
-			type1: "string|int",
-			type2: "int|string",
+			name:          "different order union types match",
+			type1:         "string|int",
+			type2:         "int|string",
 			expectedMatch: true,
 		},
 		{
-			name: "union type matches non-union if one type matches",
-			type1: "string|int",
-			type2: "string",
+			name:          "union type matches non-union if one type matches",
+			type1:         "string|int",
+			type2:         "string",
 			expectedMatch: true,
 		},
 		{
-			name: "non-union type matches union if it matches one type",
-			type1: "string|int", // Swapped to make union the first type
-			type2: "string",
+			name:          "non-union type matches union if it matches one type",
+			type1:         "string|int", // Swapped to make union the first type
+			type2:         "string",
 			expectedMatch: true,
 		},
 		{
-			name: "subset union types match",
-			type1: "string|int",
-			type2: "string|int|float",
+			name:          "subset union types match",
+			type1:         "string|int",
+			type2:         "string|int|float",
 			expectedMatch: true,
 		},
 		{
-			name: "union types with no overlapping types don't match",
-			type1: "string|bool",  // no overlapping types with type2
-			type2: "int|float",
+			name:          "union types with no overlapping types don't match",
+			type1:         "string|bool", // no overlapping types with type2
+			type2:         "int|float",
 			expectedMatch: false,
 		},
 		{
-			name: "union types with overlapping types match",
-			type1: "string|int",
-			type2: "int|float",
+			name:          "union types with overlapping types match",
+			type1:         "string|int",
+			type2:         "int|float",
 			expectedMatch: true,
 		},
 		{
-			name: "mixed matches any union type",
-			type1: "mixed",
-			type2: "string|int",
+			name:          "mixed matches any union type",
+			type1:         "mixed",
+			type2:         "string|int",
 			expectedMatch: true,
 		},
 		{
-			name: "any union type matches mixed",
-			type1: "string|int",
-			type2: "mixed",
+			name:          "any union type matches mixed",
+			type1:         "string|int",
+			type2:         "mixed",
 			expectedMatch: true,
 		},
 	}
-	
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			type1 := NewPHPType(tc.type1)
 			type2 := NewPHPType(tc.type2)
-			
+
 			result := type1.Matches(type2)
 			assert.Equal(t, tc.expectedMatch, result)
 		})

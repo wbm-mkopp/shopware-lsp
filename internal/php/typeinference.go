@@ -8,4 +8,3 @@ package php
 // 1. Type inference for $this->method() calls
 // 2. Full class hierarchy traversal (parent classes and interfaces)
 // 3. Method return type resolution through multiple inheritance levels
-

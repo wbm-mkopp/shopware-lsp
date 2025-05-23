@@ -32,7 +32,7 @@ func TestFeatureIndexer_Index(t *testing.T) {
 	parser := sitter.NewParser()
 	err = parser.SetLanguage(sitter.NewLanguage(tree_sitter_yaml.Language()))
 	require.NoError(t, err, "Setting language should not fail")
-	
+
 	tree := parser.Parse(content, nil)
 	require.NotNil(t, tree, "Parsing YAML should not fail")
 
@@ -85,7 +85,7 @@ func TestFeatureIndexer_RemovedFiles(t *testing.T) {
 	parser := sitter.NewParser()
 	err = parser.SetLanguage(sitter.NewLanguage(tree_sitter_yaml.Language()))
 	require.NoError(t, err, "Setting language should not fail")
-	
+
 	tree := parser.Parse(content, nil)
 	require.NotNil(t, tree, "Parsing YAML should not fail")
 
