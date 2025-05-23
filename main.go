@@ -14,6 +14,7 @@ import (
 	"github.com/shopware/shopware-lsp/internal/lsp/completion"
 	"github.com/shopware/shopware-lsp/internal/lsp/definition"
 	"github.com/shopware/shopware-lsp/internal/lsp/diagnostics"
+	"github.com/shopware/shopware-lsp/internal/lsp/hover"
 	"github.com/shopware/shopware-lsp/internal/lsp/reference"
 	"github.com/shopware/shopware-lsp/internal/php"
 	"github.com/shopware/shopware-lsp/internal/snippet"
@@ -83,6 +84,9 @@ func main() {
 	server.RegisterReferencesProvider(reference.NewRouteReferenceProvider(server))
 
 	server.RegisterDiagnosticsProvider(diagnostics.NewSnippetDiagnosticsProvider(server))
+
+	// Register hover providers
+	server.RegisterHoverProvider(hover.NewTwigHoverProvider(projectRoot, server))
 
 	// Register code action providers
 	server.RegisterCodeActionProvider(codeaction.NewSnippetCodeActionProvider(server))

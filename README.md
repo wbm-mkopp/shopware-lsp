@@ -20,6 +20,8 @@ A Language Server Protocol (LSP) implementation for Shopware development.
 - Go-to-definition for template paths in Twig and PHP files
 - Twig block indexing and tracking
 - Support for Shopware-specific Twig extensions and tags
+- Icon name completion for `sw_icon` tags
+- Icon preview on hover for `sw_icon` tags (shows SVG preview inline)
 
 ### Snippet Support
 - Snippet indexing and validation in Twig files
