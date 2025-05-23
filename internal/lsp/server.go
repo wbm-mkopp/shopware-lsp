@@ -27,6 +27,7 @@ type Server struct {
 	codeLensProviders    []CodeLensProvider
 	diagnosticsProviders []DiagnosticsProvider
 	codeActionProviders  []CodeActionProvider
+	hoverProviders       []HoverProvider
 	commandProviders     []CommandProvider
 	indexers             map[string]indexer.Indexer
 	commandMap           map[string]CommandFunc
@@ -46,6 +47,7 @@ func NewServer(filescanner *indexer.FileScanner, cacheDir, version string) *Serv
 		codeLensProviders:    make([]CodeLensProvider, 0),
 		diagnosticsProviders: make([]DiagnosticsProvider, 0),
 		codeActionProviders:  make([]CodeActionProvider, 0),
+		hoverProviders:       make([]HoverProvider, 0),
 		commandProviders:     make([]CommandProvider, 0),
 		indexers:             make(map[string]indexer.Indexer),
 		commandMap:           make(map[string]CommandFunc),
@@ -87,6 +89,11 @@ func (s *Server) RegisterCodeLensProvider(provider CodeLensProvider) {
 // RegisterCodeActionProvider registers a code action provider with the server
 func (s *Server) RegisterCodeActionProvider(provider CodeActionProvider) {
 	s.codeActionProviders = append(s.codeActionProviders, provider)
+}
+
+// RegisterHoverProvider registers a hover provider with the server
+func (s *Server) RegisterHoverProvider(provider HoverProvider) {
+	s.hoverProviders = append(s.hoverProviders, provider)
 }
 
 // RegisterCommandProvider registers a command provider with the server
@@ -355,6 +362,13 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 		}
 		return s.codeLens(ctx, &params), nil
 
+	case "textDocument/hover":
+		var params protocol.HoverParams
+		if err := json.Unmarshal(*req.Params, &params); err != nil {
+			return nil, err
+		}
+		return s.hover(ctx, &params)
+
 	case "textDocument/diagnostic":
 		var params protocol.DiagnosticParams
 		if err := json.Unmarshal(*req.Params, &params); err != nil {
@@ -539,6 +553,7 @@ func (s *Server) initialize(ctx context.Context, params *protocol.InitializePara
 			},
 			"definitionProvider": true,
 			"referencesProvider": true,
+			"hoverProvider":      true,
 			"codeLensProvider": map[string]interface{}{
 				"resolveProvider": true,
 			},

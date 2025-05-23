@@ -15,6 +15,12 @@ type CompletionProvider interface {
 	GetTriggerCharacters() []string
 }
 
+// HoverProvider is an interface for providing hover information
+type HoverProvider interface {
+	// GetHover returns hover information for the given parameters
+	GetHover(ctx context.Context, params *protocol.HoverParams) (*protocol.Hover, error)
+}
+
 // CodeLensProvider is an interface for providing code lenses
 type CodeLensProvider interface {
 	// GetCodeLenses returns code lenses for the given document
