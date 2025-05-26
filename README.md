@@ -43,6 +43,7 @@ A Language Server Protocol (LSP) implementation for Shopware development.
 
 ### Diagnostics
 - Snippet validation in Twig templates
+- Theme icon validation in Twig templates (checks if referenced icons exist)
 
 ## Development
 
