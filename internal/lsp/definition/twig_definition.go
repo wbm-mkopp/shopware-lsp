@@ -60,7 +60,7 @@ func (p *TwigDefinitionProvider) twigDefinitions(ctx context.Context, params *pr
 			}
 
 			locations = append(locations, protocol.Location{
-				URI: file.Path,
+				URI: fmt.Sprintf("file://%s", file.Path),
 				Range: protocol.Range{
 					Start: protocol.Position{
 						Line:      0,
@@ -87,7 +87,7 @@ func (p *TwigDefinitionProvider) twigDefinitions(ctx context.Context, params *pr
 			var locations []protocol.Location
 			for _, filter := range filters {
 				locations = append(locations, protocol.Location{
-					URI: filter.FilePath,
+					URI: fmt.Sprintf("file://%s", filter.FilePath),
 					Range: protocol.Range{
 						Start: protocol.Position{
 							Line:      int(filter.Line) - 1,
@@ -109,7 +109,7 @@ func (p *TwigDefinitionProvider) twigDefinitions(ctx context.Context, params *pr
 			var locations []protocol.Location
 			for _, function := range functions {
 				locations = append(locations, protocol.Location{
-					URI: function.FilePath,
+					URI: fmt.Sprintf("file://%s", function.FilePath),
 					Range: protocol.Range{
 						Start: protocol.Position{
 							Line:      int(function.Line) - 1,
@@ -171,7 +171,7 @@ func (p *TwigDefinitionProvider) phpDefinitions(ctx context.Context, params *pro
 		var locations []protocol.Location
 		for _, file := range files {
 			locations = append(locations, protocol.Location{
-				URI: file.Path,
+				URI: fmt.Sprintf("file://%s", file.Path),
 				Range: protocol.Range{
 					Start: protocol.Position{
 						Line:      0,

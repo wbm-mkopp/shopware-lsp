@@ -2,6 +2,7 @@ package definition
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -65,7 +66,7 @@ func (p *serviceXMLDefinitionProvider) xmlDefinition(ctx context.Context, params
 		// Create a location for the service
 		return []protocol.Location{
 			{
-				URI: "file://" + service.Path,
+				URI: fmt.Sprintf("file://%s", service.Path),
 				Range: protocol.Range{
 					Start: protocol.Position{
 						Line:      service.Line - 1, // LSP uses 0-based line numbers
@@ -97,7 +98,7 @@ func (p *serviceXMLDefinitionProvider) xmlDefinition(ctx context.Context, params
 			}
 
 			locations = append(locations, protocol.Location{
-				URI: "file://" + service.Path,
+				URI: fmt.Sprintf("file://%s", service.Path),
 				Range: protocol.Range{
 					Start: protocol.Position{
 						Line:      service.Line - 1, // LSP uses 0-based line numbers
@@ -146,7 +147,7 @@ func (p *serviceXMLDefinitionProvider) xmlDefinition(ctx context.Context, params
 
 		return []protocol.Location{
 			{
-				URI: "file://" + parameter.Path,
+				URI: fmt.Sprintf("file://%s", parameter.Path),
 				Range: protocol.Range{
 					Start: protocol.Position{
 						Line:      parameter.Line - 1, // LSP uses 0-based line numbers
@@ -169,7 +170,7 @@ func (p *serviceXMLDefinitionProvider) xmlDefinition(ctx context.Context, params
 		if phpClass != nil {
 			return []protocol.Location{
 				{
-					URI: "file://" + phpClass.Path,
+					URI: fmt.Sprintf("file://%s", phpClass.Path),
 					Range: protocol.Range{
 						Start: protocol.Position{
 							Line:      phpClass.Line - 1, // LSP uses 0-based line numbers
@@ -195,7 +196,7 @@ func (p *serviceXMLDefinitionProvider) yamlDefinition(ctx context.Context, param
 		if phpClass != nil {
 			return []protocol.Location{
 				{
-					URI: "file://" + phpClass.Path,
+					URI: fmt.Sprintf("file://%s", phpClass.Path),
 					Range: protocol.Range{
 						Start: protocol.Position{
 							Line:      phpClass.Line - 1, // LSP uses 0-based line numbers
@@ -219,7 +220,7 @@ func (p *serviceXMLDefinitionProvider) yamlDefinition(ctx context.Context, param
 		if found {
 			return []protocol.Location{
 				{
-					URI: "file://" + service.Path,
+					URI: fmt.Sprintf("file://%s", service.Path),
 					Range: protocol.Range{
 						Start: protocol.Position{
 							Line:      service.Line - 1, // LSP uses 0-based line numbers
@@ -251,7 +252,7 @@ func (p *serviceXMLDefinitionProvider) phpDefinition(ctx context.Context, params
 
 		if phpClass != nil {
 			locations = append(locations, protocol.Location{
-				URI: "file://" + phpClass.Path,
+				URI: fmt.Sprintf("file://%s", phpClass.Path),
 				Range: protocol.Range{
 					Start: protocol.Position{
 						Line:      phpClass.Line - 1, // LSP uses 0-based line numbers

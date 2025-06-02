@@ -2,6 +2,7 @@ package reference
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 
 	"github.com/shopware/shopware-lsp/internal/lsp"
@@ -52,7 +53,7 @@ func (r *RouteReferenceProvider) getReferencesForPHP(ctx context.Context, params
 
 			for _, location := range locations {
 				result = append(result, protocol.Location{
-					URI: location.File,
+					URI: fmt.Sprintf("file://%s", location.File),
 					Range: protocol.Range{
 						Start: protocol.Position{
 							Line:      location.Line - 1,

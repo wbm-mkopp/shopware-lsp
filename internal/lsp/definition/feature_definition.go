@@ -2,6 +2,7 @@ package definition
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -47,7 +48,7 @@ func (p *FeatureDefinitionProvider) twigDefinition(ctx context.Context, params *
 		var locations []protocol.Location
 		for _, feature := range features {
 			locations = append(locations, protocol.Location{
-				URI: feature.File,
+				URI: fmt.Sprintf("file://%s", feature.File),
 				Range: protocol.Range{
 					Start: protocol.Position{
 						Line:      feature.Line - 1,
@@ -76,7 +77,7 @@ func (p *FeatureDefinitionProvider) phpDefinition(ctx context.Context, params *p
 		var locations []protocol.Location
 		for _, feature := range features {
 			locations = append(locations, protocol.Location{
-				URI: feature.File,
+				URI: fmt.Sprintf("file://%s", feature.File),
 				Range: protocol.Range{
 					Start: protocol.Position{
 						Line:      feature.Line - 1,
@@ -104,7 +105,7 @@ func (p *FeatureDefinitionProvider) scssDefinition(ctx context.Context, params *
 		var locations []protocol.Location
 		for _, feature := range features {
 			locations = append(locations, protocol.Location{
-				URI: feature.File,
+				URI: fmt.Sprintf("file://%s", feature.File),
 				Range: protocol.Range{
 					Start: protocol.Position{
 						Line:      feature.Line - 1,

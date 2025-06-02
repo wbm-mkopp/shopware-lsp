@@ -2,6 +2,7 @@ package definition
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -45,7 +46,7 @@ func (p *ThemeDefinitionProvider) scssDefinition(ctx context.Context, params *pr
 		var result []protocol.Location
 		for _, location := range locations {
 			result = append(result, protocol.Location{
-				URI: "file://" + location.Path,
+				URI: fmt.Sprintf("file://%s", location.Path),
 				Range: protocol.Range{
 					Start: protocol.Position{
 						Line:      location.Line - 1,
@@ -74,7 +75,7 @@ func (p *ThemeDefinitionProvider) twigDefinition(ctx context.Context, params *pr
 		var result []protocol.Location
 		for _, location := range locations {
 			result = append(result, protocol.Location{
-				URI: "file://" + location.Path,
+				URI: fmt.Sprintf("file://%s", location.Path),
 				Range: protocol.Range{
 					Start: protocol.Position{
 						Line:      location.Line - 1,

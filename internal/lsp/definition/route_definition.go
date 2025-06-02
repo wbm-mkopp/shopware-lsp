@@ -2,6 +2,7 @@ package definition
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -46,7 +47,7 @@ func (p *RouteDefinitionProvider) phpDefinition(ctx context.Context, params *pro
 		var result []protocol.Location
 		for _, location := range locations {
 			result = append(result, protocol.Location{
-				URI: location.FilePath,
+				URI: fmt.Sprintf("file://%s", location.FilePath),
 				Range: protocol.Range{
 					Start: protocol.Position{
 						Line:      location.Line - 1,
@@ -73,7 +74,7 @@ func (p *RouteDefinitionProvider) twigDefinition(ctx context.Context, params *pr
 		var locations []protocol.Location
 		for _, route := range routes {
 			locations = append(locations, protocol.Location{
-				URI: route.FilePath,
+				URI: fmt.Sprintf("file://%s", route.FilePath),
 				Range: protocol.Range{
 					Start: protocol.Position{
 						Line:      route.Line - 1,

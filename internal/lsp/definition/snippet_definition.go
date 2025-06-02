@@ -2,6 +2,7 @@ package definition
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -45,7 +46,7 @@ func (s *SnippetDefinitionProvider) twigDefinitions(ctx context.Context, params 
 
 		for _, snippet := range snippets {
 			locations = append(locations, protocol.Location{
-				URI: snippet.File,
+				URI: fmt.Sprintf("file://%s", snippet.File),
 				Range: protocol.Range{
 					Start: protocol.Position{
 						Line:      snippet.Line - 1,
@@ -73,7 +74,7 @@ func (s *SnippetDefinitionProvider) phpDefinitions(ctx context.Context, params *
 		var locations []protocol.Location
 		for _, snippet := range snippets {
 			locations = append(locations, protocol.Location{
-				URI: snippet.File,
+				URI: fmt.Sprintf("file://%s", snippet.File),
 				Range: protocol.Range{
 					Start: protocol.Position{
 						Line:      snippet.Line - 1,

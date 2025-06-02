@@ -2,6 +2,7 @@ package definition
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 
 	"github.com/shopware/shopware-lsp/internal/lsp"
@@ -41,7 +42,7 @@ func (s *SystemConfigDefinitionProvider) GetDefinition(ctx context.Context, para
 		locations := make([]protocol.Location, 0, len(entries))
 		for _, entry := range entries {
 			locations = append(locations, protocol.Location{
-				URI: "file://" + entry.FilePath,
+				URI: fmt.Sprintf("file://%s", entry.FilePath),
 				Range: protocol.Range{
 					Start: protocol.Position{
 						Line:      entry.Line - 1, // LSP uses 0-based line numbers
@@ -78,7 +79,7 @@ func (s *SystemConfigDefinitionProvider) phpDefinition(ctx context.Context, para
 			locations := make([]protocol.Location, 0, len(entries))
 			for _, entry := range entries {
 				locations = append(locations, protocol.Location{
-					URI: "file://" + entry.FilePath,
+					URI: fmt.Sprintf("file://%s", entry.FilePath),
 					Range: protocol.Range{
 						Start: protocol.Position{
 							Line:      entry.Line - 1, // LSP uses 0-based line numbers
@@ -110,7 +111,7 @@ func (s *SystemConfigDefinitionProvider) phpDefinition(ctx context.Context, para
 				}
 
 				locations = append(locations, protocol.Location{
-					URI: "file://" + entry.FilePath,
+					URI: fmt.Sprintf("file://%s", entry.FilePath),
 					Range: protocol.Range{
 						Start: protocol.Position{
 							Line:      entry.Line - 1, // LSP uses 0-based line numbers
