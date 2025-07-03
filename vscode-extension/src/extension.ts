@@ -88,7 +88,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     // Show output channel on start
     outputChannel.appendLine(`Starting Shopware Language Server at ${serverPath}`);
-    outputChannel.show();
 
     // Create and start the client
     client = new LanguageClient(
