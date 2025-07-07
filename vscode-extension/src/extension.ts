@@ -37,7 +37,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // If no custom path is provided, use the bundled server
     if (!serverPath) {
       // For development, we'll look for the server in the parent directory
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+      const workspaceRoot = getOuterMostWorkspaceFolder()?.uri.fsPath || '';
       const possiblePaths = [
         // When installed as extension
         context.asAbsolutePath(path.join('.', 'shopware-lsp')),
@@ -443,4 +443,16 @@ export function deactivate(): Thenable<void> | undefined {
       resolve(); // Resolve anyway to prevent VSCode from hanging
     });
   });
+}
+
+
+function getOuterMostWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
+  const sorted = (vscode.workspace.workspaceFolders || [])
+    .map((folder: vscode.WorkspaceFolder) => {
+        let path = folder.uri.toString();
+        return path.endsWith('/') ? path : path + '/';
+    })
+    .sort((a: string, b: string) =>  a.length - b.length);
+
+  return sorted[0] ? vscode.workspace.getWorkspaceFolder(vscode.Uri.parse(sorted[0])) : undefined;
 }
