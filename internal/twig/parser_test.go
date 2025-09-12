@@ -22,7 +22,15 @@ func TestTwigParse(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.Equal(t, "test", file.Path)
-	assert.Equal(t, map[string]TwigBlock{"foo": {Name: "foo", Line: 1}}, file.Blocks)
+	// Check that we have the block with correct name and line
+	assert.Len(t, file.Blocks, 1)
+	assert.Contains(t, file.Blocks, "foo")
+	block := file.Blocks["foo"]
+	assert.Equal(t, "foo", block.Name)
+	assert.Equal(t, 1, block.Line)
+	assert.NotEmpty(t, block.Hash) // Hash should be calculated
+	assert.NotEmpty(t, block.Text) // Text should be extracted
+	assert.Nil(t, block.VersionComment) // No version comment in this test
 }
 
 func TestTwigParseSwExtends(t *testing.T) {
@@ -63,5 +71,30 @@ func TestNestedBlock(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.Equal(t, "test", file.Path)
-	assert.Equal(t, map[string]TwigBlock{"a": {Name: "a", Line: 2}, "b": {Name: "b", Line: 3}, "c": {Name: "c", Line: 4}}, file.Blocks)
+	// Check that we have all three blocks with correct names and lines
+	assert.Len(t, file.Blocks, 3)
+	assert.Contains(t, file.Blocks, "a")
+	assert.Contains(t, file.Blocks, "b")
+	assert.Contains(t, file.Blocks, "c")
+	
+	blockA := file.Blocks["a"]
+	assert.Equal(t, "a", blockA.Name)
+	assert.Equal(t, 2, blockA.Line)
+	assert.NotEmpty(t, blockA.Hash)
+	assert.NotEmpty(t, blockA.Text)
+	assert.Nil(t, blockA.VersionComment)
+	
+	blockB := file.Blocks["b"]
+	assert.Equal(t, "b", blockB.Name)
+	assert.Equal(t, 3, blockB.Line)
+	assert.NotEmpty(t, blockB.Hash)
+	assert.NotEmpty(t, blockB.Text)
+	assert.Nil(t, blockB.VersionComment)
+	
+	blockC := file.Blocks["c"]
+	assert.Equal(t, "c", blockC.Name)
+	assert.Equal(t, 4, blockC.Line)
+	assert.NotEmpty(t, blockC.Hash)
+	assert.NotEmpty(t, blockC.Text)
+	assert.Nil(t, blockC.VersionComment)
 }

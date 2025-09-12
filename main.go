@@ -85,10 +85,12 @@ func main() {
 
 	server.RegisterDiagnosticsProvider(diagnostics.NewSnippetDiagnosticsProvider(server))
 	server.RegisterDiagnosticsProvider(diagnostics.NewThemeDiagnosticsProvider(projectRoot, server))
+	server.RegisterDiagnosticsProvider(diagnostics.NewTwigVersioningDiagnosticsProvider(server))
 
 	// Register hover providers
 	server.RegisterHoverProvider(hover.NewTwigHoverProvider(projectRoot, server))
 	server.RegisterHoverProvider(hover.NewSnippetHoverProvider(projectRoot, server))
+	server.RegisterHoverProvider(hover.NewTwigVersioningHoverProvider(server))
 
 	// Register code action providers
 	server.RegisterCodeActionProvider(codeaction.NewSnippetCodeActionProvider(server))

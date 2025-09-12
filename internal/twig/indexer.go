@@ -10,10 +10,11 @@ import (
 )
 
 type TwigIndexer struct {
-	twigFileIndex     *indexer.DataIndexer[TwigFile]
-	twigBlockIndex    *indexer.DataIndexer[TwigBlock]
-	twigFunctionIndex *indexer.DataIndexer[TwigFunction]
-	twigFilterIndex   *indexer.DataIndexer[TwigFilter]
+	twigFileIndex      *indexer.DataIndexer[TwigFile]
+	twigBlockIndex     *indexer.DataIndexer[TwigBlock]
+	twigBlockHashIndex *indexer.DataIndexer[TwigBlockHash]
+	twigFunctionIndex  *indexer.DataIndexer[TwigFunction]
+	twigFilterIndex    *indexer.DataIndexer[TwigFilter]
 }
 
 func NewTwigIndexer(configDir string) (*TwigIndexer, error) {
@@ -24,7 +25,11 @@ func NewTwigIndexer(configDir string) (*TwigIndexer, error) {
 	}
 
 	twigBlockIndex, err := indexer.NewDataIndexer[TwigBlock](path.Join(configDir, "twig_block.index"))
+	if err != nil {
+		return nil, err
+	}
 
+	twigBlockHashIndex, err := indexer.NewDataIndexer[TwigBlockHash](path.Join(configDir, "twig_block_hash.index"))
 	if err != nil {
 		return nil, err
 	}
@@ -40,10 +45,11 @@ func NewTwigIndexer(configDir string) (*TwigIndexer, error) {
 	}
 
 	return &TwigIndexer{
-		twigFileIndex:     twigFileIndex,
-		twigBlockIndex:    twigBlockIndex,
-		twigFunctionIndex: twigFunctionIndex,
-		twigFilterIndex:   twigFilterIndex,
+		twigFileIndex:      twigFileIndex,
+		twigBlockIndex:     twigBlockIndex,
+		twigBlockHashIndex: twigBlockHashIndex,
+		twigFunctionIndex:  twigFunctionIndex,
+		twigFilterIndex:    twigFilterIndex,
 	}, nil
 }
 
@@ -79,14 +85,42 @@ func (idx *TwigIndexer) indexTwig(path string, node *tree_sitter.Node, fileConte
 	twigBlocks := make(map[string]map[string]TwigBlock)
 	twigBlocks[file.Path] = make(map[string]TwigBlock)
 
+	// Only index block hashes for Storefront templates (matching PhpStorm plugin logic)
+	twigBlockHashes := make(map[string]map[string]TwigBlockHash)
+	isStorefrontTemplate := strings.Contains(path, "src/Storefront/Resources/views/storefront") || 
+						  strings.Contains(path, "vendor/shopware/storefront/Resources/views/storefront")
+	
+	if isStorefrontTemplate {
+		twigBlockHashes[file.Path] = make(map[string]TwigBlockHash)
+	}
+
 	for _, block := range file.Blocks {
 		if _, ok := twigBlocks[file.Path][block.Name]; !ok {
 			twigBlocks[file.Path][block.Name] = block
+		}
+		
+		// Save block hash data for Storefront templates
+		if isStorefrontTemplate {
+			blockHash := TwigBlockHash{
+				Name:         block.Name,
+				RelativePath: ConvertToRelativePath(path),
+				AbsolutePath: path,
+				Hash:         block.Hash,
+				Text:         block.Text,
+			}
+			twigBlockHashes[file.Path][block.Name] = blockHash
 		}
 	}
 
 	if err := idx.twigBlockIndex.BatchSaveItems(twigBlocks); err != nil {
 		return err
+	}
+
+	// Save block hash data if we have any
+	if len(twigBlockHashes) > 0 {
+		if err := idx.twigBlockHashIndex.BatchSaveItems(twigBlockHashes); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -139,6 +173,10 @@ func (idx *TwigIndexer) RemovedFiles(paths []string) error {
 		return err
 	}
 
+	if err := idx.twigBlockHashIndex.BatchDeleteByFilePaths(paths); err != nil {
+		return err
+	}
+
 	if err := idx.twigFunctionIndex.BatchDeleteByFilePaths(paths); err != nil {
 		return err
 	}
@@ -152,6 +190,10 @@ func (idx *TwigIndexer) RemovedFiles(paths []string) error {
 
 func (idx *TwigIndexer) Close() error {
 	if err := idx.twigBlockIndex.Close(); err != nil {
+		return err
+	}
+
+	if err := idx.twigBlockHashIndex.Close(); err != nil {
 		return err
 	}
 
@@ -172,6 +214,10 @@ func (idx *TwigIndexer) Close() error {
 
 func (idx *TwigIndexer) Clear() error {
 	if err := idx.twigBlockIndex.Clear(); err != nil {
+		return err
+	}
+
+	if err := idx.twigBlockHashIndex.Clear(); err != nil {
 		return err
 	}
 
@@ -220,4 +266,30 @@ func (idx *TwigIndexer) GetAllTwigFilters() ([]TwigFilter, error) {
 
 func (idx *TwigIndexer) GetTwigFilesByRelPath(relPath string) ([]TwigFile, error) {
 	return idx.twigFileIndex.GetValues(relPath)
+}
+
+// GetTwigBlockHashes returns all block hashes for a given block name
+func (idx *TwigIndexer) GetTwigBlockHashes(blockName string) ([]TwigBlockHash, error) {
+	return idx.twigBlockHashIndex.GetValues(blockName)
+}
+
+// GetTwigBlockHashByPath returns the block hash for a specific block name and relative path
+func (idx *TwigIndexer) GetTwigBlockHashByPath(blockName, relativePath string) (*TwigBlockHash, error) {
+	blockhashes, err := idx.twigBlockHashIndex.GetValues(blockName)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, hash := range blockhashes {
+		if hash.RelativePath == relativePath {
+			return &hash, nil
+		}
+	}
+
+	return nil, nil
+}
+
+// GetAllTwigBlockHashes returns all block hashes
+func (idx *TwigIndexer) GetAllTwigBlockHashes() ([]TwigBlockHash, error) {
+	return idx.twigBlockHashIndex.GetAllValues()
 }
