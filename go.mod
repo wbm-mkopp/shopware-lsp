@@ -1,6 +1,6 @@
 module github.com/shopware/shopware-lsp
 
-go 1.25.4
+go 1.25.3
 
 replace github.com/tree-sitter-grammars/tree-sitter-xml => github.com/justinMBullard/tree-sitter-xml v0.0.0-20250305015746-03d1af911bbd
 
