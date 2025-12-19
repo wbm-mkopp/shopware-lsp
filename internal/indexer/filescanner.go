@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cespare/xxhash/v2"
 	"github.com/fsnotify/fsnotify"
 	"go.etcd.io/bbolt"
 )
@@ -385,16 +384,12 @@ func (fs *FileScanner) IndexAll(ctx context.Context) error {
 }
 
 // fileNeedsIndexing checks if a file needs to be indexed
-func (fs *FileScanner) fileNeedsIndexing(path string) (bool, []byte, error) {
-	content, err := os.ReadFile(path)
+func (fs *FileScanner) fileNeedsIndexing(path string) (bool, []byte, os.FileInfo, error) {
+	info, err := os.Stat(path)
 	if err != nil {
-		return false, nil, err
+		return false, nil, nil, err
 	}
 
-	// Calculate xxhash of file content
-	hash := xxhash.Sum64(content)
-
-	// Check if file has changed
 	var fileChanged bool
 	err = fs.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte("file_hashes"))
@@ -403,22 +398,31 @@ func (fs *FileScanner) fileNeedsIndexing(path string) (bool, []byte, error) {
 			return nil
 		}
 
-		hashBytes := b.Get([]byte(path))
-		if hashBytes == nil {
+		stateBytes := b.Get([]byte(path))
+		if len(stateBytes) != 16 {
 			fileChanged = true
 			return nil
 		}
 
-		storedHash := binary.LittleEndian.Uint64(hashBytes)
-		fileChanged = storedHash != hash
+		storedSize := binary.LittleEndian.Uint64(stateBytes[:8])
+		storedMtime := binary.LittleEndian.Uint64(stateBytes[8:])
+		fileChanged = storedSize != uint64(info.Size()) || storedMtime != uint64(info.ModTime().UnixNano())
 		return nil
 	})
-
 	if err != nil {
 		fileChanged = true
 	}
 
-	return fileChanged, content, nil
+	if !fileChanged {
+		return false, nil, info, nil
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return false, nil, info, err
+	}
+
+	return true, content, info, nil
 }
 
 // RemoveFiles removes multiple files from the index
@@ -460,15 +464,14 @@ func (fs *FileScanner) removeFileFromIndexers(path string) error {
 	return nil
 }
 
-// updateFileHash updates the stored hash for a file
-func (fs *FileScanner) updateFileHash(path string, content []byte) error {
-	hash := xxhash.Sum64(content)
-
+// updateFileState updates the stored file size and mtime for a file
+func (fs *FileScanner) updateFileState(path string, info os.FileInfo) error {
 	return fs.db.Update(func(tx *bbolt.Tx) error {
 		hashBucket := tx.Bucket([]byte("file_hashes"))
-		hashBytes := make([]byte, 8)
-		binary.LittleEndian.PutUint64(hashBytes, hash)
-		return hashBucket.Put([]byte(path), hashBytes)
+		stateBytes := make([]byte, 16)
+		binary.LittleEndian.PutUint64(stateBytes[:8], uint64(info.Size()))
+		binary.LittleEndian.PutUint64(stateBytes[8:], uint64(info.ModTime().UnixNano()))
+		return hashBucket.Put([]byte(path), stateBytes)
 	})
 }
 
@@ -532,7 +535,7 @@ func (fs *FileScanner) IndexFiles(ctx context.Context, files []string) error {
 
 			for path := range fileChan {
 				// Check if file needs indexing
-				needsIndexing, content, err := fs.fileNeedsIndexing(path)
+				needsIndexing, content, info, err := fs.fileNeedsIndexing(path)
 				if err != nil {
 					// We'll just skip file errors to reduce noise
 					continue
@@ -567,7 +570,7 @@ func (fs *FileScanner) IndexFiles(ctx context.Context, files []string) error {
 				tree.Close()
 
 				// Update the file hash
-				if err := fs.updateFileHash(path, content); err != nil {
+				if err := fs.updateFileState(path, info); err != nil {
 					errChan <- err
 				}
 			}
