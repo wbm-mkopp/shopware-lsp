@@ -1,6 +1,7 @@
 package php
 
 import (
+	"bytes"
 	"strings"
 
 	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
@@ -9,6 +10,10 @@ import (
 
 func GetClassesOfFileWithParser(path string, node *tree_sitter.Node, fileContent []byte) map[string]PHPClass {
 	classes := make(map[string]PHPClass)
+
+	if !bytes.Contains(fileContent, []byte("class")) && !bytes.Contains(fileContent, []byte("interface")) {
+		return classes
+	}
 
 	cursor := node.Walk()
 
@@ -159,6 +164,8 @@ func GetClassesOfFileWithParser(path string, node *tree_sitter.Node, fileContent
 						IsInterface: isInterface, // Set based on whether this is an interface or class
 					}
 
+					aliasResolver := NewAliasResolver(currentNamespace, useStatements, aliases)
+
 					// Handle inheritance differently based on whether this is a class or interface
 					if isInterface {
 						// For interfaces, the 'base_clause' contains interfaces that this interface extends
@@ -185,7 +192,6 @@ func GetClassesOfFileWithParser(path string, node *tree_sitter.Node, fileContent
 										fqcn = fqcnFromAlias
 									} else {
 										// If not found in use statements or aliases, use the standard resolver
-										aliasResolver := NewAliasResolver(currentNamespace, useStatements, aliases)
 										fqcn = aliasResolver.ResolveType(parentInterfaceName)
 									}
 									phpClass.Interfaces = append(phpClass.Interfaces, fqcn)
@@ -204,7 +210,6 @@ func GetClassesOfFileWithParser(path string, node *tree_sitter.Node, fileContent
 									parentName := string(child.Utf8Text(fileContent))
 
 									// Resolve the parent class FQCN
-									aliasResolver := NewAliasResolver(currentNamespace, useStatements, aliases)
 									fqcn := aliasResolver.ResolveType(parentName)
 									phpClass.Parent = fqcn
 								}
@@ -239,7 +244,6 @@ func GetClassesOfFileWithParser(path string, node *tree_sitter.Node, fileContent
 										fqcn = fqcnFromAlias
 									} else {
 										// If not found in use statements or aliases, use the standard resolver
-										aliasResolver := NewAliasResolver(currentNamespace, useStatements, aliases)
 										fqcn = aliasResolver.ResolveType(interfaceName)
 									}
 									phpClass.Interfaces = append(phpClass.Interfaces, fqcn)
@@ -249,8 +253,7 @@ func GetClassesOfFileWithParser(path string, node *tree_sitter.Node, fileContent
 					}
 
 					// Extract methods and properties from the class
-					phpClass.Methods = extractMethodsFromClass(node, fileContent, currentNamespace, useStatements, aliases)
-					phpClass.Properties = extractPropertiesFromClass(node, fileContent, currentNamespace, useStatements, aliases)
+					phpClass.Methods, phpClass.Properties = extractMembersFromClass(node, fileContent, aliasResolver)
 
 					classes[className] = phpClass
 				}
@@ -265,14 +268,14 @@ func GetClassesOfFileWithParser(path string, node *tree_sitter.Node, fileContent
 	return classes
 }
 
-// extractPropertiesFromClass extracts all property definitions from a class declaration node
-func extractPropertiesFromClass(node *tree_sitter.Node, fileContent []byte, currentNamespace string, useStatements map[string]string, aliases map[string]string) map[string]PHPProperty {
+func extractMembersFromClass(node *tree_sitter.Node, fileContent []byte, aliasResolver *AliasResolver) (map[string]PHPMethod, map[string]PHPProperty) {
+	methods := make(map[string]PHPMethod)
 	properties := make(map[string]PHPProperty)
 
 	// Find the class body node
 	classBodyNode := treesitterhelper.GetFirstNodeOfKind(node, "declaration_list")
 	if classBodyNode == nil {
-		return properties
+		return methods, properties
 	}
 
 	// Iterate through all children of the class body
@@ -284,6 +287,26 @@ func extractPropertiesFromClass(node *tree_sitter.Node, fileContent []byte, curr
 
 		// Check if the child is a property declaration
 		if child.Kind() == "property_declaration" {
+			visibility := Public // Default visibility
+			for k := uint(0); k < child.NamedChildCount(); k++ {
+				modifier := child.NamedChild(k)
+				if modifier == nil {
+					continue
+				}
+
+				modifierText := string(modifier.Utf8Text(fileContent))
+				switch modifierText {
+				case "private":
+					visibility = Private
+				case "protected":
+					visibility = Protected
+				case "public":
+					visibility = Public
+				}
+			}
+
+			propType := resolveTypeFromDeclaration(child, fileContent, aliasResolver, NewMixedType())
+
 			// Property declarations can have multiple properties defined at once
 			// We need to iterate through the declaration_list to find all property elements
 			for j := uint(0); j < child.NamedChildCount(); j++ {
@@ -302,56 +325,6 @@ func extractPropertiesFromClass(node *tree_sitter.Node, fileContent []byte, curr
 						// Remove the $ prefix
 						propName := propNameWithPrefix[1:] // Skip the first character ($)
 
-						// Determine property visibility
-						visibility := Public // Default visibility
-
-						// Check for visibility modifiers in the property declaration
-						for k := uint(0); k < child.NamedChildCount(); k++ {
-							modifier := child.NamedChild(k)
-							if modifier == nil {
-								continue
-							}
-
-							modifierText := string(modifier.Utf8Text(fileContent))
-							switch modifierText {
-							case "private":
-								visibility = Private
-							case "protected":
-								visibility = Protected
-							case "public":
-								visibility = Public
-							}
-						}
-
-						// Extract property type if available
-						var propType PHPType
-						// Default to mixed type
-						propType = NewMixedType()
-
-						// Try to find named_type (class types) first
-						namedTypeNode := treesitterhelper.GetFirstNodeOfKind(child, "named_type")
-						if namedTypeNode != nil {
-							// For named types, get the name node
-							nameNode := treesitterhelper.GetFirstNodeOfKind(namedTypeNode, "name")
-							if nameNode != nil {
-								// Get the short class name
-								shortClassName := string(nameNode.Utf8Text(fileContent))
-								// Create an alias resolver
-								aliasResolver := NewAliasResolver(currentNamespace, useStatements, aliases)
-								// Resolve the type string
-								typeString := aliasResolver.ResolveType(shortClassName)
-								// Create PHPType from the resolved type string
-								propType = NewPHPType(typeString)
-							}
-						} else {
-							// Try primitive type (int, string, etc.)
-							primitiveTypeNode := treesitterhelper.GetFirstNodeOfKind(child, "primitive_type")
-							if primitiveTypeNode != nil {
-								typeString := string(primitiveTypeNode.Utf8Text(fileContent))
-								propType = NewPHPType(typeString)
-							}
-						}
-
 						// Create a new property and add it to the properties map
 						properties[propName] = PHPProperty{
 							Name:       propName,
@@ -363,181 +336,110 @@ func extractPropertiesFromClass(node *tree_sitter.Node, fileContent []byte, curr
 				}
 			}
 		} else if child.Kind() == "method_declaration" {
-			// Check if this is a constructor method
 			methodNameNode := treesitterhelper.GetFirstNodeOfKind(child, "name")
-			if methodNameNode != nil && string(methodNameNode.Utf8Text(fileContent)) == "__construct" {
-				// Find the parameter list
-				paramListNode := treesitterhelper.GetFirstNodeOfKind(child, "formal_parameters")
-				if paramListNode != nil {
-					// Iterate through all parameters
-					for j := uint(0); j < paramListNode.NamedChildCount(); j++ {
-						param := paramListNode.NamedChild(j)
-						if param == nil || param.Kind() != "property_promotion_parameter" {
-							continue
-						}
+			if methodNameNode == nil {
+				continue
+			}
 
-						// Get the property name from the parameter
-						varNode := treesitterhelper.GetFirstNodeOfKind(param, "variable_name")
-						if varNode != nil {
-							// Get the property name without the $ prefix
-							propNameWithPrefix := string(varNode.Utf8Text(fileContent))
-							// Remove the $ prefix
-							propName := propNameWithPrefix[1:] // Skip the first character ($)
+			methodName := string(methodNameNode.Utf8Text(fileContent))
+			visibility := Public
 
-							// Determine property visibility from constructor parameter
-							visibility := Public // Default visibility
+			for k := uint(0); k < child.NamedChildCount(); k++ {
+				modifier := child.NamedChild(k)
+				if modifier == nil {
+					continue
+				}
 
-							// Check for visibility modifiers in the parameter
-							for k := uint(0); k < param.NamedChildCount(); k++ {
-								modifier := param.NamedChild(k)
-								if modifier == nil {
-									continue
-								}
-
-								modifierText := string(modifier.Utf8Text(fileContent))
-								switch modifierText {
-								case "private":
-									visibility = Private
-								case "protected":
-									visibility = Protected
-								case "public":
-									visibility = Public
-								}
-							}
-
-							// Extract property type if available
-							var propType PHPType
-							// Default to mixed type
-							propType = NewMixedType()
-
-							// Try to find named_type (class types) first
-							namedTypeNode := treesitterhelper.GetFirstNodeOfKind(param, "named_type")
-							if namedTypeNode != nil {
-								// For named types, get the name node
-								nameNode := treesitterhelper.GetFirstNodeOfKind(namedTypeNode, "name")
-								if nameNode != nil {
-									// Get the short class name
-									shortClassName := string(nameNode.Utf8Text(fileContent))
-
-									// Create an alias resolver
-									aliasResolver := NewAliasResolver(currentNamespace, useStatements, aliases)
-									// Resolve the type string
-									typeString := aliasResolver.ResolveType(shortClassName)
-									// Create PHPType from the resolved type string
-									propType = NewPHPType(typeString)
-								}
-							} else {
-								// Try primitive type (int, string, etc.)
-								primitiveTypeNode := treesitterhelper.GetFirstNodeOfKind(param, "primitive_type")
-								if primitiveTypeNode != nil {
-									typeString := string(primitiveTypeNode.Utf8Text(fileContent))
-									propType = NewPHPType(typeString)
-								}
-							}
-
-							// Create a new property and add it to the properties map
-							properties[propName] = PHPProperty{
-								Name:       propName,
-								Line:       int(varNode.Range().StartPoint.Row) + 1,
-								Visibility: visibility,
-								Type:       propType,
-							}
-						}
-					}
+				modifierText := string(modifier.Utf8Text(fileContent))
+				switch modifierText {
+				case "private":
+					visibility = Private
+				case "protected":
+					visibility = Protected
+				case "public":
+					visibility = Public
 				}
 			}
-		}
-	}
 
-	return properties
-}
+			returnType := resolveTypeFromDeclaration(child, fileContent, aliasResolver, NewVoidType())
 
-// extractMethodsFromClass extracts all method definitions from a class declaration node
-func extractMethodsFromClass(node *tree_sitter.Node, fileContent []byte, currentNamespace string, useStatements map[string]string, aliases map[string]string) map[string]PHPMethod {
-	methods := make(map[string]PHPMethod)
+			methods[methodName] = PHPMethod{
+				Name:       methodName,
+				Line:       int(methodNameNode.Range().StartPoint.Row) + 1,
+				Visibility: visibility,
+				ReturnType: returnType,
+			}
 
-	// Find the class body node
-	classBodyNode := treesitterhelper.GetFirstNodeOfKind(node, "declaration_list")
-	if classBodyNode == nil {
-		return methods
-	}
+			if methodName == "__construct" {
+				paramListNode := treesitterhelper.GetFirstNodeOfKind(child, "formal_parameters")
+				if paramListNode == nil {
+					continue
+				}
 
-	// Iterate through all children of the class body
-	for i := uint(0); i < classBodyNode.NamedChildCount(); i++ {
-		child := classBodyNode.NamedChild(i)
-		if child == nil {
-			continue
-		}
-
-		// Check if the child is a method declaration
-		if child.Kind() == "method_declaration" {
-			// Get the method name
-			methodNameNode := treesitterhelper.GetFirstNodeOfKind(child, "name")
-			if methodNameNode != nil {
-				methodName := string(methodNameNode.Utf8Text(fileContent))
-
-				// Determine method visibility
-				visibility := Public // Default visibility
-
-				// Check for visibility modifiers in the method declaration
-				for k := uint(0); k < child.NamedChildCount(); k++ {
-					modifier := child.NamedChild(k)
-					if modifier == nil {
+				for j := uint(0); j < paramListNode.NamedChildCount(); j++ {
+					param := paramListNode.NamedChild(j)
+					if param == nil || param.Kind() != "property_promotion_parameter" {
 						continue
 					}
 
-					modifierText := string(modifier.Utf8Text(fileContent))
-					switch modifierText {
-					case "private":
-						visibility = Private
-					case "protected":
-						visibility = Protected
-					case "public":
-						visibility = Public
+					varNode := treesitterhelper.GetFirstNodeOfKind(param, "variable_name")
+					if varNode == nil {
+						continue
 					}
-				}
 
-				// Extract method return type if available
-				var returnType PHPType
-				// Default to void type
-				returnType = NewVoidType()
+					propNameWithPrefix := string(varNode.Utf8Text(fileContent))
+					propName := propNameWithPrefix[1:]
 
-				// Try to find return type declaration
-				// First look for named_type (class types)
-				namedTypeNode := treesitterhelper.GetFirstNodeOfKind(child, "named_type")
-				if namedTypeNode != nil {
-					// For named types, get the name node
-					nameNode := treesitterhelper.GetFirstNodeOfKind(namedTypeNode, "name")
-					if nameNode != nil {
-						// Get the short class name
-						shortClassName := string(nameNode.Utf8Text(fileContent))
+					paramVisibility := Public
+					for k := uint(0); k < param.NamedChildCount(); k++ {
+						modifier := param.NamedChild(k)
+						if modifier == nil {
+							continue
+						}
 
-						// Create an alias resolver
-						aliasResolver := NewAliasResolver(currentNamespace, useStatements, aliases)
-						// Resolve the type string
-						typeString := aliasResolver.ResolveType(shortClassName)
-						// Create PHPType from the resolved type string
-						returnType = NewPHPType(typeString)
+						modifierText := string(modifier.Utf8Text(fileContent))
+						switch modifierText {
+						case "private":
+							paramVisibility = Private
+						case "protected":
+							paramVisibility = Protected
+						case "public":
+							paramVisibility = Public
+						}
 					}
-				} else {
-					// Try primitive type (int, string, etc.)
-					primitiveTypeNode := treesitterhelper.GetFirstNodeOfKind(child, "primitive_type")
-					if primitiveTypeNode != nil {
-						typeString := string(primitiveTypeNode.Utf8Text(fileContent))
-						returnType = NewPHPType(typeString)
-					}
-				}
 
-				// Create a new method and add it to the methods map
-				methods[methodName] = PHPMethod{
-					Name:       methodName,
-					Line:       int(methodNameNode.Range().StartPoint.Row) + 1,
-					Visibility: visibility,
-					ReturnType: returnType,
+					propType := resolveTypeFromDeclaration(param, fileContent, aliasResolver, NewMixedType())
+
+					properties[propName] = PHPProperty{
+						Name:       propName,
+						Line:       int(varNode.Range().StartPoint.Row) + 1,
+						Visibility: paramVisibility,
+						Type:       propType,
+					}
 				}
 			}
 		}
 	}
 
-	return methods
+	return methods, properties
+}
+
+func resolveTypeFromDeclaration(node *tree_sitter.Node, fileContent []byte, aliasResolver *AliasResolver, fallback PHPType) PHPType {
+	namedTypeNode := treesitterhelper.GetFirstNodeOfKind(node, "named_type")
+	if namedTypeNode != nil {
+		nameNode := treesitterhelper.GetFirstNodeOfKind(namedTypeNode, "name")
+		if nameNode != nil {
+			shortClassName := string(nameNode.Utf8Text(fileContent))
+			typeString := aliasResolver.ResolveType(shortClassName)
+			return NewPHPType(typeString)
+		}
+	} else {
+		primitiveTypeNode := treesitterhelper.GetFirstNodeOfKind(node, "primitive_type")
+		if primitiveTypeNode != nil {
+			typeString := string(primitiveTypeNode.Utf8Text(fileContent))
+			return NewPHPType(typeString)
+		}
+	}
+
+	return fallback
 }
