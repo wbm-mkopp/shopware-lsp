@@ -454,25 +454,39 @@ func (fs *FileScanner) RemoveFiles(ctx context.Context, paths []string) error {
 	return nil
 }
 
-// removeFileFromIndexers removes a single file from all indexers without affecting the hash database
-func (fs *FileScanner) removeFileFromIndexers(path string) error {
+func (fs *FileScanner) removeFilesFromIndexers(paths []string) error {
 	for _, indexer := range fs.indexer {
-		if err := indexer.RemovedFiles([]string{path}); err != nil {
+		if err := indexer.RemovedFiles(paths); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// updateFileState updates the stored file size and mtime for a file
-func (fs *FileScanner) updateFileState(path string, info os.FileInfo) error {
+func (fs *FileScanner) updateFileStates(files []fileState) error {
 	return fs.db.Update(func(tx *bbolt.Tx) error {
 		hashBucket := tx.Bucket([]byte("file_hashes"))
-		stateBytes := make([]byte, 16)
-		binary.LittleEndian.PutUint64(stateBytes[:8], uint64(info.Size()))
-		binary.LittleEndian.PutUint64(stateBytes[8:], uint64(info.ModTime().UnixNano()))
-		return hashBucket.Put([]byte(path), stateBytes)
+		for _, file := range files {
+			stateBytes := make([]byte, 16)
+			binary.LittleEndian.PutUint64(stateBytes[:8], uint64(file.info.Size()))
+			binary.LittleEndian.PutUint64(stateBytes[8:], uint64(file.info.ModTime().UnixNano()))
+			if err := hashBucket.Put([]byte(file.path), stateBytes); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
+}
+
+type fileState struct {
+	path string
+	info os.FileInfo
+}
+
+type fileWork struct {
+	path    string
+	content []byte
+	info    os.FileInfo
 }
 
 // IndexFiles processes multiple files in parallel
@@ -532,6 +546,54 @@ func (fs *FileScanner) IndexFiles(ctx context.Context, files []string) error {
 			defer wg.Done()
 
 			parsers := CreateTreesitterParsers()
+			const batchSize = 50
+			batch := make([]fileWork, 0, batchSize)
+
+			processBatch := func(items []fileWork) {
+				if len(items) == 0 {
+					return
+				}
+
+				paths := make([]string, 0, len(items))
+				for _, item := range items {
+					paths = append(paths, item.path)
+				}
+
+				if err := fs.removeFilesFromIndexers(paths); err != nil {
+					errChan <- err
+					return
+				}
+
+				for _, item := range items {
+					ext := strings.ToLower(filepath.Ext(item.path))
+					parser := parsers[ext]
+					if parser == nil {
+						panic(fmt.Sprintf("no parser found for file type: %s", ext))
+					}
+
+					tree := parser.Parse(item.content, nil)
+
+					for _, indexer := range fs.indexer {
+						if err := indexer.Index(item.path, tree.RootNode(), item.content); err != nil {
+							errChan <- err
+						}
+					}
+
+					tree.Close()
+				}
+
+				fileStates := make([]fileState, 0, len(items))
+				for _, item := range items {
+					fileStates = append(fileStates, fileState{
+						path: item.path,
+						info: item.info,
+					})
+				}
+
+				if err := fs.updateFileStates(fileStates); err != nil {
+					errChan <- err
+				}
+			}
 
 			for path := range fileChan {
 				// Check if file needs indexing
@@ -546,34 +608,18 @@ func (fs *FileScanner) IndexFiles(ctx context.Context, files []string) error {
 					continue
 				}
 
-				// Remove the file from all indexers since we're reindexing it
-				if err := fs.removeFileFromIndexers(path); err != nil {
-					errChan <- err
-					continue
-				}
-
-				ext := strings.ToLower(filepath.Ext(path))
-
-				parser := parsers[ext]
-				if parser == nil {
-					panic(fmt.Sprintf("no parser found for file type: %s", ext))
-				}
-
-				tree := parser.Parse(content, nil)
-
-				for _, indexer := range fs.indexer {
-					if err := indexer.Index(path, tree.RootNode(), content); err != nil {
-						errChan <- err
-					}
-				}
-
-				tree.Close()
-
-				// Update the file hash
-				if err := fs.updateFileState(path, info); err != nil {
-					errChan <- err
+				batch = append(batch, fileWork{
+					path:    path,
+					content: content,
+					info:    info,
+				})
+				if len(batch) >= batchSize {
+					processBatch(batch)
+					batch = batch[:0]
 				}
 			}
+
+			processBatch(batch)
 
 			CloseTreesitterParsers(parsers)
 		}()

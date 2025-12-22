@@ -7,7 +7,6 @@ replace github.com/tree-sitter-grammars/tree-sitter-xml => github.com/justinMBul
 replace github.com/tree-sitter-grammars/tree-sitter-scss => github.com/shyim/tree-sitter-scss v0.0.0-20250502122635-ca898ab73795
 
 require (
-	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/sourcegraph/jsonrpc2 v0.2.1
 	github.com/stretchr/testify v1.10.0
