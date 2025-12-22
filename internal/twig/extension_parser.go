@@ -1,6 +1,7 @@
 package twig
 
 import (
+	"bytes"
 	"strings"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
@@ -50,13 +51,27 @@ type TwigParameter struct {
 
 // ParseTwigExtension parses a PHP file for Twig extension classes
 func ParseTwigExtension(filePath string, rootNode *tree_sitter.Node, content []byte) ([]TwigFunction, []TwigFilter, error) {
+	if !bytes.Contains(content, []byte("AbstractExtension")) {
+		return nil, nil, nil
+	}
+
+	if !bytes.Contains(content, []byte("TwigFunction")) && !bytes.Contains(content, []byte("TwigFilter")) {
+		return nil, nil, nil
+	}
+
+	ctx := newParseContext(rootNode)
+	if ctx.classNode == nil {
+		return nil, nil, nil
+	}
+
 	// Check if the class extends AbstractExtension
-	if !isAbstractExtension(rootNode, content) {
+	if !classExtendsAbstractExtension(ctx.classNode, content) {
 		return nil, nil, nil
 	}
 
 	// Get the class name
-	className := getClassName(rootNode, content)
+	namespace := getNamespace(rootNode, content)
+	className := getClassNameFromNode(ctx.classNode, namespace, content)
 	if className == "" {
 		return nil, nil, nil
 	}
@@ -65,12 +80,12 @@ func ParseTwigExtension(filePath string, rootNode *tree_sitter.Node, content []b
 	var filters []TwigFilter
 
 	// Parse functions and filters
-	parseFunctionsDirectly(filePath, rootNode, content, &functions)
-	parseFiltersDirectly(filePath, rootNode, content, &filters)
+	parseFunctionsDirectly(filePath, ctx, content, &functions)
+	parseFiltersDirectly(filePath, ctx, content, &filters)
 
 	// Parse parameters for functions
 	for i, function := range functions {
-		functions[i].Parameters = parseMethodParameters(rootNode, content, function.Method)
+		functions[i].Parameters = ctx.methodParameters(content, function.Method)
 
 		functions[i].Usage = function.Name + "("
 
@@ -101,7 +116,7 @@ func ParseTwigExtension(filePath string, rootNode *tree_sitter.Node, content []b
 			methodName = parts[1]
 		}
 
-		filters[i].Parameters = parseMethodParameters(rootNode, content, methodName)
+		filters[i].Parameters = ctx.methodParameters(content, methodName)
 
 		filters[i].Usage = filter.Name + "("
 
@@ -119,10 +134,35 @@ func ParseTwigExtension(filePath string, rootNode *tree_sitter.Node, content []b
 	return functions, filters, nil
 }
 
-// isAbstractExtension checks if a class extends AbstractExtension
-func isAbstractExtension(rootNode *tree_sitter.Node, content []byte) bool {
-	// Find the class declaration node
+type parseContext struct {
+	classNode      *tree_sitter.Node
+	declList       *tree_sitter.Node
+	paramsByMethod map[string][]TwigParameter
+}
+
+func newParseContext(rootNode *tree_sitter.Node) *parseContext {
 	classNode := findClassNode(rootNode)
+	if classNode == nil {
+		return &parseContext{}
+	}
+
+	var declList *tree_sitter.Node
+	for i := 0; i < int(classNode.NamedChildCount()); i++ {
+		child := classNode.NamedChild(uint(i))
+		if child.Kind() == "declaration_list" {
+			declList = child
+			break
+		}
+	}
+
+	return &parseContext{
+		classNode: classNode,
+		declList:  declList,
+	}
+}
+
+// classExtendsAbstractExtension checks if a class extends AbstractExtension
+func classExtendsAbstractExtension(classNode *tree_sitter.Node, content []byte) bool {
 	if classNode == nil {
 		return false
 	}
@@ -141,9 +181,7 @@ func isAbstractExtension(rootNode *tree_sitter.Node, content []byte) bool {
 	return false
 }
 
-// Find the class name
-func getClassName(rootNode *tree_sitter.Node, content []byte) string {
-	// Find the namespace
+func getNamespace(rootNode *tree_sitter.Node, content []byte) string {
 	var namespace string
 	for i := 0; i < int(rootNode.NamedChildCount()); i++ {
 		child := rootNode.NamedChild(uint(i))
@@ -158,12 +196,14 @@ func getClassName(rootNode *tree_sitter.Node, content []byte) string {
 		}
 	}
 
-	// Find the class name
-	classNode := findClassNode(rootNode)
+	return namespace
+}
+
+// Find the class name
+func getClassNameFromNode(classNode *tree_sitter.Node, namespace string, content []byte) string {
 	if classNode == nil {
 		return ""
 	}
-
 	var className string
 	for i := 0; i < int(classNode.NamedChildCount()); i++ {
 		child := classNode.NamedChild(uint(i))
@@ -181,31 +221,15 @@ func getClassName(rootNode *tree_sitter.Node, content []byte) string {
 }
 
 // Direct traversal of the AST to find functions and filters
-func parseFunctionsDirectly(filePath string, rootNode *tree_sitter.Node, content []byte, functions *[]TwigFunction) {
-	// Find the class
-	classNode := findClassNode(rootNode)
-	if classNode == nil {
-		return
-	}
-
-	// Find the declaration list
-	var declList *tree_sitter.Node
-	for i := 0; i < int(classNode.NamedChildCount()); i++ {
-		child := classNode.NamedChild(uint(i))
-		if child.Kind() == "declaration_list" {
-			declList = child
-			break
-		}
-	}
-
-	if declList == nil {
+func parseFunctionsDirectly(filePath string, ctx *parseContext, content []byte, functions *[]TwigFunction) {
+	if ctx.classNode == nil || ctx.declList == nil {
 		return
 	}
 
 	// Find the getFunctions method
 	var funcMethod *tree_sitter.Node
-	for i := 0; i < int(declList.NamedChildCount()); i++ {
-		child := declList.NamedChild(uint(i))
+	for i := 0; i < int(ctx.declList.NamedChildCount()); i++ {
+		child := ctx.declList.NamedChild(uint(i))
 		if child.Kind() == "method_declaration" {
 			for j := 0; j < int(child.NamedChildCount()); j++ {
 				nameNode := child.NamedChild(uint(j))
@@ -396,31 +420,15 @@ func parseFunctionsDirectly(filePath string, rootNode *tree_sitter.Node, content
 }
 
 // Similar logic for filters
-func parseFiltersDirectly(filePath string, rootNode *tree_sitter.Node, content []byte, filters *[]TwigFilter) {
-	// Find the class
-	classNode := findClassNode(rootNode)
-	if classNode == nil {
-		return
-	}
-
-	// Find the declaration list
-	var declList *tree_sitter.Node
-	for i := 0; i < int(classNode.NamedChildCount()); i++ {
-		child := classNode.NamedChild(uint(i))
-		if child.Kind() == "declaration_list" {
-			declList = child
-			break
-		}
-	}
-
-	if declList == nil {
+func parseFiltersDirectly(filePath string, ctx *parseContext, content []byte, filters *[]TwigFilter) {
+	if ctx.classNode == nil || ctx.declList == nil {
 		return
 	}
 
 	// Find the getFilters method
 	var funcMethod *tree_sitter.Node
-	for i := 0; i < int(declList.NamedChildCount()); i++ {
-		child := declList.NamedChild(uint(i))
+	for i := 0; i < int(ctx.declList.NamedChildCount()); i++ {
+		child := ctx.declList.NamedChild(uint(i))
 		if child.Kind() == "method_declaration" {
 			for j := 0; j < int(child.NamedChildCount()); j++ {
 				nameNode := child.NamedChild(uint(j))
@@ -658,26 +666,13 @@ func findClassNodeInChildren(node *tree_sitter.Node) *tree_sitter.Node {
 	return nil
 }
 
-// parseMethodParameters parses the parameters of a method
-func parseMethodParameters(rootNode *tree_sitter.Node, content []byte, methodName string) []TwigParameter {
-	// Find the class declaration
-	classNode := findClassNode(rootNode)
-	if classNode == nil {
+func (ctx *parseContext) methodParameters(content []byte, methodName string) []TwigParameter {
+	if ctx.declList == nil {
 		return []TwigParameter{}
 	}
 
-	// Find the declaration list
-	var declList *tree_sitter.Node
-	for i := 0; i < int(classNode.NamedChildCount()); i++ {
-		child := classNode.NamedChild(uint(i))
-		if child.Kind() == "declaration_list" {
-			declList = child
-			break
-		}
-	}
-
-	if declList == nil {
-		return []TwigParameter{}
+	if ctx.paramsByMethod == nil {
+		ctx.paramsByMethod = buildMethodParameterMap(ctx.declList, content)
 	}
 
 	// Find the method
@@ -690,44 +685,44 @@ func parseMethodParameters(rootNode *tree_sitter.Node, content []byte, methodNam
 		}
 	}
 
-	var methodNode *tree_sitter.Node
+	if params, ok := ctx.paramsByMethod[searchMethodName]; ok {
+		return params
+	}
+
+	return []TwigParameter{}
+}
+
+func buildMethodParameterMap(declList *tree_sitter.Node, content []byte) map[string][]TwigParameter {
+	paramsByMethod := make(map[string][]TwigParameter)
 	for i := 0; i < int(declList.NamedChildCount()); i++ {
 		child := declList.NamedChild(uint(i))
-		if child.Kind() == "method_declaration" {
-			// Check if this is the method we're looking for
-			var nameNode *tree_sitter.Node
-			for j := 0; j < int(child.NamedChildCount()); j++ {
-				subChild := child.NamedChild(uint(j))
-				if subChild.Kind() == "name" {
-					nameNode = subChild
-					break
-				}
-			}
+		if child.Kind() != "method_declaration" {
+			continue
+		}
 
-			if nameNode != nil {
-				foundName := string(nameNode.Utf8Text(content))
-				if foundName == searchMethodName {
-					methodNode = child
-					break
-				}
+		var methodName string
+		var paramsNode *tree_sitter.Node
+		for j := 0; j < int(child.NamedChildCount()); j++ {
+			subChild := child.NamedChild(uint(j))
+			if subChild.Kind() == "name" {
+				methodName = string(subChild.Utf8Text(content))
+			} else if subChild.Kind() == "formal_parameters" {
+				paramsNode = subChild
 			}
 		}
+
+		if methodName == "" || paramsNode == nil {
+			continue
+		}
+
+		paramsByMethod[methodName] = parseParameters(paramsNode, content)
 	}
 
-	if methodNode == nil {
-		return []TwigParameter{}
-	}
+	return paramsByMethod
+}
 
+func parseParameters(paramsNode *tree_sitter.Node, content []byte) []TwigParameter {
 	// Find the parameters
-	var paramsNode *tree_sitter.Node
-	for i := 0; i < int(methodNode.NamedChildCount()); i++ {
-		child := methodNode.NamedChild(uint(i))
-		if child.Kind() == "formal_parameters" {
-			paramsNode = child
-			break
-		}
-	}
-
 	if paramsNode == nil {
 		return []TwigParameter{}
 	}

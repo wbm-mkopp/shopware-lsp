@@ -77,6 +77,11 @@ func TestParseTwigExtension2(t *testing.T) {
 	require.Len(t, functions, 2)
 	assert.Equal(t, "inAppPurchase", functions[0].Name)
 	assert.Equal(t, filePath, functions[0].FilePath)
+	require.Len(t, functions[0].Parameters, 2)
+	assert.Equal(t, "string", functions[0].Parameters[0].Type)
+	assert.Equal(t, "$extensionName", functions[0].Parameters[0].Name)
+	assert.Equal(t, "string", functions[0].Parameters[1].Type)
+	assert.Equal(t, "$identifier", functions[0].Parameters[1].Name)
 
 	assert.Equal(t, "allInAppPurchases", functions[1].Name)
 	assert.Equal(t, filePath, functions[1].FilePath)
