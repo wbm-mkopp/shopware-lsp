@@ -271,6 +271,7 @@ func GetClassesOfFileWithParser(path string, node *tree_sitter.Node, fileContent
 func extractMembersFromClass(node *tree_sitter.Node, fileContent []byte, aliasResolver *AliasResolver) (map[string]PHPMethod, map[string]PHPProperty) {
 	methods := make(map[string]PHPMethod)
 	properties := make(map[string]PHPProperty)
+	typeCache := make(map[string]PHPType)
 
 	// Find the class body node
 	classBodyNode := treesitterhelper.GetFirstNodeOfKind(node, "declaration_list")
@@ -305,7 +306,7 @@ func extractMembersFromClass(node *tree_sitter.Node, fileContent []byte, aliasRe
 				}
 			}
 
-			propType := resolveTypeFromDeclaration(child, fileContent, aliasResolver, NewMixedType())
+			propType := resolveTypeFromDeclaration(child, fileContent, aliasResolver, typeCache, NewMixedType())
 
 			// Property declarations can have multiple properties defined at once
 			// We need to iterate through the declaration_list to find all property elements
@@ -361,7 +362,7 @@ func extractMembersFromClass(node *tree_sitter.Node, fileContent []byte, aliasRe
 				}
 			}
 
-			returnType := resolveTypeFromDeclaration(child, fileContent, aliasResolver, NewVoidType())
+			returnType := resolveTypeFromDeclaration(child, fileContent, aliasResolver, typeCache, NewVoidType())
 
 			methods[methodName] = PHPMethod{
 				Name:       methodName,
@@ -408,7 +409,7 @@ func extractMembersFromClass(node *tree_sitter.Node, fileContent []byte, aliasRe
 						}
 					}
 
-					propType := resolveTypeFromDeclaration(param, fileContent, aliasResolver, NewMixedType())
+					propType := resolveTypeFromDeclaration(param, fileContent, aliasResolver, typeCache, NewMixedType())
 
 					properties[propName] = PHPProperty{
 						Name:       propName,
@@ -424,22 +425,57 @@ func extractMembersFromClass(node *tree_sitter.Node, fileContent []byte, aliasRe
 	return methods, properties
 }
 
-func resolveTypeFromDeclaration(node *tree_sitter.Node, fileContent []byte, aliasResolver *AliasResolver, fallback PHPType) PHPType {
-	namedTypeNode := treesitterhelper.GetFirstNodeOfKind(node, "named_type")
+func resolveTypeFromDeclaration(node *tree_sitter.Node, fileContent []byte, aliasResolver *AliasResolver, typeCache map[string]PHPType, fallback PHPType) PHPType {
+	namedTypeNode := findFirstNodeOfKind(node, "named_type")
 	if namedTypeNode != nil {
-		nameNode := treesitterhelper.GetFirstNodeOfKind(namedTypeNode, "name")
+		nameNode := findFirstNodeOfKind(namedTypeNode, "name")
 		if nameNode != nil {
 			shortClassName := string(nameNode.Utf8Text(fileContent))
+			if cachedType, ok := typeCache[shortClassName]; ok {
+				return cachedType
+			}
 			typeString := aliasResolver.ResolveType(shortClassName)
-			return NewPHPType(typeString)
+			phpType := NewPHPType(typeString)
+			typeCache[shortClassName] = phpType
+			return phpType
 		}
 	} else {
-		primitiveTypeNode := treesitterhelper.GetFirstNodeOfKind(node, "primitive_type")
+		primitiveTypeNode := findFirstNodeOfKind(node, "primitive_type")
 		if primitiveTypeNode != nil {
 			typeString := string(primitiveTypeNode.Utf8Text(fileContent))
-			return NewPHPType(typeString)
+			if cachedType, ok := typeCache[typeString]; ok {
+				return cachedType
+			}
+			phpType := NewPHPType(typeString)
+			typeCache[typeString] = phpType
+			return phpType
 		}
 	}
 
 	return fallback
+}
+
+func findFirstNodeOfKind(node *tree_sitter.Node, kind string) *tree_sitter.Node {
+	if node == nil {
+		return nil
+	}
+
+	stack := []*tree_sitter.Node{node}
+	for len(stack) > 0 {
+		n := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+
+		if n.Kind() == kind {
+			return n
+		}
+
+		for i := int(n.NamedChildCount()) - 1; i >= 0; i-- {
+			child := n.NamedChild(uint(i))
+			if child != nil {
+				stack = append(stack, child)
+			}
+		}
+	}
+
+	return nil
 }
