@@ -1,6 +1,7 @@
 package twig
 
 import (
+	"bytes"
 	"strings"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
@@ -52,10 +53,20 @@ func ParseTwig(filePath string, node *tree_sitter.Node, content []byte) (*TwigFi
 		Blocks:     make(map[string]TwigBlock),
 	}
 
+	if !bytes.Contains(content, []byte("{%")) {
+		return file, nil
+	}
+
 	// Find all blocks recursively
-	findBlocks(node, content, file)
+	if bytes.Contains(content, []byte("block")) {
+		findBlocks(node, content, file)
+	}
 
 	// Find extends tag
+	if !bytes.Contains(content, []byte("extends")) && !bytes.Contains(content, []byte("sw_extends")) {
+		return file, nil
+	}
+
 	var cursor = node.Walk()
 	defer cursor.Close()
 
@@ -65,12 +76,26 @@ func ParseTwig(filePath string, node *tree_sitter.Node, content []byte) (*TwigFi
 
 			if node.Kind() == "tag" {
 				// Check if this is an extends tag by examining the tag text
-				tagText := string(node.Utf8Text(content))
 				isExtendsTag := false
+				tagName := ""
+				for i := 0; i < int(node.NamedChildCount()); i++ {
+					child := node.NamedChild(uint(i))
+					if child.Kind() == "name" {
+						tagName = string(child.Utf8Text(content))
+						break
+					}
+				}
 
 				// Check if the tag contains "extends" or "sw_extends"
-				if strings.Contains(tagText, "extends") || strings.Contains(tagText, "sw_extends") {
+				if tagName == "extends" || tagName == "sw_extends" {
 					isExtendsTag = true
+				}
+
+				if !isExtendsTag && tagName == "" {
+					tagText := string(node.Utf8Text(content))
+					if strings.Contains(tagText, "extends") || strings.Contains(tagText, "sw_extends") {
+						isExtendsTag = true
+					}
 				}
 
 				// If it's an extends tag, look for the string parameter
