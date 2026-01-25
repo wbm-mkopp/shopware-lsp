@@ -88,14 +88,22 @@ func (p *TwigCodeLensProvider) GetCodeLenses(ctx context.Context, params *protoc
 
 	extendedFiles, _ := p.twigIndexer.GetTwigFilesByRelPath(twigFile.ExtendsFile)
 
-	if len(extendedFiles) == 0 {
+	var parentFile *twig.TwigFile
+	for i := range extendedFiles {
+		if extendedFiles[i].Path != twigFile.Path {
+			parentFile = &extendedFiles[i]
+			break
+		}
+	}
+
+	if parentFile == nil {
 		return []protocol.CodeLens{}
 	}
 
 	var lenses []protocol.CodeLens
 
 	for _, block := range twigFile.Blocks {
-		parentBlock, ok := extendedFiles[0].Blocks[block.Name]
+		parentBlock, ok := parentFile.Blocks[block.Name]
 
 		if !ok {
 			continue
@@ -115,7 +123,7 @@ func (p *TwigCodeLensProvider) GetCodeLenses(ctx context.Context, params *protoc
 			Command: &protocol.Command{
 				Title:     "Goto Parent Block",
 				Command:   "vscode.open",
-				Arguments: []any{fmt.Sprintf("file://%s#%d", extendedFiles[0].Path, parentBlock.Line)},
+				Arguments: []any{fmt.Sprintf("file://%s#%d", parentFile.Path, parentBlock.Line)},
 			},
 		})
 	}
