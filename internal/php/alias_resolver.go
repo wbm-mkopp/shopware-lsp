@@ -35,6 +35,18 @@ func NewAliasResolver(namespace string, useStatements, aliases map[string]string
 	}
 }
 
+// Reset clears the resolver state for reuse (e.g., when pooling).
+// This must be called before reusing a resolver with different namespace/imports.
+func (r *AliasResolver) Reset(namespace string, useStatements, aliases map[string]string) {
+	r.currentNamespace = namespace
+	r.useStatements = useStatements
+	r.aliases = aliases
+	// Clear the cache to avoid stale entries from previous use
+	for k := range r.resolveCache {
+		delete(r.resolveCache, k)
+	}
+}
+
 // ResolveType resolves a PHP type name to its fully qualified class name (FQCN).
 // It handles various PHP type resolution scenarios including:
 // - Primitive types (string, int, etc.)
