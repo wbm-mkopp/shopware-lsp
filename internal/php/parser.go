@@ -9,7 +9,7 @@ import (
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
-// Object pools for temporary maps to reduce allocations
+// Object pools for temporary maps and resolvers to reduce allocations
 var (
 	useStatementsPool = sync.Pool{
 		New: func() any {
@@ -24,6 +24,13 @@ var (
 	typeCachePool = sync.Pool{
 		New: func() any {
 			return make(map[string]PHPType, 16)
+		},
+	}
+	aliasResolverPool = sync.Pool{
+		New: func() any {
+			return &AliasResolver{
+				resolveCache: make(map[string]string, 16),
+			}
 		},
 	}
 )
@@ -52,24 +59,28 @@ func GetClassesOfFileWithParser(path string, node *tree_sitter.Node, fileContent
 	cursor := node.Walk()
 
 	currentNamespace := ""
-	// Get maps from pool to reduce allocations
+	// Get maps and resolver from pool to reduce allocations
 	useStatements := useStatementsPool.Get().(map[string]string)
 	aliases := aliasesPool.Get().(map[string]string)
 	typeCache := typeCachePool.Get().(map[string]PHPType)
+	aliasResolver := aliasResolverPool.Get().(*AliasResolver)
 
-	// Track current aliasResolver to reuse when namespace hasn't changed
-	var aliasResolver *AliasResolver
-	lastNamespace := ""
+	// Track current namespace to reset resolver when it changes
+	// Use sentinel value to ensure first Reset() is always called
+	lastNamespace := "\x00"
 
 	defer func() {
 		cursor.Close()
-		// Clear and return maps to pool
+		// Clear and return maps/resolver to pool
 		clearStringMap(useStatements)
 		clearStringMap(aliases)
 		clearTypeMap(typeCache)
 		useStatementsPool.Put(useStatements)
 		aliasesPool.Put(aliases)
 		typeCachePool.Put(typeCache)
+		// Reset resolver cache before returning to pool
+		aliasResolver.Reset("", nil, nil)
+		aliasResolverPool.Put(aliasResolver)
 	}()
 
 	if cursor.GotoFirstChild() {
@@ -211,9 +222,9 @@ func GetClassesOfFileWithParser(path string, node *tree_sitter.Node, fileContent
 						IsInterface: isInterface, // Set based on whether this is an interface or class
 					}
 
-					// Reuse aliasResolver if namespace hasn't changed
-					if aliasResolver == nil || lastNamespace != currentNamespace {
-						aliasResolver = NewAliasResolver(currentNamespace, useStatements, aliases)
+					// Reset aliasResolver if namespace has changed
+					if lastNamespace != currentNamespace {
+						aliasResolver.Reset(currentNamespace, useStatements, aliases)
 						lastNamespace = currentNamespace
 					}
 

@@ -142,6 +142,57 @@ func TestIsSpecialType(t *testing.T) {
 	}
 }
 
+// BenchmarkResolveType benchmarks the ResolveType function with caching
+func BenchmarkResolveType(b *testing.B) {
+	namespace := "Shopware\\Core\\Content\\Product\\Aggregate\\ProductManufacturer"
+	useStatements := map[string]string{
+		"Request":          "Symfony\\Component\\HttpFoundation\\Request",
+		"Response":         "Symfony\\Component\\HttpFoundation\\Response",
+		"EntityRepository": "Shopware\\Core\\Framework\\DataAbstractionLayer\\EntityRepository",
+		"EntityDefinition": "Shopware\\Core\\Framework\\DataAbstractionLayer\\EntityDefinition",
+		"EventDispatcher":  "Symfony\\Component\\EventDispatcher\\EventDispatcher",
+	}
+	aliases := map[string]string{
+		"HttpRequest":  "Symfony\\Component\\HttpFoundation\\Request",
+		"HttpResponse": "Symfony\\Component\\HttpFoundation\\Response",
+	}
+
+	resolver := NewAliasResolver(namespace, useStatements, aliases)
+
+	// Types to resolve - mix of cached hits and namespace concatenation
+	types := []string{
+		"Request", "Response", "EntityRepository", "EntityDefinition",
+		"ProductManufacturerEntity", "ProductManufacturerCollection",
+		"HttpRequest", "HttpResponse", "EventDispatcher",
+		"string", "int", "array", "bool", // primitives (early return)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for _, typeName := range types {
+			_ = resolver.ResolveType(typeName)
+		}
+	}
+}
+
+// BenchmarkResolveTypeRepeated benchmarks resolving the same type repeatedly (cache hits)
+func BenchmarkResolveTypeRepeated(b *testing.B) {
+	namespace := "Shopware\\Core\\Content\\Product\\Aggregate\\ProductManufacturer"
+	useStatements := map[string]string{}
+	aliases := map[string]string{}
+
+	resolver := NewAliasResolver(namespace, useStatements, aliases)
+
+	// Warm up the cache
+	_ = resolver.ResolveType("ProductManufacturerEntity")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		// This should hit the cache every time
+		_ = resolver.ResolveType("ProductManufacturerEntity")
+	}
+}
+
 func TestComplexAliasScenarios(t *testing.T) {
 	// Test cases for more complex alias scenarios
 	tests := []struct {
