@@ -426,7 +426,10 @@ func extractMembersFromClass(node *tree_sitter.Node, fileContent []byte, aliasRe
 }
 
 func resolveTypeFromDeclaration(node *tree_sitter.Node, fileContent []byte, aliasResolver *AliasResolver, typeCache map[string]PHPType, fallback PHPType) PHPType {
-	namedTypeNode := findFirstNodeOfKind(node, "named_type")
+	// Look for type nodes as direct children only (not recursively)
+	// This is important because method parameters also contain type nodes,
+	// and we don't want to accidentally pick up a parameter type as the return type
+	namedTypeNode := findDirectChildOfKind(node, "named_type")
 	if namedTypeNode != nil {
 		nameNode := findFirstNodeOfKind(namedTypeNode, "name")
 		if nameNode != nil {
@@ -439,20 +442,34 @@ func resolveTypeFromDeclaration(node *tree_sitter.Node, fileContent []byte, alia
 			typeCache[shortClassName] = phpType
 			return phpType
 		}
-	} else {
-		primitiveTypeNode := findFirstNodeOfKind(node, "primitive_type")
-		if primitiveTypeNode != nil {
-			typeString := string(primitiveTypeNode.Utf8Text(fileContent))
-			if cachedType, ok := typeCache[typeString]; ok {
-				return cachedType
-			}
-			phpType := NewPHPType(typeString)
-			typeCache[typeString] = phpType
-			return phpType
+	}
+
+	primitiveTypeNode := findDirectChildOfKind(node, "primitive_type")
+	if primitiveTypeNode != nil {
+		typeString := string(primitiveTypeNode.Utf8Text(fileContent))
+		if cachedType, ok := typeCache[typeString]; ok {
+			return cachedType
 		}
+		phpType := NewPHPType(typeString)
+		typeCache[typeString] = phpType
+		return phpType
 	}
 
 	return fallback
+}
+
+// findDirectChildOfKind finds a direct named child of the given kind (non-recursive)
+func findDirectChildOfKind(node *tree_sitter.Node, kind string) *tree_sitter.Node {
+	if node == nil {
+		return nil
+	}
+	for i := uint(0); i < node.NamedChildCount(); i++ {
+		child := node.NamedChild(i)
+		if child != nil && child.Kind() == kind {
+			return child
+		}
+	}
+	return nil
 }
 
 func findFirstNodeOfKind(node *tree_sitter.Node, kind string) *tree_sitter.Node {
