@@ -3,10 +3,44 @@ package php
 import (
 	"bytes"
 	"strings"
+	"sync"
 
 	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
+
+// Object pools for temporary maps to reduce allocations
+var (
+	useStatementsPool = sync.Pool{
+		New: func() any {
+			return make(map[string]string, 16)
+		},
+	}
+	aliasesPool = sync.Pool{
+		New: func() any {
+			return make(map[string]string, 8)
+		},
+	}
+	typeCachePool = sync.Pool{
+		New: func() any {
+			return make(map[string]PHPType, 16)
+		},
+	}
+)
+
+// clearStringMap clears a map without deallocating
+func clearStringMap(m map[string]string) {
+	for k := range m {
+		delete(m, k)
+	}
+}
+
+// clearTypeMap clears a type cache map without deallocating
+func clearTypeMap(m map[string]PHPType) {
+	for k := range m {
+		delete(m, k)
+	}
+}
 
 func GetClassesOfFileWithParser(path string, node *tree_sitter.Node, fileContent []byte) map[string]PHPClass {
 	classes := make(map[string]PHPClass)
@@ -18,12 +52,25 @@ func GetClassesOfFileWithParser(path string, node *tree_sitter.Node, fileContent
 	cursor := node.Walk()
 
 	currentNamespace := ""
-	// Map to store use statements (imports) - maps short class name to FQCN
-	useStatements := make(map[string]string)
-	// Map to store namespace aliases - maps alias name to FQCN
-	aliases := make(map[string]string)
+	// Get maps from pool to reduce allocations
+	useStatements := useStatementsPool.Get().(map[string]string)
+	aliases := aliasesPool.Get().(map[string]string)
+	typeCache := typeCachePool.Get().(map[string]PHPType)
 
-	defer cursor.Close()
+	// Track current aliasResolver to reuse when namespace hasn't changed
+	var aliasResolver *AliasResolver
+	lastNamespace := ""
+
+	defer func() {
+		cursor.Close()
+		// Clear and return maps to pool
+		clearStringMap(useStatements)
+		clearStringMap(aliases)
+		clearTypeMap(typeCache)
+		useStatementsPool.Put(useStatements)
+		aliasesPool.Put(aliases)
+		typeCachePool.Put(typeCache)
+	}()
 
 	if cursor.GotoFirstChild() {
 		for {
@@ -164,7 +211,11 @@ func GetClassesOfFileWithParser(path string, node *tree_sitter.Node, fileContent
 						IsInterface: isInterface, // Set based on whether this is an interface or class
 					}
 
-					aliasResolver := NewAliasResolver(currentNamespace, useStatements, aliases)
+					// Reuse aliasResolver if namespace hasn't changed
+					if aliasResolver == nil || lastNamespace != currentNamespace {
+						aliasResolver = NewAliasResolver(currentNamespace, useStatements, aliases)
+						lastNamespace = currentNamespace
+					}
 
 					// Handle inheritance differently based on whether this is a class or interface
 					if isInterface {
@@ -252,8 +303,8 @@ func GetClassesOfFileWithParser(path string, node *tree_sitter.Node, fileContent
 						}
 					}
 
-					// Extract methods and properties from the class
-					phpClass.Methods, phpClass.Properties = extractMembersFromClass(node, fileContent, aliasResolver)
+					// Extract methods and properties from the class (pass shared typeCache)
+					phpClass.Methods, phpClass.Properties = extractMembersFromClass(node, fileContent, aliasResolver, typeCache)
 
 					classes[className] = phpClass
 				}
@@ -268,10 +319,9 @@ func GetClassesOfFileWithParser(path string, node *tree_sitter.Node, fileContent
 	return classes
 }
 
-func extractMembersFromClass(node *tree_sitter.Node, fileContent []byte, aliasResolver *AliasResolver) (map[string]PHPMethod, map[string]PHPProperty) {
+func extractMembersFromClass(node *tree_sitter.Node, fileContent []byte, aliasResolver *AliasResolver, typeCache map[string]PHPType) (map[string]PHPMethod, map[string]PHPProperty) {
 	methods := make(map[string]PHPMethod)
 	properties := make(map[string]PHPProperty)
-	typeCache := make(map[string]PHPType)
 
 	// Find the class body node
 	classBodyNode := treesitterhelper.GetFirstNodeOfKind(node, "declaration_list")
@@ -477,7 +527,10 @@ func findFirstNodeOfKind(node *tree_sitter.Node, kind string) *tree_sitter.Node 
 		return nil
 	}
 
-	stack := []*tree_sitter.Node{node}
+	// Pre-allocate stack with reasonable capacity to reduce allocations
+	stack := make([]*tree_sitter.Node, 0, 32)
+	stack = append(stack, node)
+
 	for len(stack) > 0 {
 		n := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
@@ -486,7 +539,8 @@ func findFirstNodeOfKind(node *tree_sitter.Node, kind string) *tree_sitter.Node 
 			return n
 		}
 
-		for i := int(n.NamedChildCount()) - 1; i >= 0; i-- {
+		childCount := int(n.NamedChildCount())
+		for i := childCount - 1; i >= 0; i-- {
 			child := n.NamedChild(uint(i))
 			if child != nil {
 				stack = append(stack, child)
