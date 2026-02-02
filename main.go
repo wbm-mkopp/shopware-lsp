@@ -44,6 +44,15 @@ func main() {
 	log.Printf("Using cache directory: %s", cacheDir)
 	log.Printf("Shopware LSP version: %s", version)
 
+	// Check cache version and migrate if needed
+	cacheCleared, err := indexer.CheckAndMigrateCache(cacheDir)
+	if err != nil {
+		log.Fatalf("Failed to check/migrate cache: %v", err)
+	}
+	if cacheCleared {
+		log.Printf("Cache version mismatch - cleared old cache (new version: %d)", indexer.IndexVersion)
+	}
+
 	filescanner, err := indexer.NewFileScanner(projectRoot, filepath.Join(cacheDir, "file_scanner.db"))
 	if err != nil {
 		log.Fatalf("Failed to create file scanner: %v", err)
