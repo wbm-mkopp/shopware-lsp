@@ -51,7 +51,11 @@ func (idx *ExtensionIndexer) indexBundle(path string, node *tree_sitter.Node, fi
 	for _, class := range classes {
 		if isShopwareBundle(class) {
 			extension := createBundleFromClass(class)
-			return idx.indexer.SaveItem(path, extension.Name, extension)
+			// Use batch save for consistency and reduced transaction overhead
+			batchSave := map[string]map[string]ShopwareExtension{
+				path: {extension.Name: extension},
+			}
+			return idx.indexer.BatchSaveItems(batchSave)
 		}
 	}
 	return nil
@@ -79,7 +83,11 @@ func (idx *ExtensionIndexer) indexApp(path string, node *tree_sitter.Node, fileC
 		Path: filepath.Dir(path),
 	}
 
-	return idx.indexer.SaveItem(path, manifest.Name, app)
+	// Use batch save for consistency and reduced transaction overhead
+	batchSave := map[string]map[string]ShopwareExtension{
+		path: {manifest.Name: app},
+	}
+	return idx.indexer.BatchSaveItems(batchSave)
 }
 
 func (idx *ExtensionIndexer) GetExtensionByName(name string) *ShopwareExtension {
