@@ -85,9 +85,9 @@ func (p *TwigVersioningHoverProvider) hoverBlockIdentifier(node *tree_sitter.Nod
 		if err == nil && len(twigFiles) > 0 {
 			if block, exists := twigFiles[0].Blocks[blockName]; exists && block.VersionComment != nil {
 				if block.VersionComment.Hash == originalHash.Hash {
-					hoverText.WriteString("✅ **Status:** Block version is up to date\n\n")
+					hoverText.WriteString("**Status:** Block version is up to date\n\n")
 				} else {
-					hoverText.WriteString("⚠️ **Status:** Block version is outdated\n\n")
+					hoverText.WriteString("**Status:** Block version is outdated\n\n")
 					hoverText.WriteString(fmt.Sprintf("**Current Version:** `%s`\n\n", block.VersionComment.Version))
 				}
 			} else {
@@ -126,9 +126,9 @@ func (p *TwigVersioningHoverProvider) hoverVersionComment(node *tree_sitter.Node
 			originalHash := twig.FindOriginalStorefrontHash(allBlockHashes)
 			if originalHash != nil {
 				if versionComment.Hash == originalHash.Hash {
-					hoverText.WriteString("✅ **Status:** Version comment matches original block\n\n")
+					hoverText.WriteString("**Status:** Version comment matches original block\n\n")
 				} else {
-					hoverText.WriteString("⚠️ **Status:** Version comment is outdated\n\n")
+					hoverText.WriteString("**Status:** Version comment is outdated\n\n")
 					hoverText.WriteString(fmt.Sprintf("**Expected Hash:** `%s`\n\n", originalHash.Hash))
 				}
 			}
