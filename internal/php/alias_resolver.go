@@ -13,6 +13,8 @@ type AliasResolver struct {
 	useStatements map[string]string
 	// Current namespace
 	currentNamespace string
+	// Cache for resolved types to avoid repeated string concatenation
+	resolveCache map[string]string
 }
 
 // NewAliasResolver creates a new alias resolver with the given namespace, use statements, and aliases.
@@ -29,6 +31,19 @@ func NewAliasResolver(namespace string, useStatements, aliases map[string]string
 		aliases:          aliases,
 		useStatements:    useStatements,
 		currentNamespace: namespace,
+		resolveCache:     make(map[string]string, 16),
+	}
+}
+
+// Reset clears the resolver state for reuse (e.g., when pooling).
+// This must be called before reusing a resolver with different namespace/imports.
+func (r *AliasResolver) Reset(namespace string, useStatements, aliases map[string]string) {
+	r.currentNamespace = namespace
+	r.useStatements = useStatements
+	r.aliases = aliases
+	// Clear the cache to avoid stale entries from previous use
+	for k := range r.resolveCache {
+		delete(r.resolveCache, k)
 	}
 }
 
@@ -58,23 +73,32 @@ func (r *AliasResolver) ResolveType(typeName string) string {
 		return typeName
 	}
 
+	// Check the cache first to avoid repeated lookups and string concatenation
+	if cached, ok := r.resolveCache[typeName]; ok {
+		return cached
+	}
+
 	// First check if the type is an alias
 	if fqcn, ok := r.aliases[typeName]; ok {
+		r.resolveCache[typeName] = fqcn
 		return fqcn
 	}
 
 	// Then check if it's a use statement
 	if fqcn, ok := r.useStatements[typeName]; ok {
+		r.resolveCache[typeName] = fqcn
 		return fqcn
 	}
 
 	// If not found in aliases or use statements, assume it's in the current namespace
 	if r.currentNamespace != "" {
 		fqcn := r.currentNamespace + "\\" + typeName
+		r.resolveCache[typeName] = fqcn
 		return fqcn
 	}
 
 	// If no namespace, return the type name as is
+	r.resolveCache[typeName] = typeName
 	return typeName
 }
 

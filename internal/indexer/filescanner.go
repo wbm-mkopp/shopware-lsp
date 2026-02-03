@@ -2,7 +2,7 @@ package indexer
 
 import (
 	"context"
-	"encoding/binary"
+	"database/sql"
 	"fmt"
 	"log"
 	"os"
@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"go.etcd.io/bbolt"
+	_ "modernc.org/sqlite"
 )
 
 var defaultSkipDirs = map[string]bool{
@@ -36,7 +36,7 @@ var defaultSkipDirs = map[string]bool{
 // FileScanner scans the project for files and tracks changes
 type FileScanner struct {
 	projectRoot string
-	db          *bbolt.DB
+	db          *sql.DB
 	indexer     []Indexer
 	watcher     *fsnotify.Watcher
 	watcherCtx  context.Context
@@ -52,27 +52,44 @@ func NewFileScanner(projectRoot string, dbPath string) (*FileScanner, error) {
 		return nil, fmt.Errorf("failed to create db directory: %w", err)
 	}
 
-	// Open the database
-	db, err := bbolt.Open(dbPath, 0600, &bbolt.Options{
-		Timeout:         time.Second,
-		NoSync:          true,
-		FreelistType:    bbolt.FreelistMapType,
-		InitialMmapSize: 1024 * 1024 * 10, // 10MB initial mmap size
-		PageSize:        4096,
-	})
+	// Open the database with WAL mode for concurrent access
+	// Using _txlock=immediate to acquire locks early and avoid SQLITE_BUSY
+	db, err := sql.Open("sqlite", dbPath+"?_txlock=immediate")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Create the buckets if they don't exist
-	err = db.Update(func(tx *bbolt.Tx) error {
-		if _, err := tx.CreateBucketIfNotExists([]byte("file_hashes")); err != nil {
-			return fmt.Errorf("failed to create file hashes bucket: %w", err)
+	// Set connection pool settings
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+
+	// Enable WAL mode and set pragmas for concurrent access and optimization
+	pragmas := []string{
+		"PRAGMA journal_mode=WAL",
+		"PRAGMA busy_timeout=5000",
+		"PRAGMA synchronous=NORMAL",
+		"PRAGMA cache_size=10000",
+		"PRAGMA auto_vacuum=INCREMENTAL",
+		"PRAGMA wal_autocheckpoint=1000",
+	}
+	for _, pragma := range pragmas {
+		if _, err := db.Exec(pragma); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("failed to set pragma %s: %w", pragma, err)
 		}
-		return nil
-	})
+	}
+
+	// Create the table if it doesn't exist
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS file_hashes (
+			path TEXT PRIMARY KEY,
+			size INTEGER NOT NULL,
+			mtime INTEGER NOT NULL
+		)
+	`)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize buckets: %w", err)
+		_ = db.Close()
+		return nil, fmt.Errorf("failed to initialize tables: %w", err)
 	}
 
 	// Create a new context for the watcher
@@ -317,16 +334,25 @@ func (fs *FileScanner) Close() error {
 		fs.StopWatcher()
 	}
 
-	// Close the database
-	if fs.db != nil {
-		return fs.db.Close()
-	}
-
 	// Close all indexers
 	for _, indexer := range fs.indexer {
 		if err := indexer.Close(); err != nil {
 			return err
 		}
+	}
+
+	// Close the database with optimization
+	if fs.db != nil {
+		// Optimize query planner statistics before closing
+		_, _ = fs.db.Exec("PRAGMA optimize")
+
+		// Reclaim any remaining unused space
+		_, _ = fs.db.Exec("PRAGMA incremental_vacuum")
+
+		// Checkpoint and truncate the WAL file to reduce disk usage
+		_, _ = fs.db.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
+
+		return fs.db.Close()
 	}
 
 	return nil
@@ -390,27 +416,16 @@ func (fs *FileScanner) fileNeedsIndexing(path string) (bool, []byte, os.FileInfo
 		return false, nil, nil, err
 	}
 
-	var fileChanged bool
-	err = fs.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte("file_hashes"))
-		if b == nil {
-			fileChanged = true
-			return nil
-		}
+	var storedSize, storedMtime int64
+	err = fs.db.QueryRow("SELECT size, mtime FROM file_hashes WHERE path = ?", path).Scan(&storedSize, &storedMtime)
 
-		stateBytes := b.Get([]byte(path))
-		if len(stateBytes) != 16 {
-			fileChanged = true
-			return nil
-		}
-
-		storedSize := binary.LittleEndian.Uint64(stateBytes[:8])
-		storedMtime := binary.LittleEndian.Uint64(stateBytes[8:])
-		fileChanged = storedSize != uint64(info.Size()) || storedMtime != uint64(info.ModTime().UnixNano())
-		return nil
-	})
-	if err != nil {
+	fileChanged := false
+	if err == sql.ErrNoRows {
 		fileChanged = true
+	} else if err != nil {
+		fileChanged = true
+	} else {
+		fileChanged = storedSize != info.Size() || storedMtime != info.ModTime().UnixNano()
 	}
 
 	if !fileChanged {
@@ -433,17 +448,25 @@ func (fs *FileScanner) RemoveFiles(ctx context.Context, paths []string) error {
 		}
 	}
 
-	err := fs.db.Update(func(tx *bbolt.Tx) error {
-		hashBucket := tx.Bucket([]byte("file_hashes"))
-		for _, path := range paths {
-			if err := hashBucket.Delete([]byte(path)); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-
+	tx, err := fs.db.Begin()
 	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	stmt, err := tx.Prepare("DELETE FROM file_hashes WHERE path = ?")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = stmt.Close() }()
+
+	for _, path := range paths {
+		if _, err := stmt.Exec(path); err != nil {
+			return err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
 		return err
 	}
 
@@ -464,18 +487,25 @@ func (fs *FileScanner) removeFilesFromIndexers(paths []string) error {
 }
 
 func (fs *FileScanner) updateFileStates(files []fileState) error {
-	return fs.db.Update(func(tx *bbolt.Tx) error {
-		hashBucket := tx.Bucket([]byte("file_hashes"))
-		for _, file := range files {
-			stateBytes := make([]byte, 16)
-			binary.LittleEndian.PutUint64(stateBytes[:8], uint64(file.info.Size()))
-			binary.LittleEndian.PutUint64(stateBytes[8:], uint64(file.info.ModTime().UnixNano()))
-			if err := hashBucket.Put([]byte(file.path), stateBytes); err != nil {
-				return err
-			}
+	tx, err := fs.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	stmt, err := tx.Prepare("INSERT OR REPLACE INTO file_hashes (path, size, mtime) VALUES (?, ?, ?)")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = stmt.Close() }()
+
+	for _, file := range files {
+		if _, err := stmt.Exec(file.path, file.info.Size(), file.info.ModTime().UnixNano()); err != nil {
+			return err
 		}
-		return nil
-	})
+	}
+
+	return tx.Commit()
 }
 
 type fileState struct {
@@ -655,14 +685,12 @@ func (fs *FileScanner) ClearHashes() error {
 		}
 	}
 
-	return fs.db.Update(func(tx *bbolt.Tx) error {
-		// Delete and recreate bucket
-		if err := tx.DeleteBucket([]byte("file_hashes")); err != nil {
-			return fmt.Errorf("failed to delete file hashes bucket: %w", err)
-		}
-		if _, err := tx.CreateBucket([]byte("file_hashes")); err != nil {
-			return fmt.Errorf("failed to create file hashes bucket: %w", err)
-		}
-		return nil
-	})
+	_, err := fs.db.Exec("DELETE FROM file_hashes")
+	if err != nil {
+		return err
+	}
+
+	// Reclaim space after clearing all data
+	_, err = fs.db.Exec("PRAGMA incremental_vacuum")
+	return err
 }

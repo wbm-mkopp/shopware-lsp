@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -160,4 +161,90 @@ func TestDataIndexer_GetAllKeysByPath(t *testing.T) {
 	nonExistentKeys, err := indexer.GetAllKeysByPath("non-existent.txt")
 	require.NoError(t, err, "GetAllKeysByPath should not error for non-existent file")
 	assert.Empty(t, nonExistentKeys, "Expected empty keys for non-existent file")
+}
+
+func TestDataIndexer_ConcurrentAccess(t *testing.T) {
+	// This test verifies that multiple connections to the same SQLite database
+	// can work concurrently without blocking/hanging (the original BBolt issue)
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "concurrent_test.db")
+
+	// Create first indexer
+	indexer1, err := NewDataIndexer[testStruct](dbPath)
+	require.NoError(t, err, "Failed to create first indexer")
+	defer func() { _ = indexer1.Close() }()
+
+	// Create second indexer to the same database (simulating second LSP instance)
+	indexer2, err := NewDataIndexer[testStruct](dbPath)
+	require.NoError(t, err, "Failed to create second indexer - this would fail with BBolt")
+	defer func() { _ = indexer2.Close() }()
+
+	// Use WaitGroup to coordinate concurrent operations
+	var wg sync.WaitGroup
+	errChan := make(chan error, 4)
+
+	// Indexer 1 writes
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 10; i++ {
+			err := indexer1.SaveItem("file1.txt", "key1", testStruct{Name: "from-indexer1", Value: i})
+			if err != nil {
+				errChan <- err
+				return
+			}
+		}
+	}()
+
+	// Indexer 2 writes
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 10; i++ {
+			err := indexer2.SaveItem("file2.txt", "key2", testStruct{Name: "from-indexer2", Value: i})
+			if err != nil {
+				errChan <- err
+				return
+			}
+		}
+	}()
+
+	// Indexer 1 reads
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 10; i++ {
+			_, err := indexer1.GetAllValues()
+			if err != nil {
+				errChan <- err
+				return
+			}
+		}
+	}()
+
+	// Indexer 2 reads
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 10; i++ {
+			_, err := indexer2.GetAllKeys()
+			if err != nil {
+				errChan <- err
+				return
+			}
+		}
+	}()
+
+	wg.Wait()
+	close(errChan)
+
+	// Check for any errors
+	for err := range errChan {
+		t.Errorf("Concurrent operation failed: %v", err)
+	}
+
+	// Verify data integrity - should have data from both indexers
+	values, err := indexer1.GetAllValues()
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, len(values), 10, "Expected at least 10 values from concurrent writes")
 }

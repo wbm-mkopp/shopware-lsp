@@ -25,6 +25,20 @@ func (t *BaseType) Name() string {
 	return t.name
 }
 
+// Singleton instances for common immutable types (non-nullable)
+// This avoids allocations for frequently used types
+var (
+	singletonVoid   = &VoidType{BaseType: BaseType{name: "void"}}
+	singletonNull   = &NullType{BaseType: BaseType{name: "null"}}
+	singletonMixed  = &MixedType{BaseType: BaseType{name: "mixed"}}
+	singletonNever  = &NeverType{BaseType: BaseType{name: "never"}}
+	singletonString = &StringType{BaseType: BaseType{name: "string"}, nullable: false}
+	singletonInt    = &IntType{BaseType: BaseType{name: "int"}, nullable: false}
+	singletonFloat  = &FloatType{BaseType: BaseType{name: "float"}, nullable: false}
+	singletonBool   = &BoolType{BaseType: BaseType{name: "bool"}, nullable: false}
+	singletonArray  = &ArrayType{BaseType: BaseType{name: "array"}, elementType: nil, nullable: false}
+)
+
 // NewPHPType creates a new PHPType based on the provided type name
 func NewPHPType(typeName string) PHPType {
 	// Handle nullable types (e.g., ?string, ?int, ?string|int)
@@ -117,17 +131,33 @@ func NewPHPType(typeName string) PHPType {
 	// For all other types, construct the base type and handle nullable as a union
 	var baseType PHPType
 	// Create the base type (always non-nullable)
+	// Use singletons for common non-nullable types to reduce allocations
 	switch strings.ToLower(typeName) {
 	case "string":
-		baseType = NewStringType(false)
+		if !isNullable {
+			return singletonString
+		}
+		baseType = singletonString
 	case "int", "integer":
-		baseType = NewIntType(false)
+		if !isNullable {
+			return singletonInt
+		}
+		baseType = singletonInt
 	case "float", "double":
-		baseType = NewFloatType(false)
+		if !isNullable {
+			return singletonFloat
+		}
+		baseType = singletonFloat
 	case "bool", "boolean":
-		baseType = NewBoolType(false)
+		if !isNullable {
+			return singletonBool
+		}
+		baseType = singletonBool
 	case "array":
-		baseType = NewArrayType(nil, false)
+		if !isNullable {
+			return singletonArray
+		}
+		baseType = singletonArray
 	case "object":
 		baseType = NewObjectType("object", false)
 	case "callable":
@@ -136,16 +166,16 @@ func NewPHPType(typeName string) PHPType {
 		baseType = NewIterableType(false)
 	case "void":
 		// void can't be nullable
-		return NewVoidType()
+		return singletonVoid
 	case "null":
 		// null is already null
-		return NewNullType()
+		return singletonNull
 	case "mixed":
 		// mixed already includes null
-		return NewMixedType()
+		return singletonMixed
 	case "never":
 		// never can't be nullable
-		return NewNeverType()
+		return singletonNever
 	case "self", "static", "parent", "$this":
 		baseType = NewSpecialType(typeName)
 	default:
@@ -155,7 +185,7 @@ func NewPHPType(typeName string) PHPType {
 
 	// If nullable, create a union with null
 	if isNullable {
-		return NewUnionType([]PHPType{baseType, NewNullType()})
+		return NewUnionType([]PHPType{baseType, singletonNull})
 	}
 
 	return baseType
@@ -169,13 +199,12 @@ type StringType struct {
 
 // NewStringType creates a new string type
 func NewStringType(nullable bool) *StringType {
-	name := "string"
-	if nullable {
-		name = "?" + name
+	if !nullable {
+		return singletonString
 	}
 	return &StringType{
-		BaseType: BaseType{name: name},
-		nullable: nullable,
+		BaseType: BaseType{name: "?string"},
+		nullable: true,
 	}
 }
 
@@ -202,13 +231,12 @@ type IntType struct {
 
 // NewIntType creates a new integer type
 func NewIntType(nullable bool) *IntType {
-	name := "int"
-	if nullable {
-		name = "?" + name
+	if !nullable {
+		return singletonInt
 	}
 	return &IntType{
-		BaseType: BaseType{name: name},
-		nullable: nullable,
+		BaseType: BaseType{name: "?int"},
+		nullable: true,
 	}
 }
 
@@ -251,13 +279,12 @@ type FloatType struct {
 
 // NewFloatType creates a new float type
 func NewFloatType(nullable bool) *FloatType {
-	name := "float"
-	if nullable {
-		name = "?" + name
+	if !nullable {
+		return singletonFloat
 	}
 	return &FloatType{
-		BaseType: BaseType{name: name},
-		nullable: nullable,
+		BaseType: BaseType{name: "?float"},
+		nullable: true,
 	}
 }
 
@@ -286,13 +313,12 @@ type BoolType struct {
 
 // NewBoolType creates a new boolean type
 func NewBoolType(nullable bool) *BoolType {
-	name := "bool"
-	if nullable {
-		name = "?" + name
+	if !nullable {
+		return singletonBool
 	}
 	return &BoolType{
-		BaseType: BaseType{name: name},
-		nullable: nullable,
+		BaseType: BaseType{name: "?bool"},
+		nullable: true,
 	}
 }
 
@@ -485,9 +511,7 @@ type VoidType struct {
 
 // NewVoidType creates a new void type
 func NewVoidType() *VoidType {
-	return &VoidType{
-		BaseType: BaseType{name: "void"},
-	}
+	return singletonVoid
 }
 
 // Matches checks if this type matches another type
@@ -509,9 +533,7 @@ type NullType struct {
 
 // NewNullType creates a new null type
 func NewNullType() *NullType {
-	return &NullType{
-		BaseType: BaseType{name: "null"},
-	}
+	return singletonNull
 }
 
 // Matches checks if this type matches another type
@@ -544,9 +566,7 @@ type MixedType struct {
 
 // NewMixedType creates a new mixed type
 func NewMixedType() *MixedType {
-	return &MixedType{
-		BaseType: BaseType{name: "mixed"},
-	}
+	return singletonMixed
 }
 
 // Matches checks if this type matches another type
@@ -562,9 +582,7 @@ type NeverType struct {
 
 // NewNeverType creates a new never type
 func NewNeverType() *NeverType {
-	return &NeverType{
-		BaseType: BaseType{name: "never"},
-	}
+	return singletonNever
 }
 
 // Matches checks if this type matches another type

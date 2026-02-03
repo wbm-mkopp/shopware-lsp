@@ -77,7 +77,11 @@ func (idx *TwigIndexer) indexTwig(path string, node *tree_sitter.Node, fileConte
 		return err
 	}
 
-	if err := idx.twigFileIndex.SaveItem(path, file.RelPath, *file); err != nil {
+	// Use batch save for twig files
+	twigFiles := make(map[string]map[string]TwigFile)
+	twigFiles[path] = map[string]TwigFile{file.RelPath: *file}
+
+	if err := idx.twigFileIndex.BatchSaveItems(twigFiles); err != nil {
 		return err
 	}
 
