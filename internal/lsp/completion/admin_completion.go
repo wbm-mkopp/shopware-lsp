@@ -74,7 +74,7 @@ func (p *AdminCompletionProvider) twigCompletions(_ context.Context, params *pro
 
 	// Check if we're in a slot name position (# or v-slot:)
 	if componentName := p.getComponentNameForSlotCompletion(node, content); componentName != "" {
-		return p.getSlotCompletions(componentName)
+		return p.getSlotCompletions(componentName, node, content)
 	}
 
 	// Check if we're in an HTML attribute position
@@ -653,7 +653,7 @@ func (p *AdminCompletionProvider) getFirstChildOfKind(node *tree_sitter.Node, ki
 }
 
 // getSlotCompletions returns completion items for slot names of a component
-func (p *AdminCompletionProvider) getSlotCompletions(componentName string) []protocol.CompletionItem {
+func (p *AdminCompletionProvider) getSlotCompletions(componentName string, node *tree_sitter.Node, content []byte) []protocol.CompletionItem {
 	if p.adminIndexer == nil {
 		return []protocol.CompletionItem{}
 	}
@@ -661,6 +661,16 @@ func (p *AdminCompletionProvider) getSlotCompletions(componentName string) []pro
 	components, err := p.adminIndexer.GetComponentWithDefinition(componentName)
 	if err != nil || len(components) == 0 {
 		return []protocol.CompletionItem{}
+	}
+
+	// Check if the node already contains a closing >
+	// If so, we just insert the slot name (without > or </template>)
+	var hasClosingBracket bool
+	if node != nil {
+		nodeText := string(node.Utf8Text(content))
+		if strings.HasPrefix(nodeText, "#") && strings.Contains(nodeText, ">") {
+			hasClosingBracket = true
+		}
 	}
 
 	var items []protocol.CompletionItem
@@ -673,16 +683,20 @@ func (p *AdminCompletionProvider) getSlotCompletions(componentName string) []pro
 			}
 			seenSlots[slot.Name] = true
 
-			// Create snippet that completes the slot and closes the template tag
-			// Result: #slotName>$0</template>
-			snippet := slot.Name + ">$0</template>"
-
 			item := protocol.CompletionItem{
 				Label:            slot.Name,
 				Kind:             int(protocol.PropertyCompletion),
 				Detail:           "slot",
-				InsertText:       snippet,
 				InsertTextFormat: int(protocol.SnippetTextFormat),
+			}
+
+			// If there's already a closing >, just insert the slot name
+			// Otherwise insert the full snippet with > and </template>
+			if hasClosingBracket {
+				item.InsertText = slot.Name
+				item.InsertTextFormat = int(protocol.PlainTextFormat)
+			} else {
+				item.InsertText = slot.Name + ">$0</template>"
 			}
 
 			// Add documentation

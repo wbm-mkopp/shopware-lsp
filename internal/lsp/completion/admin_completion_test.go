@@ -136,7 +136,7 @@ func TestGetSlotCompletions(t *testing.T) {
 	}
 
 	// Test that getSlotCompletions returns empty when indexer is nil
-	items := provider.getSlotCompletions("sw-card")
+	items := provider.getSlotCompletions("sw-card", nil, nil)
 	assert.Empty(t, items)
 }
 
