@@ -4,7 +4,8 @@
 
 enum TokenType {
   CONTENT,
-  COMMENT
+  COMMENT,
+  HTML_CONTENT
 };
 
 void *tree_sitter_twig_external_scanner_create() { return NULL; }
@@ -21,29 +22,54 @@ bool tree_sitter_twig_external_scanner_scan(void *payload, TSLexer *lexer, const
     lexer->advance(lexer, true);
   }
 
-  // CONTENT
-  bool has_content = false;
-
-  while (lexer->lookahead) {
-    if(lexer->lookahead == '{') {
-      advance(lexer);
-
-      if(lexer->lookahead == '{' ||
-        lexer->lookahead == '%' ||
-        lexer->lookahead == '#') {
+  // HTML_CONTENT - text between HTML tags (not starting with < or {)
+  if (valid_symbols[HTML_CONTENT] && lexer->lookahead != '<' && lexer->lookahead != '{') {
+    bool has_content = false;
+    
+    while (lexer->lookahead) {
+      // Stop at HTML tag start, Twig tag start, or end of content
+      if (lexer->lookahead == '<' || lexer->lookahead == '{') {
         break;
       }
-    } else {
       advance(lexer);
+      lexer->mark_end(lexer);
+      has_content = true;
     }
-
-    lexer->mark_end(lexer);
-    has_content = true;
+    
+    if (has_content) {
+      lexer->result_symbol = HTML_CONTENT;
+      return true;
+    }
   }
 
-  if (has_content) {
-    lexer->result_symbol = CONTENT;
-    return true;
+  // CONTENT - fallback for non-HTML content (between Twig tags)
+  if (valid_symbols[CONTENT]) {
+    bool has_content = false;
+
+    while (lexer->lookahead) {
+      if(lexer->lookahead == '{') {
+        advance(lexer);
+
+        if(lexer->lookahead == '{' ||
+          lexer->lookahead == '%' ||
+          lexer->lookahead == '#') {
+          break;
+        }
+      } else if (lexer->lookahead == '<') {
+        // Stop at HTML tag start
+        break;
+      } else {
+        advance(lexer);
+      }
+
+      lexer->mark_end(lexer);
+      has_content = true;
+    }
+
+    if (has_content) {
+      lexer->result_symbol = CONTENT;
+      return true;
+    }
   }
 
   // COMMENT

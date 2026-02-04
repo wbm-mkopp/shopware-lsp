@@ -21,12 +21,67 @@ module.exports = grammar({
     [$.primary_expression, $.arrow_function],
     [$.primary_expression, $.call_expression],
   ],
-  externals: ($) => [$.content, $.comment],
+  externals: ($) => [$.content, $.comment, $.html_content],
   rules: {
     template: ($) => repeat($._source_element),
 
     _source_element: ($) =>
-      choice($._statement, $.output, $.comment, $.content),
+      choice($._statement, $.output, $.comment, $.content, $.html_tag, $.html_content),
+
+    // HTML/Vue component tags
+    html_tag: ($) =>
+      choice(
+        $.html_start_tag,
+        $.html_end_tag,
+      ),
+
+    html_start_tag: ($) =>
+      seq(
+        '<',
+        field('name', $.html_tag_name),
+        repeat($.html_attribute),
+        optional('/'),
+        '>',
+      ),
+
+    html_end_tag: ($) =>
+      seq(
+        '</',
+        field('name', $.html_tag_name),
+        '>',
+      ),
+
+    html_tag_name: ($) => /[a-zA-Z][a-zA-Z0-9_-]*/,
+
+    html_attribute: ($) =>
+      choice(
+        // Regular attribute: name="value" or name='value'
+        seq(
+          field('name', $.html_attribute_name),
+          optional(seq('=', field('value', $.html_attribute_value))),
+        ),
+        // Vue directive shorthand: @click, :prop, v-if
+        seq(
+          field('name', $.vue_directive),
+          optional(seq('=', field('value', $.html_attribute_value))),
+        ),
+      ),
+
+    html_attribute_name: ($) => /[a-zA-Z_:][a-zA-Z0-9_:.-]*/,
+
+    vue_directive: ($) => choice(
+      /v-[a-zA-Z0-9_:-]+/,  // v-if, v-for, v-bind:prop
+      /@[a-zA-Z0-9_.-]+/,    // @click, @input
+      /:[a-zA-Z0-9_.-]+/,    // :prop, :class
+      /#[a-zA-Z0-9_.-]*/,    // #default, #header (slot shorthand) - allows empty for completion
+    ),
+
+    html_attribute_value: ($) =>
+      choice(
+        seq('"', optional(/[^"]*/), '"'),
+        seq("'", optional(/[^']*/), "'"),
+        /[^\s>"'=]+/,
+      ),
 
     output: ($) =>
       seq(

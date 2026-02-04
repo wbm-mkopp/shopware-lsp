@@ -163,6 +163,60 @@ func TestDataIndexer_GetAllKeysByPath(t *testing.T) {
 	assert.Empty(t, nonExistentKeys, "Expected empty keys for non-existent file")
 }
 
+func TestDataIndexer_BatchSaveItems_DeletesOldEntries(t *testing.T) {
+	indexer, cleanup := setupTestDB[testStruct](t)
+	defer cleanup()
+
+	// First save
+	item1 := testStruct{Name: "ItemA", Value: 10}
+	err := indexer.BatchSaveItems(map[string]map[string]testStruct{
+		"file1.txt": {
+			"keyA": item1,
+		},
+	})
+	require.NoError(t, err, "First BatchSaveItems failed")
+
+	// Verify first save
+	values, err := indexer.GetValues("keyA")
+	require.NoError(t, err)
+	assert.Len(t, values, 1, "Expected 1 value after first save")
+
+	// Second save to the same file path - should replace, not add
+	item2 := testStruct{Name: "ItemB", Value: 20}
+	err = indexer.BatchSaveItems(map[string]map[string]testStruct{
+		"file1.txt": {
+			"keyA": item2,
+		},
+	})
+	require.NoError(t, err, "Second BatchSaveItems failed")
+
+	// Verify second save replaced the first - should still be 1 value, not 2
+	values, err = indexer.GetValues("keyA")
+	require.NoError(t, err)
+	assert.Len(t, values, 1, "Expected 1 value after second save (should replace, not duplicate)")
+	assert.Equal(t, "ItemB", values[0].Name, "Should have the updated value")
+
+	// Third save with different key to same file - should replace all entries for that file
+	item3 := testStruct{Name: "ItemC", Value: 30}
+	err = indexer.BatchSaveItems(map[string]map[string]testStruct{
+		"file1.txt": {
+			"keyB": item3,
+		},
+	})
+	require.NoError(t, err, "Third BatchSaveItems failed")
+
+	// keyA should now be empty since file1.txt entries were deleted
+	valuesA, err := indexer.GetValues("keyA")
+	require.NoError(t, err)
+	assert.Len(t, valuesA, 0, "keyA should be empty after file1.txt was re-saved with different key")
+
+	// keyB should have the new value
+	valuesB, err := indexer.GetValues("keyB")
+	require.NoError(t, err)
+	assert.Len(t, valuesB, 1, "Expected 1 value for keyB")
+	assert.Equal(t, "ItemC", valuesB[0].Name)
+}
+
 func TestDataIndexer_ConcurrentAccess(t *testing.T) {
 	// This test verifies that multiple connections to the same SQLite database
 	// can work concurrently without blocking/hanging (the original BBolt issue)

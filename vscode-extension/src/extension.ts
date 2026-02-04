@@ -78,7 +78,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         { scheme: 'file', language: 'yaml' },
         { scheme: 'file', language: 'twig' },
         { scheme: 'file', language: 'json' },
-        { scheme: 'file', language: 'scss' }
+        { scheme: 'file', language: 'scss' },
+        { scheme: 'file', language: 'javascript' },
+        { scheme: 'file', language: 'typescript' }
       ],
       // Add output configuration
       outputChannel: outputChannel,
@@ -351,6 +353,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const editor = vscode.window.activeTextEditor;
     if (editor) {
       editor.insertSnippet(new vscode.SnippetString(text));
+    }
+  }));
+
+  // Register add prop command for admin components (with snippet support for cursor positioning)
+  context.subscriptions.push(vscode.commands.registerCommand('shopware.admin.addProp', async (fileUri: string, line: number, character: number, snippetText: string) => {
+    try {
+      const document = await vscode.workspace.openTextDocument(vscode.Uri.parse(fileUri));
+      const editor = await vscode.window.showTextDocument(document);
+      
+      // Position the cursor at the insert position
+      const position = new vscode.Position(line, character);
+      editor.selection = new vscode.Selection(position, position);
+      
+      // Insert as snippet to support $0 cursor positioning
+      await editor.insertSnippet(new vscode.SnippetString(snippetText), position);
+    } catch (error) {
+      vscode.window.showErrorMessage(`Error adding prop: ${error}`);
     }
   }));
 
