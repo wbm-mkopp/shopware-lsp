@@ -39,8 +39,34 @@ func (s *SnippetDefinitionProvider) GetDefinition(ctx context.Context, params *p
 }
 
 func (s *SnippetDefinitionProvider) twigDefinitions(ctx context.Context, params *protocol.DefinitionParams) []protocol.Location {
+	// Check for frontend snippet pattern: {{ 'key'|trans }}
 	if treesitterhelper.TwigTransPattern().Matches(params.Node, params.DocumentContent) {
 		snippets, _ := s.snippetIndexer.GetFrontendSnippet(treesitterhelper.GetNodeText(params.Node, params.DocumentContent))
+
+		var locations []protocol.Location
+
+		for _, snippet := range snippets {
+			locations = append(locations, protocol.Location{
+				URI: fmt.Sprintf("file://%s", snippet.File),
+				Range: protocol.Range{
+					Start: protocol.Position{
+						Line:      snippet.Line - 1,
+						Character: 0,
+					},
+					End: protocol.Position{
+						Line:      snippet.Line - 1,
+						Character: 0,
+					},
+				},
+			})
+		}
+
+		return locations
+	}
+
+	// Check for admin snippet pattern: {{ $tc('key') }} or {{ $t('key') }}
+	if treesitterhelper.TwigAdminSnippetPattern().Matches(params.Node, params.DocumentContent) {
+		snippets, _ := s.snippetIndexer.GetAdminSnippet(treesitterhelper.GetNodeText(params.Node, params.DocumentContent))
 
 		var locations []protocol.Location
 

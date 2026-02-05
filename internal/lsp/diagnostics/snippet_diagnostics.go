@@ -34,34 +34,72 @@ func (s *SnippetDiagnosticsProvider) GetDiagnostics(ctx context.Context, uri str
 }
 
 func (s *SnippetDiagnosticsProvider) twigDiagnostics(ctx context.Context, uri string, rootNode *tree_sitter.Node, content []byte) ([]protocol.Diagnostic, error) {
-	matches := treesitterhelper.FindAll(rootNode, treesitterhelper.TwigTransPattern(), content)
-
 	var diagnostics []protocol.Diagnostic
-	for _, match := range matches {
-		snippetText := treesitterhelper.GetNodeText(match, content)
 
-		snippets, _ := s.snippetIndex.GetFrontendSnippet(snippetText)
+	// Check if this is an admin file
+	isAdminFile := strings.Contains(uri, "/Resources/app/administration/")
 
-		if len(snippets) == 0 {
-			diagnostics = append(diagnostics, protocol.Diagnostic{
-				Range: protocol.Range{
-					Start: protocol.Position{
-						Line:      int(match.StartPosition().Row),
-						Character: int(match.StartPosition().Column),
+	if isAdminFile {
+		// Check for admin snippet pattern: {{ $tc('key') }} or {{ $t('key') }}
+		matches := treesitterhelper.FindAll(rootNode, treesitterhelper.TwigAdminSnippetPattern(), content)
+
+		for _, match := range matches {
+			snippetText := treesitterhelper.GetNodeText(match, content)
+
+			snippets, _ := s.snippetIndex.GetAdminSnippet(snippetText)
+
+			if len(snippets) == 0 {
+				diagnostics = append(diagnostics, protocol.Diagnostic{
+					Range: protocol.Range{
+						Start: protocol.Position{
+							Line:      int(match.StartPosition().Row),
+							Character: int(match.StartPosition().Column),
+						},
+						End: protocol.Position{
+							Line:      int(match.EndPosition().Row),
+							Character: int(match.EndPosition().Column),
+						},
 					},
-					End: protocol.Position{
-						Line:      int(match.EndPosition().Row),
-						Character: int(match.EndPosition().Column),
+					Message:  fmt.Sprintf("Admin snippet '%s' not found", snippetText),
+					Source:   "shopware",
+					Severity: protocol.DiagnosticSeverityError,
+					Code:     "admin.snippet.missing",
+					Data: map[string]any{
+						"snippetText": snippetText,
 					},
-				},
-				Message:  fmt.Sprintf("Snippet %s not found", snippetText),
-				Source:   "shopware",
-				Severity: protocol.DiagnosticSeverityError,
-				Code:     "frontend.snippet.missing",
-				Data: map[string]any{
-					"snippetText": snippetText,
-				},
-			})
+				})
+			}
+		}
+	} else {
+		// Check for frontend snippet pattern: {{ 'key'|trans }}
+		matches := treesitterhelper.FindAll(rootNode, treesitterhelper.TwigTransPattern(), content)
+
+		for _, match := range matches {
+			snippetText := treesitterhelper.GetNodeText(match, content)
+
+			snippets, _ := s.snippetIndex.GetFrontendSnippet(snippetText)
+
+			if len(snippets) == 0 {
+				diagnostics = append(diagnostics, protocol.Diagnostic{
+					Range: protocol.Range{
+						Start: protocol.Position{
+							Line:      int(match.StartPosition().Row),
+							Character: int(match.StartPosition().Column),
+						},
+						End: protocol.Position{
+							Line:      int(match.EndPosition().Row),
+							Character: int(match.EndPosition().Column),
+						},
+					},
+					Message:  fmt.Sprintf("Snippet '%s' not found", snippetText),
+					Source:   "shopware",
+					Severity: protocol.DiagnosticSeverityError,
+					Code:     "frontend.snippet.missing",
+					Data: map[string]any{
+						"snippetText": snippetText,
+					},
+				})
+			}
 		}
 	}
 

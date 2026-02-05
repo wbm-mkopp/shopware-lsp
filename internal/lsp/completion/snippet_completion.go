@@ -39,8 +39,23 @@ func (s *SnippetCompletionProvider) GetCompletions(ctx context.Context, params *
 }
 
 func (s *SnippetCompletionProvider) twigCompletion(ctx context.Context, params *protocol.CompletionParams) []protocol.CompletionItem {
+	// Check for frontend snippet pattern: {{ 'key'|trans }}
 	if treesitterhelper.TwigTransPattern().Matches(params.Node, params.DocumentContent) {
 		snippets, _ := s.snippetIndexer.GetFrontendSnippets()
+
+		var completionItems []protocol.CompletionItem
+		for _, snippet := range snippets {
+			completionItems = append(completionItems, protocol.CompletionItem{
+				Label: snippet,
+			})
+		}
+
+		return completionItems
+	}
+
+	// Check for admin snippet pattern: {{ $tc('key') }} or {{ $t('key') }}
+	if treesitterhelper.TwigAdminSnippetPattern().Matches(params.Node, params.DocumentContent) {
+		snippets, _ := s.snippetIndexer.GetAdminSnippetKeys()
 
 		var completionItems []protocol.CompletionItem
 		for _, snippet := range snippets {

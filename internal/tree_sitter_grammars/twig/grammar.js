@@ -124,7 +124,7 @@ module.exports = grammar({
 
     identifier: ($) =>
       choice(
-        /[a-zA-Z_\x7f-\xff][a-zA-Z0-9_\x7f-\xff]*/,
+        /\$?[a-zA-Z_\x7f-\xff][a-zA-Z0-9_\x7f-\xff]*/,  // Allow optional $ prefix for Vue-style variables
         'divisible by',
         'same as',
       ),

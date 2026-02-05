@@ -43,23 +43,39 @@ func (p *SnippetHoverProvider) GetHover(ctx context.Context, params *protocol.Ho
 }
 
 func (p *SnippetHoverProvider) twigHover(_ context.Context, params *protocol.HoverParams) (*protocol.Hover, error) {
+	// Check for frontend snippet pattern: {{ 'key'|trans }}
 	if treesitterhelper.TwigTransPattern().Matches(params.Node, params.DocumentContent) {
 		snippetKey := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
-		return p.createHoverForSnippet(snippetKey, params)
+		return p.createHoverForSnippet(snippetKey, params, false)
 	}
+
+	// Check for admin snippet pattern: {{ $tc('key') }} or {{ $t('key') }}
+	if treesitterhelper.TwigAdminSnippetPattern().Matches(params.Node, params.DocumentContent) {
+		snippetKey := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
+		return p.createHoverForSnippet(snippetKey, params, true)
+	}
+
 	return nil, nil
 }
 
 func (p *SnippetHoverProvider) phpHover(_ context.Context, params *protocol.HoverParams) (*protocol.Hover, error) {
 	if treesitterhelper.IsPHPThisMethodCall("trans").Matches(params.Node, params.DocumentContent) {
 		snippetKey := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
-		return p.createHoverForSnippet(snippetKey, params)
+		return p.createHoverForSnippet(snippetKey, params, false)
 	}
 	return nil, nil
 }
 
-func (p *SnippetHoverProvider) createHoverForSnippet(snippetKey string, params *protocol.HoverParams) (*protocol.Hover, error) {
-	snippets, err := p.snippetIndexer.GetFrontendSnippet(snippetKey)
+func (p *SnippetHoverProvider) createHoverForSnippet(snippetKey string, params *protocol.HoverParams, isAdmin bool) (*protocol.Hover, error) {
+	var snippets []snippet.Snippet
+	var err error
+
+	if isAdmin {
+		snippets, err = p.snippetIndexer.GetAdminSnippet(snippetKey)
+	} else {
+		snippets, err = p.snippetIndexer.GetFrontendSnippet(snippetKey)
+	}
+
 	if err != nil || len(snippets) == 0 {
 		return nil, nil
 	}
@@ -77,7 +93,7 @@ func (p *SnippetHoverProvider) createHoverForSnippet(snippetKey string, params *
 	for _, snippet := range snippets {
 		// Extract locale from file path (e.g., "de-DE" or "en-GB" from the path)
 		locale := extractLocaleFromPath(snippet.File)
-		
+
 		// Make path relative to project root
 		displayPath, err := filepath.Rel(p.projectRoot, snippet.File)
 		if err != nil {
@@ -114,7 +130,7 @@ func extractLocaleFromPath(path string) string {
 	// Normalize path separators to forward slashes for consistent handling
 	// Handle both Unix and Windows path separators
 	normalizedPath := strings.ReplaceAll(path, "\\", "/")
-	
+
 	// First, try to extract from filename (e.g., "storefront.de-DE.json")
 	parts := strings.Split(normalizedPath, "/")
 	if len(parts) > 0 {
@@ -128,7 +144,7 @@ func extractLocaleFromPath(path string) string {
 			}
 		}
 	}
-	
+
 	// Then, try to extract from directory structure
 	for i, part := range parts {
 		// Check if this part looks like a locale
@@ -144,7 +160,7 @@ func extractLocaleFromPath(path string) string {
 			}
 		}
 	}
-	
+
 	return "unknown"
 }
 
