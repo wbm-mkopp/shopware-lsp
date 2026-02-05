@@ -93,7 +93,7 @@ func (p *AdminCodeActionProvider) createAddPropAction(params *protocol.CodeActio
 		Diagnostics: []protocol.Diagnostic{*diag},
 		Command: &protocol.CommandAction{
 			Title:   "Add missing prop",
-			Command: "shopware.admin.addProp",
+			Command: "shopware.insertSnippet",
 			Arguments: []interface{}{
 				params.TextDocument.URI,
 				insertPos.Line,

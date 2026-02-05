@@ -252,7 +252,7 @@ Component.register('sw-button', {
 
 			// Check the command (used for snippet insertion with cursor positioning)
 			require.NotNil(t, action.Command)
-			assert.Equal(t, "shopware.admin.addProp", action.Command.Command)
+			assert.Equal(t, "shopware.insertSnippet", action.Command.Command)
 			require.Len(t, action.Command.Arguments, 4)
 
 			// Arguments: [uri, line, character, snippetText]
@@ -340,7 +340,7 @@ Component.register('mt-card', {
 
 	action := actions[0]
 	require.NotNil(t, action.Command)
-	assert.Equal(t, "shopware.admin.addProp", action.Command.Command)
+	assert.Equal(t, "shopware.insertSnippet", action.Command.Command)
 	require.Len(t, action.Command.Arguments, 4)
 
 	// Should use kebab-case in the snippet with cursor placeholder
@@ -445,7 +445,7 @@ Component.register('sw-icon', {
 
 	action := actions[0]
 	require.NotNil(t, action.Command)
-	assert.Equal(t, "shopware.admin.addProp", action.Command.Command)
+	assert.Equal(t, "shopware.insertSnippet", action.Command.Command)
 	require.Len(t, action.Command.Arguments, 4)
 
 	// Check that the snippet inserts before /> with cursor placeholder
