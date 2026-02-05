@@ -6,6 +6,7 @@ import (
 	tree_sitter_xml "github.com/tree-sitter-grammars/tree-sitter-xml/bindings/go"
 	tree_sitter_yaml "github.com/tree-sitter-grammars/tree-sitter-yaml/bindings/go"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
+	tree_sitter_javascript "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
 	tree_sitter_json "github.com/tree-sitter/tree-sitter-json/bindings/go"
 	tree_sitter_php "github.com/tree-sitter/tree-sitter-php/bindings/go"
 )
@@ -18,6 +19,8 @@ var scannedFileTypes = []string{
 	".twig",
 	".json",
 	".scss",
+	".js",
+	".ts",
 }
 
 func CreateTreesitterParsers() map[string]*tree_sitter.Parser {
@@ -55,6 +58,16 @@ func CreateTreesitterParsers() map[string]*tree_sitter.Parser {
 
 	parsers[".json"] = tree_sitter.NewParser()
 	if err := parsers[".json"].SetLanguage(tree_sitter.NewLanguage(tree_sitter_json.Language())); err != nil {
+		panic(err)
+	}
+
+	parsers[".js"] = tree_sitter.NewParser()
+	if err := parsers[".js"].SetLanguage(tree_sitter.NewLanguage(tree_sitter_javascript.Language())); err != nil {
+		panic(err)
+	}
+
+	parsers[".ts"] = tree_sitter.NewParser()
+	if err := parsers[".ts"].SetLanguage(tree_sitter.NewLanguage(tree_sitter_javascript.Language())); err != nil {
 		panic(err)
 	}
 

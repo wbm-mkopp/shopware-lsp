@@ -120,6 +120,7 @@ func (idx *DataIndexer[T]) SaveItem(filePath, key string, item T) error {
 }
 
 // BatchSaveItems saves multiple items in a single transaction
+// It first deletes any existing entries for the given file paths to avoid duplicates
 func (idx *DataIndexer[T]) BatchSaveItems(items map[string]map[string]T) error {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
@@ -130,6 +131,33 @@ func (idx *DataIndexer[T]) BatchSaveItems(items map[string]map[string]T) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	// First, delete existing entries for these file paths to avoid duplicates
+	deleteDataStmt, err := tx.Prepare(`
+		DELETE FROM data WHERE id IN (
+			SELECT data_id FROM files WHERE file_path = ?
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare delete data statement: %w", err)
+	}
+	defer func() { _ = deleteDataStmt.Close() }()
+
+	deleteFileStmt, err := tx.Prepare("DELETE FROM files WHERE file_path = ?")
+	if err != nil {
+		return fmt.Errorf("failed to prepare delete file statement: %w", err)
+	}
+	defer func() { _ = deleteFileStmt.Close() }()
+
+	for filePath := range items {
+		if _, err := deleteDataStmt.Exec(filePath); err != nil {
+			return fmt.Errorf("failed to delete existing data: %w", err)
+		}
+		if _, err := deleteFileStmt.Exec(filePath); err != nil {
+			return fmt.Errorf("failed to delete existing file associations: %w", err)
+		}
+	}
+
+	// Now insert the new entries
 	dataStmt, err := tx.Prepare("INSERT INTO data (key, value) VALUES (?, ?)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare data statement: %w", err)

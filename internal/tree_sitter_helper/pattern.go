@@ -549,10 +549,18 @@ func FindFirst(root *tree_sitter.Node, pattern Pattern, content []byte) *tree_si
 
 // Utility function to find all nodes matching a pattern
 func FindAll(root *tree_sitter.Node, pattern Pattern, content []byte) []*tree_sitter.Node {
+	if root == nil {
+		return nil
+	}
+
 	var results []*tree_sitter.Node
 
 	var visit func(node *tree_sitter.Node)
 	visit = func(node *tree_sitter.Node) {
+		if node == nil {
+			return
+		}
+
 		if pattern.Matches(node, content) {
 			results = append(results, node)
 		}

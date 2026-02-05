@@ -59,8 +59,9 @@ type CommandAction struct {
 
 // TextEdit represents a text edit operation
 type TextEdit struct {
-	Range   Range  `json:"range"`
-	NewText string `json:"newText"`
+	Range            Range            `json:"range"`
+	NewText          string           `json:"newText"`
+	InsertTextFormat InsertTextFormat `json:"insertTextFormat,omitempty"`
 }
 
 // WorkspaceEdit represents a workspace edit operation

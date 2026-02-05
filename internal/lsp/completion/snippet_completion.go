@@ -33,23 +33,22 @@ func (s *SnippetCompletionProvider) GetCompletions(ctx context.Context, params *
 		return s.twigCompletion(ctx, params)
 	case ".php":
 		return s.phpCompletion(ctx, params)
+	case ".js", ".ts":
+		return s.jsCompletion(ctx, params)
 	default:
 		return []protocol.CompletionItem{}
 	}
 }
 
 func (s *SnippetCompletionProvider) twigCompletion(ctx context.Context, params *protocol.CompletionParams) []protocol.CompletionItem {
+	// Check for frontend snippet pattern: {{ 'key'|trans }}
 	if treesitterhelper.TwigTransPattern().Matches(params.Node, params.DocumentContent) {
-		snippets, _ := s.snippetIndexer.GetFrontendSnippets()
+		return s.getFrontendSnippetCompletions()
+	}
 
-		var completionItems []protocol.CompletionItem
-		for _, snippet := range snippets {
-			completionItems = append(completionItems, protocol.CompletionItem{
-				Label: snippet,
-			})
-		}
-
-		return completionItems
+	// Check for admin snippet pattern: {{ $tc('key') }} or {{ $t('key') }}
+	if treesitterhelper.TwigAdminSnippetPattern().Matches(params.Node, params.DocumentContent) {
+		return s.getAdminSnippetCompletions()
 	}
 
 	return []protocol.CompletionItem{}
@@ -57,19 +56,66 @@ func (s *SnippetCompletionProvider) twigCompletion(ctx context.Context, params *
 
 func (s *SnippetCompletionProvider) phpCompletion(ctx context.Context, params *protocol.CompletionParams) []protocol.CompletionItem {
 	if treesitterhelper.IsPHPThisMethodCall("trans").Matches(params.Node, params.DocumentContent) {
-		snippets, _ := s.snippetIndexer.GetFrontendSnippets()
-
-		var completionItems []protocol.CompletionItem
-		for _, snippet := range snippets {
-			completionItems = append(completionItems, protocol.CompletionItem{
-				Label: snippet,
-			})
-		}
-
-		return completionItems
+		return s.getFrontendSnippetCompletions()
 	}
 
 	return []protocol.CompletionItem{}
+}
+
+func (s *SnippetCompletionProvider) jsCompletion(ctx context.Context, params *protocol.CompletionParams) []protocol.CompletionItem {
+	// Check for admin snippet pattern: this.$tc('key') or this.$t('key')
+	if treesitterhelper.JSAdminSnippetPattern().Matches(params.Node, params.DocumentContent) {
+		return s.getAdminSnippetCompletions()
+	}
+
+	return []protocol.CompletionItem{}
+}
+
+func (s *SnippetCompletionProvider) getFrontendSnippetCompletions() []protocol.CompletionItem {
+	snippets, _ := s.snippetIndexer.GetFrontendSnippetsWithText()
+
+	var completionItems []protocol.CompletionItem
+	for key, text := range snippets {
+		item := protocol.CompletionItem{
+			Label:  key,
+			Detail: truncateText(text, 50),
+			Kind:   int(protocol.TextCompletion),
+		}
+		if text != "" {
+			item.Documentation.Kind = "plaintext"
+			item.Documentation.Value = text
+		}
+		completionItems = append(completionItems, item)
+	}
+
+	return completionItems
+}
+
+func (s *SnippetCompletionProvider) getAdminSnippetCompletions() []protocol.CompletionItem {
+	snippets, _ := s.snippetIndexer.GetAdminSnippetsWithText()
+
+	var completionItems []protocol.CompletionItem
+	for key, text := range snippets {
+		item := protocol.CompletionItem{
+			Label:  key,
+			Detail: truncateText(text, 50),
+			Kind:   int(protocol.TextCompletion),
+		}
+		if text != "" {
+			item.Documentation.Kind = "plaintext"
+			item.Documentation.Value = text
+		}
+		completionItems = append(completionItems, item)
+	}
+
+	return completionItems
+}
+
+func truncateText(text string, maxLen int) string {
+	if len(text) <= maxLen {
+		return text
+	}
+	return text[:maxLen-3] + "..."
 }
 
 func (s *SnippetCompletionProvider) GetTriggerCharacters() []string {

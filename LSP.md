@@ -14,12 +14,12 @@ This document lists the custom LSP commands and notifications provided by the Sh
 * **Action:** Returns all detected Shopware extensions via the `ExtensionIndexer`.
 * **Returns:** array of objects with `Name`, `Type` and `Path` fields.
 
-### `shopware/snippet/getPossibleSnippetFilse`
+### `shopware/snippet/storefront/getPossibleSnippetFiles`
 * **Parameters:** `{ "fileUri": string }`
 * **Action:** Searches the snippet directory for JSON files or creates a default `storefront.en-GB.json` if none exist.
 * **Returns:** `{ "paths": [ { "path": string, "name": string, "value": string } ] }`
 
-### `shopware/snippet/create`
+### `shopware/snippet/storefront/create`
 * **Parameters:**
   ```json
   {
@@ -31,9 +31,31 @@ This document lists the custom LSP commands and notifications provided by the Sh
 * **Action:** Adds the provided snippet value to the given JSON files, reindexes them and publishes diagnostics for the original document.
 * **Returns:** `null`
 
-### `shopware/snippet/all`
+### `shopware/snippet/storefront/all`
 * **Parameters:** none
-* **Action:** Collects all snippet keys from the indexed snippet files.
+* **Action:** Collects all storefront snippet keys from the indexed snippet files.
+* **Returns:** array of objects `{ key, text, file }` sorted alphabetically.
+
+### `shopware/snippet/admin/getPossibleSnippetFiles`
+* **Parameters:** `{ "fileUri": string }`
+* **Action:** Searches the administration snippet directory for JSON files or creates a default structure if none exist.
+* **Returns:** `{ "paths": [ { "path": string, "name": string, "value": string } ] }`
+
+### `shopware/snippet/admin/create`
+* **Parameters:**
+  ```json
+  {
+    "fileUri": string,
+    "snippetKey": string,
+    "snippets": [ { "path": string, "name": string, "value": string } ]
+  }
+  ```
+* **Action:** Adds the provided snippet value to the given admin JSON files, reindexes them and publishes diagnostics for the original document.
+* **Returns:** `null`
+
+### `shopware/snippet/admin/all`
+* **Parameters:** none
+* **Action:** Collects all admin snippet keys from the indexed snippet files.
 * **Returns:** array of objects `{ key, text, file }` sorted alphabetically.
 
 ### `shopware/twig/extendBlock`

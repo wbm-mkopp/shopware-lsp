@@ -43,6 +43,9 @@ func (s *SnippetCodeActionProvider) GetCodeActions(ctx context.Context, params *
 
 	var codeActions []protocol.CodeAction
 
+	// Check if this is an admin file
+	isAdminFile := strings.Contains(params.TextDocument.URI, "/Resources/app/administration/")
+
 	if params.Range.Start.Line == params.Range.End.Line && params.Range.Start.Character == params.Range.End.Character {
 		// No selection, so we can't create a snippet from selection
 		codeActions = append(codeActions, protocol.CodeAction{
@@ -59,43 +62,73 @@ func (s *SnippetCodeActionProvider) GetCodeActions(ctx context.Context, params *
 		// There is a text selection
 		selectedText := treesitterhelper.GetTextForRange(params.DocumentContent, params.Range)
 		if selectedText != "" {
-			codeActions = append(codeActions, protocol.CodeAction{
-				Title: "Create snippet from selection",
-				Kind:  protocol.CodeActionQuickFix,
-				Command: &protocol.CommandAction{
-					Title:     "Create Snippet from Selection",
-					Command:   "shopware.createSnippetFromSelection",
-					Arguments: []any{params.TextDocument.URI, selectedText},
-				},
-			})
+			if isAdminFile {
+				codeActions = append(codeActions, protocol.CodeAction{
+					Title: "Create admin snippet from selection",
+					Kind:  protocol.CodeActionQuickFix,
+					Command: &protocol.CommandAction{
+						Title:     "Create Admin Snippet from Selection",
+						Command:   "shopware.createAdminSnippetFromSelection",
+						Arguments: []any{params.TextDocument.URI, selectedText},
+					},
+				})
+			} else {
+				codeActions = append(codeActions, protocol.CodeAction{
+					Title: "Create snippet from selection",
+					Kind:  protocol.CodeActionQuickFix,
+					Command: &protocol.CommandAction{
+						Title:     "Create Snippet from Selection",
+						Command:   "shopware.createSnippetFromSelection",
+						Arguments: []any{params.TextDocument.URI, selectedText},
+					},
+				})
+			}
 		}
 	}
 
-	// Process only snippet-related diagnostics
+	// Process snippet-related diagnostics
 	for _, diagnostic := range params.Context.Diagnostics {
-		if diagnostic.Code != "frontend.snippet.missing" {
-			continue
+		// Handle frontend snippet missing
+		if diagnostic.Code == "frontend.snippet.missing" {
+			data := diagnostic.Data.(map[string]interface{})
+			snippetKey := data["snippetText"].(string)
+
+			commandAction := protocol.CodeAction{
+				Title: fmt.Sprintf("Create snippet '%s'", snippetKey),
+				Kind:  protocol.CodeActionQuickFix,
+				Diagnostics: []protocol.Diagnostic{
+					diagnostic,
+				},
+				Command: &protocol.CommandAction{
+					Title:     "Create Snippet",
+					Command:   "shopware.createSnippet",
+					Arguments: []interface{}{snippetKey, params.TextDocument.URI},
+				},
+			}
+
+			codeActions = append(codeActions, commandAction)
 		}
 
-		data := diagnostic.Data.(map[string]interface{})
+		// Handle admin snippet missing
+		if diagnostic.Code == "admin.snippet.missing" {
+			data := diagnostic.Data.(map[string]interface{})
+			snippetKey := data["snippetText"].(string)
 
-		snippetKey := data["snippetText"].(string)
+			commandAction := protocol.CodeAction{
+				Title: fmt.Sprintf("Create admin snippet '%s'", snippetKey),
+				Kind:  protocol.CodeActionQuickFix,
+				Diagnostics: []protocol.Diagnostic{
+					diagnostic,
+				},
+				Command: &protocol.CommandAction{
+					Title:     "Create Admin Snippet",
+					Command:   "shopware.createAdminSnippet",
+					Arguments: []interface{}{snippetKey, params.TextDocument.URI},
+				},
+			}
 
-		// Create command-based code action
-		commandAction := protocol.CodeAction{
-			Title: fmt.Sprintf("Create snippet %s", snippetKey),
-			Kind:  protocol.CodeActionQuickFix,
-			Diagnostics: []protocol.Diagnostic{
-				diagnostic,
-			},
-			Command: &protocol.CommandAction{
-				Title:     "Create Snippet",
-				Command:   "shopware.createSnippet",
-				Arguments: []interface{}{snippetKey, params.TextDocument.URI},
-			},
+			codeActions = append(codeActions, commandAction)
 		}
-
-		codeActions = append(codeActions, commandAction)
 	}
 
 	return codeActions

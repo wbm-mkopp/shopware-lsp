@@ -146,6 +146,91 @@ func TestTwigTagStructure(t *testing.T) {
 	}
 }
 
+func TestTwigAdminSnippetPattern(t *testing.T) {
+	parser := tree_sitter.NewParser()
+
+	err := parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_twig.Language()))
+	if err != nil {
+		t.Skip("Skipping test that requires tree-sitter-twig")
+		return
+	}
+
+	tests := []struct {
+		name     string
+		code     string
+		expected bool
+	}{
+		{
+			name:     "$tc function call",
+			code:     `{{ $tc('my.snippet.key') }}`,
+			expected: true,
+		},
+		{
+			name:     "$t function call",
+			code:     `{{ $t('my.snippet.key') }}`,
+			expected: true,
+		},
+		{
+			name:     "$tc with variable interpolation",
+			code:     `{{ $tc('my.snippet.key', { count: 5 }) }}`,
+			expected: true,
+		},
+		{
+			name:     "regular trans filter should not match",
+			code:     `{{ 'my.snippet.key'|trans }}`,
+			expected: false,
+		},
+		{
+			name:     "regular function call should not match",
+			code:     `{{ someFunction('my.snippet.key') }}`,
+			expected: false,
+		},
+		{
+			name:     "$tc in if condition",
+			code:     `{% if $tc('my.snippet.key') %}yes{% endif %}`,
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := parser.Parse([]byte(tt.code), nil)
+			defer tree.Close()
+
+			// Find the string node in the code
+			var stringNode *tree_sitter.Node
+			var findString func(node *tree_sitter.Node)
+			findString = func(node *tree_sitter.Node) {
+				if node.Kind() == "string" {
+					text := string(node.Utf8Text([]byte(tt.code)))
+					// Only match our snippet key strings, not other strings
+					if text == "'my.snippet.key'" || text == "\"my.snippet.key\"" {
+						stringNode = node
+						return
+					}
+				}
+				for i := uint(0); i < node.ChildCount(); i++ {
+					findString(node.Child(i))
+					if stringNode != nil {
+						return
+					}
+				}
+			}
+			findString(tree.RootNode())
+
+			if stringNode == nil {
+				if tt.expected {
+					t.Fatal("Could not find string node in code")
+				}
+				return
+			}
+
+			result := TwigAdminSnippetPattern().Matches(stringNode, []byte(tt.code))
+			assert.Equal(t, tt.expected, result, "Pattern match for: %s", tt.code)
+		})
+	}
+}
+
 func TestExtractSwIconObjectToMap(t *testing.T) {
 	parser := tree_sitter.NewParser()
 
