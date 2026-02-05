@@ -173,3 +173,40 @@ func (s *SnippetIndexer) GetAdminSnippet(key string) ([]Snippet, error) {
 func (s *SnippetIndexer) GetAllAdminSnippets() ([]Snippet, error) {
 	return s.adminIndex.GetAllValues()
 }
+
+// GetFrontendSnippetsWithText returns a map of snippet keys to their text (preferring English)
+func (s *SnippetIndexer) GetFrontendSnippetsWithText() (map[string]string, error) {
+	return s.getSnippetsWithText(s.frontendIndex)
+}
+
+// GetAdminSnippetsWithText returns a map of snippet keys to their text (preferring English)
+func (s *SnippetIndexer) GetAdminSnippetsWithText() (map[string]string, error) {
+	return s.getSnippetsWithText(s.adminIndex)
+}
+
+func (s *SnippetIndexer) getSnippetsWithText(idx *indexer.DataIndexer[Snippet]) (map[string]string, error) {
+	allSnippets, err := idx.GetAllValues()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]string)
+	for _, snippet := range allSnippets {
+		existing, exists := result[snippet.Key]
+		if !exists {
+			result[snippet.Key] = snippet.Text
+			continue
+		}
+
+		// Prefer English translations (en-GB, en_GB, en)
+		file := strings.ToLower(snippet.File)
+		if strings.Contains(file, "en-gb") || strings.Contains(file, "en_gb") || strings.Contains(file, "/en.json") || strings.Contains(file, "/en/") {
+			result[snippet.Key] = snippet.Text
+		} else if existing == "" {
+			// Use any non-empty text if we don't have one yet
+			result[snippet.Key] = snippet.Text
+		}
+	}
+
+	return result, nil
+}

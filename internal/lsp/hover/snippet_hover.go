@@ -31,12 +31,14 @@ func (p *SnippetHoverProvider) GetHover(ctx context.Context, params *protocol.Ho
 		return nil, nil
 	}
 
-	// Handle both .twig and .php files
+	// Handle .twig, .php, .js, and .ts files
 	switch strings.ToLower(filepath.Ext(params.TextDocument.URI)) {
 	case ".twig":
 		return p.twigHover(ctx, params)
 	case ".php":
 		return p.phpHover(ctx, params)
+	case ".js", ".ts":
+		return p.jsHover(ctx, params)
 	default:
 		return nil, nil
 	}
@@ -62,6 +64,15 @@ func (p *SnippetHoverProvider) phpHover(_ context.Context, params *protocol.Hove
 	if treesitterhelper.IsPHPThisMethodCall("trans").Matches(params.Node, params.DocumentContent) {
 		snippetKey := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
 		return p.createHoverForSnippet(snippetKey, params, false)
+	}
+	return nil, nil
+}
+
+func (p *SnippetHoverProvider) jsHover(_ context.Context, params *protocol.HoverParams) (*protocol.Hover, error) {
+	// Check for admin snippet pattern: this.$tc('key') or this.$t('key')
+	if treesitterhelper.JSAdminSnippetPattern().Matches(params.Node, params.DocumentContent) {
+		snippetKey := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
+		return p.createHoverForSnippet(snippetKey, params, true)
 	}
 	return nil, nil
 }
