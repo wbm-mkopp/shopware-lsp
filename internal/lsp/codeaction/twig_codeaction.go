@@ -17,11 +17,15 @@ type TwigCodeActionProvider struct {
 }
 
 func NewTwigCodeActionProvider(projectRoot string, server *lsp.Server) *TwigCodeActionProvider {
-	twigIndexer, _ := server.GetIndexer("twig.indexer")
-	return &TwigCodeActionProvider{
-		twigIndexer: twigIndexer.(*twig.TwigIndexer),
-		projectRoot: projectRoot,
+	indexer, ok := server.GetIndexer("twig.indexer")
+	if !ok {
+		return &TwigCodeActionProvider{twigIndexer: nil, projectRoot: projectRoot}
 	}
+	twigIndexer, ok := indexer.(*twig.TwigIndexer)
+	if !ok {
+		return &TwigCodeActionProvider{twigIndexer: nil, projectRoot: projectRoot}
+	}
+	return &TwigCodeActionProvider{twigIndexer: twigIndexer, projectRoot: projectRoot}
 }
 
 func (p *TwigCodeActionProvider) GetCodeActionKinds() []protocol.CodeActionKind {
@@ -193,7 +197,7 @@ func (p *TwigCodeActionProvider) getShowDiffActionFromComment(params *protocol.C
 	}
 
 	commentText := string(params.Node.Utf8Text(params.DocumentContent))
-	if !strings.Contains(commentText, "shopware-block:") {
+	if !strings.Contains(commentText, twig.VersionCommentPrefix) {
 		return nil
 	}
 
@@ -270,7 +274,7 @@ func (p *TwigCodeActionProvider) hasVersioningComment(blockNode *tree_sitter.Nod
 					commentEndLine := prevSibling.Range().EndPoint.Row
 					if blockStartLine-commentEndLine <= 1 {
 						commentText := string(prevSibling.Utf8Text(content))
-						if strings.Contains(commentText, "shopware-block:") {
+						if strings.Contains(commentText, twig.VersionCommentPrefix) {
 							return true
 						}
 					}

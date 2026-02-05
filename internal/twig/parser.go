@@ -10,7 +10,7 @@ import (
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
-var shopwareBlockCommentRegex = regexp.MustCompile(`\{#\s*shopware-block:\s*([a-f0-9]+)@([\w\.\-]+)\s*#\}`)
+var shopwareBlockCommentRegex = regexp.MustCompile(`\{#\s*` + VersionCommentPrefix + `\s*([a-f0-9]+)@([\w\.\-]+)\s*#\}`)
 
 func calculateBlockHash(content string) string {
 	hash := sha256.New()
@@ -112,7 +112,7 @@ func findPreviousComment(blockNode *tree_sitter.Node, content []byte) *tree_sitt
 				prevSibling := parent.NamedChild(uint(j))
 				if prevSibling.Kind() == "comment" {
 					commentText := string(prevSibling.Utf8Text(content))
-					if strings.Contains(commentText, "shopware-block:") {
+					if strings.Contains(commentText, VersionCommentPrefix) {
 						return prevSibling
 					}
 				}

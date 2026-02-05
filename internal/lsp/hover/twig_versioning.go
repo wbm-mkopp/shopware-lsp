@@ -16,10 +16,15 @@ type TwigVersioningHoverProvider struct {
 }
 
 func NewTwigVersioningHoverProvider(lspServer *lsp.Server) *TwigVersioningHoverProvider {
-	twigIndexer, _ := lspServer.GetIndexer("twig.indexer")
-	return &TwigVersioningHoverProvider{
-		twigIndexer: twigIndexer.(*twig.TwigIndexer),
+	indexer, ok := lspServer.GetIndexer("twig.indexer")
+	if !ok {
+		return &TwigVersioningHoverProvider{twigIndexer: nil}
 	}
+	twigIndexer, ok := indexer.(*twig.TwigIndexer)
+	if !ok {
+		return &TwigVersioningHoverProvider{twigIndexer: nil}
+	}
+	return &TwigVersioningHoverProvider{twigIndexer: twigIndexer}
 }
 
 func (p *TwigVersioningHoverProvider) GetHover(ctx context.Context, params *protocol.HoverParams) (*protocol.Hover, error) {
@@ -61,7 +66,7 @@ func (p *TwigVersioningHoverProvider) isVersionComment(node *tree_sitter.Node, c
 	}
 
 	commentText := string(node.Utf8Text([]byte(content)))
-	return strings.Contains(commentText, "shopware-block:")
+	return strings.Contains(commentText, twig.VersionCommentPrefix)
 }
 
 func (p *TwigVersioningHoverProvider) hoverBlockIdentifier(node *tree_sitter.Node, content string, uri string) (*protocol.Hover, error) {

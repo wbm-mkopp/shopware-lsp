@@ -1,9 +1,11 @@
 package diagnostics
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"path/filepath"
+	"unicode/utf8"
 
 	"github.com/shopware/shopware-lsp/internal/lsp"
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
@@ -16,10 +18,15 @@ type TwigVersioningDiagnosticsProvider struct {
 }
 
 func NewTwigVersioningDiagnosticsProvider(lspServer *lsp.Server) *TwigVersioningDiagnosticsProvider {
-	twigIndexer, _ := lspServer.GetIndexer("twig.indexer")
-	return &TwigVersioningDiagnosticsProvider{
-		twigIndexer: twigIndexer.(*twig.TwigIndexer),
+	indexer, ok := lspServer.GetIndexer("twig.indexer")
+	if !ok {
+		return &TwigVersioningDiagnosticsProvider{twigIndexer: nil}
 	}
+	twigIndexer, ok := indexer.(*twig.TwigIndexer)
+	if !ok {
+		return &TwigVersioningDiagnosticsProvider{twigIndexer: nil}
+	}
+	return &TwigVersioningDiagnosticsProvider{twigIndexer: twigIndexer}
 }
 
 func (p *TwigVersioningDiagnosticsProvider) GetDiagnostics(ctx context.Context, uri string, rootNode *tree_sitter.Node, content []byte) ([]protocol.Diagnostic, error) {
@@ -51,23 +58,25 @@ func (p *TwigVersioningDiagnosticsProvider) GetDiagnostics(ctx context.Context, 
 
 			originalHash := twig.FindOriginalStorefrontHashForExtends(allBlockHashes, currentFile.ExtendsFile)
 			if originalHash == nil {
+				lineIdx := block.Line - 1
 				diagnostics = append(diagnostics, protocol.Diagnostic{
 					Range: protocol.Range{
-						Start: protocol.Position{Line: block.Line - 1, Character: 0},
-						End:   protocol.Position{Line: block.Line - 1, Character: 100},
+						Start: protocol.Position{Line: lineIdx, Character: 0},
+						End:   protocol.Position{Line: lineIdx, Character: endCharacterForLine(content, lineIdx)},
 					},
 					Severity: protocol.DiagnosticSeverityWarning,
 					Source:   "shopware-lsp",
-					Message:  fmt.Sprintf("The block '%s' does not have a versioning comment", block.Name),
+					Message:  fmt.Sprintf("Original block not found in Storefront for block '%s'", block.Name),
 				})
 				continue
 			}
 
 			if originalHash.Hash != block.VersionComment.Hash {
+				lineIdx := block.VersionComment.Line - 1
 				diagnostics = append(diagnostics, protocol.Diagnostic{
 					Range: protocol.Range{
-						Start: protocol.Position{Line: block.VersionComment.Line - 1, Character: 0},
-						End:   protocol.Position{Line: block.VersionComment.Line - 1, Character: 100},
+						Start: protocol.Position{Line: lineIdx, Character: 0},
+						End:   protocol.Position{Line: lineIdx, Character: endCharacterForLine(content, lineIdx)},
 					},
 					Severity: protocol.DiagnosticSeverityWarning,
 					Source:   "shopware-lsp",
@@ -82,10 +91,11 @@ func (p *TwigVersioningDiagnosticsProvider) GetDiagnostics(ctx context.Context, 
 
 			originalHash := twig.FindOriginalStorefrontHashForExtends(allBlockHashes, currentFile.ExtendsFile)
 			if originalHash != nil {
+				lineIdx := block.Line - 1
 				diagnostics = append(diagnostics, protocol.Diagnostic{
 					Range: protocol.Range{
-						Start: protocol.Position{Line: block.Line - 1, Character: 0},
-						End:   protocol.Position{Line: block.Line - 1, Character: 100},
+						Start: protocol.Position{Line: lineIdx, Character: 0},
+						End:   protocol.Position{Line: lineIdx, Character: endCharacterForLine(content, lineIdx)},
 					},
 					Severity: protocol.DiagnosticSeverityWarning,
 					Source:   "shopware-lsp",
@@ -96,6 +106,14 @@ func (p *TwigVersioningDiagnosticsProvider) GetDiagnostics(ctx context.Context, 
 	}
 
 	return diagnostics, nil
+}
+
+func endCharacterForLine(content []byte, lineIndex int) int {
+	lines := bytes.Split(content, []byte("\n"))
+	if lineIndex < 0 || lineIndex >= len(lines) {
+		return 0
+	}
+	return utf8.RuneCount(lines[lineIndex])
 }
 
 func truncateHash(hash string, length int) string {

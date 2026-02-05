@@ -9,6 +9,8 @@ import (
 	"sync"
 )
 
+const VersionCommentPrefix = "shopware-block:"
+
 var (
 	shopwareVersion     string
 	shopwareVersionOnce sync.Once
@@ -92,5 +94,5 @@ func normalizeTemplatePath(path string) string {
 }
 
 func FormatVersionComment(hash, version string) string {
-	return fmt.Sprintf("{# shopware-block: %s@%s #}\n", hash, version)
+	return fmt.Sprintf("{# %s %s@%s #}\n", VersionCommentPrefix, hash, version)
 }
