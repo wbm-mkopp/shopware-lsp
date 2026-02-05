@@ -401,3 +401,166 @@ func TestCamelToKebab(t *testing.T) {
 		})
 	}
 }
+
+func TestAdminDiagnosticsProvider_BlockReferences(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create the admin indexer
+	adminIndexer, err := admin.NewAdminComponentIndexer(tempDir)
+	require.NoError(t, err)
+	defer func() { _ = adminIndexer.Close() }()
+
+	// Setup paths
+	parentCompPath := filepath.Join(tempDir, "src", "Resources", "app", "administration", "src", "component", "sw-page", "index.js")
+	parentTemplatePath := filepath.Join(tempDir, "src", "Resources", "app", "administration", "src", "component", "sw-page", "sw-page.html.twig")
+	extendCompPath := filepath.Join(tempDir, "src", "Resources", "app", "administration", "src", "extension", "my-custom-page", "index.js")
+	extendTemplatePath := filepath.Join(tempDir, "src", "Resources", "app", "administration", "src", "extension", "my-custom-page", "my-custom-page.html.twig")
+
+	// Save parent component directly with blocks already populated
+	parentComp := admin.VueComponent{
+		Name:         "sw-page",
+		FilePath:     parentCompPath,
+		TemplatePath: parentTemplatePath,
+		Blocks: []admin.TwigBlock{
+			{Name: "sw_page_content", Line: 10},
+			{Name: "sw_page_smart_bar", Line: 20},
+			{Name: "sw_page_actions", Line: 30},
+		},
+	}
+	err = adminIndexer.SaveComponent(parentComp)
+	require.NoError(t, err)
+
+	// Save extended component that extends sw-page
+	extendComp := admin.VueComponent{
+		Name:             "my-custom-page",
+		FilePath:         extendCompPath,
+		TemplatePath:     extendTemplatePath,
+		ExtendsComponent: "sw-page",
+	}
+	err = adminIndexer.SaveComponent(extendComp)
+	require.NoError(t, err)
+
+	provider := &AdminDiagnosticsProvider{
+		adminIndexer: adminIndexer,
+	}
+
+	tests := []struct {
+		name             string
+		twigCode         string
+		expectDiagCount  int
+		expectBlockNames []string // block names that should be reported as invalid
+	}{
+		{
+			name:            "valid block reference",
+			twigCode:        `{% block sw_page_content %}<div>Custom content</div>{% endblock %}`,
+			expectDiagCount: 0,
+		},
+		{
+			name:             "invalid block reference",
+			twigCode:         `{% block sw_nonexistent_block %}<div>Custom content</div>{% endblock %}`,
+			expectDiagCount:  1,
+			expectBlockNames: []string{"sw_nonexistent_block"},
+		},
+		{
+			name:            "multiple valid blocks",
+			twigCode:        `{% block sw_page_content %}content{% endblock %}{% block sw_page_smart_bar %}bar{% endblock %}`,
+			expectDiagCount: 0,
+		},
+		{
+			name:             "mixed valid and invalid blocks",
+			twigCode:         `{% block sw_page_content %}content{% endblock %}{% block invalid_block %}invalid{% endblock %}`,
+			expectDiagCount:  1,
+			expectBlockNames: []string{"invalid_block"},
+		},
+		{
+			name:             "multiple invalid blocks",
+			twigCode:         `{% block invalid_one %}one{% endblock %}{% block invalid_two %}two{% endblock %}`,
+			expectDiagCount:  2,
+			expectBlockNames: []string{"invalid_one", "invalid_two"},
+		},
+	}
+
+	// Verify setup: GetComponentByTemplatePath should find the extended component
+	compByPath, err := adminIndexer.GetComponentByTemplatePath(extendTemplatePath)
+	require.NoError(t, err)
+	require.NotNil(t, compByPath, "GetComponentByTemplatePath should find the component")
+	require.Equal(t, "my-custom-page", compByPath.Name)
+	require.Equal(t, "sw-page", compByPath.ExtendsComponent)
+
+	// Verify parent has blocks
+	parentComps, err := adminIndexer.GetComponent("sw-page")
+	require.NoError(t, err)
+	require.Len(t, parentComps, 1, "Parent component should be found")
+	require.Len(t, parentComps[0].Blocks, 3, "Parent component should have 3 blocks")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree, parser := parseTwig(t, tt.twigCode)
+			defer tree.Close()
+			defer parser.Close()
+
+			// Use the extended component template path as URI
+			uri := "file://" + extendTemplatePath
+			diagnostics, err := provider.GetDiagnostics(context.Background(), uri, tree.RootNode(), []byte(tt.twigCode))
+			require.NoError(t, err)
+
+			assert.Len(t, diagnostics, tt.expectDiagCount, "Unexpected number of diagnostics")
+
+			// Check that the expected blocks are reported
+			for _, expectedBlock := range tt.expectBlockNames {
+				found := false
+				for _, diag := range diagnostics {
+					if data, ok := diag.Data.(map[string]any); ok {
+						if data["blockName"] == expectedBlock {
+							found = true
+							assert.Equal(t, "admin.component.block-not-found", diag.Code)
+							break
+						}
+					}
+				}
+				assert.True(t, found, "Expected diagnostic for invalid block '%s'", expectedBlock)
+			}
+		})
+	}
+}
+
+func TestAdminDiagnosticsProvider_BlockReferences_NoOverride(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create the admin indexer
+	adminIndexer, err := admin.NewAdminComponentIndexer(tempDir)
+	require.NoError(t, err)
+	defer func() { _ = adminIndexer.Close() }()
+
+	// Setup paths
+	compPath := filepath.Join(tempDir, "src", "Resources", "app", "administration", "src", "component", "my-component", "index.js")
+	templatePath := filepath.Join(tempDir, "src", "Resources", "app", "administration", "src", "component", "my-component", "my-component.html.twig")
+
+	// Save a regular component (not an override - no ExtendsComponent)
+	comp := admin.VueComponent{
+		Name:         "my-component",
+		FilePath:     compPath,
+		TemplatePath: templatePath,
+		// Note: ExtendsComponent is empty - this is a regular component
+	}
+	err = adminIndexer.SaveComponent(comp)
+	require.NoError(t, err)
+
+	provider := &AdminDiagnosticsProvider{
+		adminIndexer: adminIndexer,
+	}
+
+	// Regular components (not extending others) should not produce block diagnostics
+	// because they define their own blocks
+	twigCode := `{% block any_block_name %}content{% endblock %}`
+
+	tree, parser := parseTwig(t, twigCode)
+	defer tree.Close()
+	defer parser.Close()
+
+	uri := "file://" + templatePath
+	diagnostics, err := provider.GetDiagnostics(context.Background(), uri, tree.RootNode(), []byte(twigCode))
+	require.NoError(t, err)
+
+	assert.Empty(t, diagnostics, "Regular components should not produce block reference diagnostics")
+}

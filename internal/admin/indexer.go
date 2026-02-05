@@ -363,6 +363,45 @@ func (idx *AdminComponentIndexer) GetAllComponents() ([]VueComponent, error) {
 	return idx.componentIndex.GetAllValues()
 }
 
+// GetComponentByTemplatePath returns the component that uses the given template path
+func (idx *AdminComponentIndexer) GetComponentByTemplatePath(templatePath string) (*VueComponent, error) {
+	allComponents, err := idx.componentIndex.GetAllValues()
+	if err != nil {
+		return nil, err
+	}
+
+	// Normalize the template path for comparison
+	normalizedPath := normalizeDefinitionPath(templatePath)
+
+	for _, comp := range allComponents {
+		// Check if the component's template path matches
+		if comp.TemplatePath != "" && normalizeDefinitionPath(comp.TemplatePath) == normalizedPath {
+			// Get full component with definition
+			fullComps, err := idx.GetComponentWithDefinition(comp.Name)
+			if err == nil && len(fullComps) > 0 {
+				return &fullComps[0], nil
+			}
+			return &comp, nil
+		}
+
+		// Also check definition index for template paths
+		if comp.DefinitionPath != "" {
+			def, err := idx.GetComponentDefinition(comp.DefinitionPath)
+			if err == nil && def != nil && def.TemplatePath != "" {
+				if normalizeDefinitionPath(def.TemplatePath) == normalizedPath {
+					fullComps, err := idx.GetComponentWithDefinition(comp.Name)
+					if err == nil && len(fullComps) > 0 {
+						return &fullComps[0], nil
+					}
+					return &comp, nil
+				}
+			}
+		}
+	}
+
+	return nil, nil
+}
+
 // GetAllComponentNames returns all registered component names
 func (idx *AdminComponentIndexer) GetAllComponentNames() ([]string, error) {
 	return idx.componentIndex.GetAllKeys()
@@ -473,6 +512,24 @@ func deduplicateComponents(components []VueComponent) []VueComponent {
 	}
 
 	return []VueComponent{best}
+}
+
+// SaveComponentDefinition saves a component definition (primarily for testing)
+func (idx *AdminComponentIndexer) SaveComponentDefinition(key string, def ComponentDefinition) error {
+	batchSave := make(map[string]map[string]ComponentDefinition)
+	batchSave[def.FilePath] = map[string]ComponentDefinition{
+		key: def,
+	}
+	return idx.definitionIndex.BatchSaveItems(batchSave)
+}
+
+// SaveComponent saves a component (primarily for testing)
+func (idx *AdminComponentIndexer) SaveComponent(comp VueComponent) error {
+	batchSave := make(map[string]map[string]VueComponent)
+	batchSave[comp.FilePath] = map[string]VueComponent{
+		comp.Name: comp,
+	}
+	return idx.componentIndex.BatchSaveItems(batchSave)
 }
 
 // mergeComponents merges two components, taking data from 'preferred' when available,

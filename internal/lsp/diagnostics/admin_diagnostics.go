@@ -148,13 +148,134 @@ func extractStringContent(node *tree_sitter.Node, content []byte) string {
 }
 
 // twigDiagnostics checks Twig templates for missing required props on components
-func (p *AdminDiagnosticsProvider) twigDiagnostics(_ context.Context, _ string, rootNode *tree_sitter.Node, content []byte) ([]protocol.Diagnostic, error) {
+func (p *AdminDiagnosticsProvider) twigDiagnostics(_ context.Context, uri string, rootNode *tree_sitter.Node, content []byte) ([]protocol.Diagnostic, error) {
 	var diagnostics []protocol.Diagnostic
 
 	// Find all html_start_tag nodes
 	p.findHTMLStartTags(rootNode, content, &diagnostics)
 
+	// Check for invalid block references in component overrides
+	p.checkBlockReferences(uri, rootNode, content, &diagnostics)
+
 	return diagnostics, nil
+}
+
+// checkBlockReferences checks if blocks referenced in an override template exist in the parent component
+func (p *AdminDiagnosticsProvider) checkBlockReferences(uri string, rootNode *tree_sitter.Node, content []byte, diagnostics *[]protocol.Diagnostic) {
+	// Get the file path from URI
+	filePath := strings.TrimPrefix(uri, "file://")
+
+	// Find which component this template belongs to
+	comp, err := p.adminIndexer.GetComponentByTemplatePath(filePath)
+	if err != nil || comp == nil {
+		return
+	}
+
+	// Only check if this component extends another
+	if comp.ExtendsComponent == "" {
+		return
+	}
+
+	// Get the parent component with its definition (including blocks)
+	parentComps, err := p.adminIndexer.GetComponentWithDefinition(comp.ExtendsComponent)
+	if err != nil || len(parentComps) == 0 {
+		return
+	}
+
+	parentComp := parentComps[0]
+
+	// Build a set of valid block names from parent (and parent's parents recursively)
+	validBlocks := p.collectParentBlocks(parentComp)
+
+	// Find all block tags in the current template
+	p.findBlockTags(rootNode, content, validBlocks, diagnostics)
+}
+
+// collectParentBlocks collects all block names from a component and its parents recursively
+func (p *AdminDiagnosticsProvider) collectParentBlocks(comp admin.VueComponent) map[string]bool {
+	blocks := make(map[string]bool)
+
+	// Add blocks from this component
+	for _, block := range comp.Blocks {
+		blocks[block.Name] = true
+	}
+
+	// If this component extends another, get those blocks too
+	if comp.ExtendsComponent != "" {
+		parentComps, err := p.adminIndexer.GetComponentWithDefinition(comp.ExtendsComponent)
+		if err == nil && len(parentComps) > 0 {
+			parentBlocks := p.collectParentBlocks(parentComps[0])
+			for name := range parentBlocks {
+				blocks[name] = true
+			}
+		}
+	}
+
+	return blocks
+}
+
+// findBlockTags finds all {% block %} tags and checks if they exist in valid blocks
+func (p *AdminDiagnosticsProvider) findBlockTags(node *tree_sitter.Node, content []byte, validBlocks map[string]bool, diagnostics *[]protocol.Diagnostic) {
+	if node == nil {
+		return
+	}
+
+	// Check if this is a block tag
+	if node.Kind() == "block" {
+		blockName := p.getBlockName(node, content)
+		if blockName != "" && !validBlocks[blockName] {
+			// Find the identifier node for precise error location
+			identNode := p.getBlockIdentifierNode(node)
+			if identNode != nil {
+				*diagnostics = append(*diagnostics, protocol.Diagnostic{
+					Range: protocol.Range{
+						Start: protocol.Position{
+							Line:      int(identNode.StartPosition().Row),
+							Character: int(identNode.StartPosition().Column),
+						},
+						End: protocol.Position{
+							Line:      int(identNode.EndPosition().Row),
+							Character: int(identNode.EndPosition().Column),
+						},
+					},
+					Message:  fmt.Sprintf("Block '%s' does not exist in parent component", blockName),
+					Source:   "shopware",
+					Severity: protocol.DiagnosticSeverityError,
+					Code:     "admin.component.block-not-found",
+					Data: map[string]any{
+						"blockName": blockName,
+					},
+				})
+			}
+		}
+	}
+
+	// Recurse into children
+	for i := uint(0); i < node.ChildCount(); i++ {
+		p.findBlockTags(node.Child(i), content, validBlocks, diagnostics)
+	}
+}
+
+// getBlockName extracts the block name from a block node
+func (p *AdminDiagnosticsProvider) getBlockName(blockNode *tree_sitter.Node, content []byte) string {
+	for i := uint(0); i < blockNode.ChildCount(); i++ {
+		child := blockNode.Child(i)
+		if child.Kind() == "identifier" {
+			return string(child.Utf8Text(content))
+		}
+	}
+	return ""
+}
+
+// getBlockIdentifierNode returns the identifier node from a block node
+func (p *AdminDiagnosticsProvider) getBlockIdentifierNode(blockNode *tree_sitter.Node) *tree_sitter.Node {
+	for i := uint(0); i < blockNode.ChildCount(); i++ {
+		child := blockNode.Child(i)
+		if child.Kind() == "identifier" {
+			return child
+		}
+	}
+	return nil
 }
 
 // findHTMLStartTags recursively finds all html_start_tag nodes and checks for missing required props
