@@ -24,6 +24,29 @@ func TwigTransPattern() Pattern {
 	)
 }
 
+// TwigAdminSnippetPattern matches {{ $tc('snippet.key') }} or {{ $t('snippet.key') }}
+// Used for Vue-style admin snippet translations
+func TwigAdminSnippetPattern() Pattern {
+	return And(
+		NodeKind("string"),
+		Ancestor(
+			And(
+				NodeKind("call_expression"),
+				HasChild(
+					And(
+						NodeKind("function"),
+						Or(
+							NodeText("$tc"),
+							NodeText("$t"),
+						),
+					),
+				),
+			),
+			2, // string -> arguments -> call_expression
+		),
+	)
+}
+
 func TwigBlockWithNamePattern(blockName string) Pattern {
 	return And(
 		NodeKind("block"),

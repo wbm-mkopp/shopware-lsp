@@ -26,7 +26,9 @@
     "onLanguage:xml",
     "onLanguage:twig",
     "onLanguage:yaml",
-    "onLanguage:scss"
+    "onLanguage:scss",
+    "onLanguage:javascript",
+    "onLanguage:typescript"
   ],
   "repository": {
     "type": "git",

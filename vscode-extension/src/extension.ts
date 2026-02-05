@@ -27,6 +27,103 @@ class BlockContentProvider implements vscode.TextDocumentContentProvider {
 
 const blockContentProvider = new BlockContentProvider();
 
+interface SnippetFile {
+  path: string;
+  name: string;
+  value: string;
+}
+
+/**
+ * Shows a multi-step input to collect translations for all snippet files.
+ * Returns the snippet files with values filled in, or undefined if cancelled.
+ * @param initialValue - Optional initial value to pre-fill the first input (e.g., selected text)
+ */
+async function collectSnippetTranslations(
+  snippetFiles: SnippetFile[],
+  snippetKey: string,
+  title: string,
+  initialValue?: string
+): Promise<SnippetFile[] | undefined> {
+  const totalSteps = snippetFiles.length;
+  let currentStep = 0;
+  let previousValue = initialValue || '';
+
+  for (const snippetFile of snippetFiles) {
+    currentStep++;
+    
+    // Extract locale from filename (e.g., "en-GB.json" -> "English (GB)", "de-DE.json" -> "German (DE)")
+    const locale = snippetFile.name.replace('.json', '');
+    const localeName = getLocaleName(locale);
+    
+    const result = await vscode.window.showInputBox({
+      title: `${title} (${currentStep}/${totalSteps})`,
+      prompt: `Enter ${localeName} translation for "${snippetKey}"`,
+      placeHolder: `Translation in ${localeName}`,
+      value: previousValue,
+      validateInput: (value) => {
+        if (!value || value.trim() === '') {
+          return 'Translation cannot be empty';
+        }
+        return null;
+      }
+    });
+
+    if (result === undefined) {
+      return undefined; // User cancelled
+    }
+
+    snippetFile.value = result;
+    previousValue = result; // Pre-fill next input with same value
+  }
+
+  return snippetFiles;
+}
+
+/**
+ * Convert locale code to human-readable name
+ */
+function getLocaleName(locale: string): string {
+  const localeMap: Record<string, string> = {
+    'en-GB': 'English (GB)',
+    'en-US': 'English (US)',
+    'en': 'English',
+    'de-DE': 'German (DE)',
+    'de': 'German',
+    'nl-NL': 'Dutch (NL)',
+    'nl': 'Dutch',
+    'fr-FR': 'French (FR)',
+    'fr': 'French',
+    'it-IT': 'Italian (IT)',
+    'it': 'Italian',
+    'es-ES': 'Spanish (ES)',
+    'es': 'Spanish',
+    'pt-PT': 'Portuguese (PT)',
+    'pt-BR': 'Portuguese (BR)',
+    'pt': 'Portuguese',
+    'pl-PL': 'Polish (PL)',
+    'pl': 'Polish',
+    'cs-CZ': 'Czech (CZ)',
+    'cs': 'Czech',
+    'sv-SE': 'Swedish (SE)',
+    'sv': 'Swedish',
+    'da-DK': 'Danish (DK)',
+    'da': 'Danish',
+    'fi-FI': 'Finnish (FI)',
+    'fi': 'Finnish',
+    'nb-NO': 'Norwegian (NO)',
+    'nb': 'Norwegian',
+    'ru-RU': 'Russian (RU)',
+    'ru': 'Russian',
+    'zh-CN': 'Chinese (Simplified)',
+    'zh-TW': 'Chinese (Traditional)',
+    'ja-JP': 'Japanese (JP)',
+    'ja': 'Japanese',
+    'ko-KR': 'Korean (KR)',
+    'ko': 'Korean',
+  };
+  return localeMap[locale] || locale;
+}
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // Create output channel for the language server
   const outputChannel = vscode.window.createOutputChannel("Shopware LSP");
@@ -96,7 +193,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         { scheme: 'file', language: 'yaml' },
         { scheme: 'file', language: 'twig' },
         { scheme: 'file', language: 'json' },
-        { scheme: 'file', language: 'scss' }
+        { scheme: 'file', language: 'scss' },
+        { scheme: 'file', language: 'javascript' },
+        { scheme: 'file', language: 'typescript' }
       ],
       // Add output configuration
       outputChannel: outputChannel,
@@ -243,7 +342,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       
-      const result = await client.sendRequest<{paths: SnippetFile[]}>('shopware/snippet/getPossibleSnippetFilse', {
+      const result = await client.sendRequest<{paths: SnippetFile[]}>('shopware/snippet/storefront/getPossibleSnippetFiles', {
         fileUri,
       });
 
@@ -252,33 +351,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
 
-      let firstValue = '';
+      const snippetsWithValues = await collectSnippetTranslations(
+        result.paths,
+        snippetKey,
+        'Create Storefront Snippet'
+      );
 
-      for (const snippetFile of result.paths) {
-        const result = await vscode.window.showInputBox({
-          prompt: `Enter snippet value for ${snippetFile.name}`,
-          value: firstValue,
-          title: `Create snippet for ${snippetKey}`,
-        })
-
-        if (result === undefined) {
-          vscode.window.showErrorMessage('Snippet creation cancelled');
-          return;
-        }
-
-        if (result.trim() === '') {
-          vscode.window.showErrorMessage('Snippet value cannot be empty');
-          return;
-        }
-
-        firstValue = result;
-        snippetFile.value = result;
+      if (!snippetsWithValues) {
+        return; // User cancelled
       }
 
-      await client.sendRequest('shopware/snippet/create', {
+      await client.sendRequest('shopware/snippet/storefront/create', {
         fileUri,
         snippetKey,
-        snippets: result.paths
+        snippets: snippetsWithValues
       });
 
       vscode.window.showInformationMessage(`Snippet ${snippetKey} created successfully`);
@@ -387,7 +473,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
 
-    const snippets: {key: string, text: string, file: string}[] = await client.sendRequest('shopware/snippet/all');
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showErrorMessage('No active editor');
+      return;
+    }
+
+    // Check if we're in an admin twig file
+    const filePath = editor.document.uri.fsPath;
+    const isAdminFile = filePath.includes('/Resources/app/administration/');
+
+    let snippets: {key: string, text: string, file: string}[];
+    let insertFormat: string;
+
+    if (isAdminFile) {
+      // Fetch admin snippets
+      snippets = await client.sendRequest('shopware/snippet/admin/all');
+      insertFormat = "{{ \\$tc('${label}') }}";
+    } else {
+      // Fetch frontend snippets
+      snippets = await client.sendRequest('shopware/snippet/storefront/all');
+      insertFormat = "{{ '${label}'|trans }}";
+    }
 
     if (!snippets || snippets.length === 0) {
       vscode.window.showErrorMessage('No snippets found');
@@ -408,11 +515,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
 
-    const text = `{{ '${selected.label}'|trans }}`;
+    const text = insertFormat.replace('${label}', selected.label);
 
-    const editor = vscode.window.activeTextEditor;
-    if (editor) {
-      editor.insertSnippet(new vscode.SnippetString(text));
+    editor.insertSnippet(new vscode.SnippetString(text));
+  }));
+
+  // Register generic snippet insertion command (with snippet support for cursor positioning)
+  context.subscriptions.push(vscode.commands.registerCommand('shopware.insertSnippet', async (fileUri: string, line: number, character: number, snippetText: string) => {
+    try {
+      const document = await vscode.workspace.openTextDocument(vscode.Uri.parse(fileUri));
+      const editor = await vscode.window.showTextDocument(document);
+      
+      // Position the cursor at the insert position
+      const position = new vscode.Position(line, character);
+      editor.selection = new vscode.Selection(position, position);
+      
+      // Insert as snippet to support $0 cursor positioning
+      await editor.insertSnippet(new vscode.SnippetString(snippetText), position);
+    } catch (error) {
+      vscode.window.showErrorMessage(`Error adding prop: ${error}`);
     }
   }));
 
@@ -440,7 +561,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
 
       // Get possible snippet files
-      const result = await client.sendRequest<{paths: SnippetFile[]}>('shopware/snippet/getPossibleSnippetFilse', {
+      const result = await client.sendRequest<{paths: SnippetFile[]}>('shopware/snippet/storefront/getPossibleSnippetFiles', {
         fileUri,
       });
 
@@ -449,16 +570,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
 
-      // Set the selected text as value for all snippet files
-      for (const snippetFile of result.paths) {
-        snippetFile.value = selectedText;
+      // Collect translations with selected text pre-filled
+      const snippetsWithValues = await collectSnippetTranslations(
+        result.paths,
+        snippetKey,
+        'Create Storefront Snippet',
+        selectedText
+      );
+
+      if (!snippetsWithValues) {
+        return; // User cancelled
       }
 
       // Create the snippet
-      await client.sendRequest('shopware/snippet/create', {
+      await client.sendRequest('shopware/snippet/storefront/create', {
         fileUri,
         snippetKey,
-        snippets: result.paths
+        snippets: snippetsWithValues
       });
 
       // Get the editor
@@ -475,6 +603,115 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       vscode.window.showInformationMessage(`Snippet ${snippetKey} created successfully`);
     } catch (error) {
       vscode.window.showErrorMessage(`Error creating snippet from selection: ${error}`);
+    }
+  }));
+
+  // Register create admin snippet command handler
+  context.subscriptions.push(vscode.commands.registerCommand('shopware.createAdminSnippet', async (snippetKey: string, fileUri: string) => {
+    try {
+      if (!client) {
+        vscode.window.showErrorMessage('Shopware LSP is not running');
+        return;
+      }
+      
+      const result = await client.sendRequest<{paths: SnippetFile[]}>('shopware/snippet/admin/getPossibleSnippetFiles', {
+        fileUri,
+      });
+
+      if (!result || !result.paths || result.paths.length === 0) {
+        vscode.window.showErrorMessage('No admin snippet files found');
+        return;
+      }
+
+      const snippetsWithValues = await collectSnippetTranslations(
+        result.paths,
+        snippetKey,
+        'Create Admin Snippet'
+      );
+
+      if (!snippetsWithValues) {
+        return; // User cancelled
+      }
+
+      await client.sendRequest('shopware/snippet/admin/create', {
+        fileUri,
+        snippetKey,
+        snippets: snippetsWithValues
+      });
+
+      vscode.window.showInformationMessage(`Admin snippet ${snippetKey} created successfully`);
+    } catch (error) {
+      vscode.window.showErrorMessage(`Error creating admin snippet: ${error}`);
+    }
+  }));
+
+  // Register create admin snippet from selection command handler
+  context.subscriptions.push(vscode.commands.registerCommand('shopware.createAdminSnippetFromSelection', async (fileUri: string, selectedText: string) => {
+    try {
+      if (!client) {
+        vscode.window.showErrorMessage('Shopware LSP is not running');
+        return;
+      }
+
+      // Ask for snippet key
+      const snippetKey = await vscode.window.showInputBox({
+        prompt: 'Enter a key for the admin snippet',
+        placeHolder: 'e.g. my-module.component.title',
+        validateInput: (value: string) => {
+          if (!value || value.trim() === '') {
+            return 'Snippet key cannot be empty';
+          }
+          return null;
+        }
+      });
+
+      if (!snippetKey) {
+        return; // User cancelled
+      }
+
+      // Get possible admin snippet files
+      const result = await client.sendRequest<{paths: SnippetFile[]}>('shopware/snippet/admin/getPossibleSnippetFiles', {
+        fileUri,
+      });
+
+      if (!result || !result.paths || result.paths.length === 0) {
+        vscode.window.showErrorMessage('No admin snippet files found');
+        return;
+      }
+
+      // Collect translations with selected text pre-filled
+      const snippetsWithValues = await collectSnippetTranslations(
+        result.paths,
+        snippetKey,
+        'Create Admin Snippet',
+        selectedText
+      );
+
+      if (!snippetsWithValues) {
+        return; // User cancelled
+      }
+
+      // Create the snippet
+      await client.sendRequest('shopware/snippet/admin/create', {
+        fileUri,
+        snippetKey,
+        snippets: snippetsWithValues
+      });
+
+      // Get the editor
+      const editor = vscode.window.activeTextEditor;
+      if (editor) {
+        // Replace the selected text with the admin snippet reference
+        const snippetReference = `{{ $tc('${snippetKey}') }}`;
+        editor.edit(editBuilder => {
+          const selection = editor.selection;
+          editBuilder.replace(selection, snippetReference);
+        });
+      }
+
+      vscode.window.showInformationMessage(`Admin snippet ${snippetKey} created successfully`);
+    } catch (error) {
+      vscode.window.showErrorMessage(`Error creating admin snippet from selection: ${error}`);
     }
   }));
 }

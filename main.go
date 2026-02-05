@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/shopware/shopware-lsp/internal/admin"
 	"github.com/shopware/shopware-lsp/internal/extension"
 	"github.com/shopware/shopware-lsp/internal/feature"
 	"github.com/shopware/shopware-lsp/internal/indexer"
@@ -70,6 +71,7 @@ func main() {
 	server.RegisterIndexer(systemconfig.NewSystemConfigIndexer(cacheDir))
 	server.RegisterIndexer(theme.NewThemeConfigIndexer(cacheDir))
 	server.RegisterIndexer(extension.NewExtensionIndexer(cacheDir))
+	server.RegisterIndexer(admin.NewAdminComponentIndexer(cacheDir))
 
 	server.RegisterCompletionProvider(completion.NewServiceCompletionProvider(server))
 	server.RegisterCompletionProvider(completion.NewTwigCompletionProvider(projectRoot, server))
@@ -78,6 +80,7 @@ func main() {
 	server.RegisterCompletionProvider(completion.NewFeatureCompletionProvider(server))
 	server.RegisterCompletionProvider(completion.NewSystemConfigCompletion(server))
 	server.RegisterCompletionProvider(completion.NewThemeCompletionProvider(server))
+	server.RegisterCompletionProvider(completion.NewAdminCompletionProvider(server))
 
 	server.RegisterDefinitionProvider(definition.NewServiceXMLDefinitionProvider(server))
 	server.RegisterDefinitionProvider(definition.NewTwigDefinitionProvider(projectRoot, server))
@@ -86,6 +89,7 @@ func main() {
 	server.RegisterDefinitionProvider(definition.NewFeatureDefinitionProvider(server))
 	server.RegisterDefinitionProvider(definition.NewSystemConfigDefinitionProvider(server))
 	server.RegisterDefinitionProvider(definition.NewThemeDefinitionProvider(server))
+	server.RegisterDefinitionProvider(definition.NewAdminDefinitionProvider(server))
 
 	server.RegisterCodeLensProvider(codelens.NewPHPCodeLensProvider(server))
 	server.RegisterCodeLensProvider(codelens.NewTwigCodeLensProvider(server))
@@ -95,15 +99,18 @@ func main() {
 	server.RegisterDiagnosticsProvider(diagnostics.NewSnippetDiagnosticsProvider(server))
 	server.RegisterDiagnosticsProvider(diagnostics.NewThemeDiagnosticsProvider(projectRoot, server))
 	server.RegisterDiagnosticsProvider(diagnostics.NewTwigVersioningDiagnosticsProvider(server))
+	server.RegisterDiagnosticsProvider(diagnostics.NewAdminDiagnosticsProvider(server))
 
 	// Register hover providers
 	server.RegisterHoverProvider(hover.NewTwigHoverProvider(projectRoot, server))
 	server.RegisterHoverProvider(hover.NewSnippetHoverProvider(projectRoot, server))
 	server.RegisterHoverProvider(hover.NewTwigVersioningHoverProvider(server))
+	server.RegisterHoverProvider(hover.NewAdminHoverProvider(projectRoot, server))
 
 	// Register code action providers
 	server.RegisterCodeActionProvider(codeaction.NewSnippetCodeActionProvider(server))
 	server.RegisterCodeActionProvider(codeaction.NewTwigCodeActionProvider(projectRoot, server))
+	server.RegisterCodeActionProvider(codeaction.NewAdminCodeActionProvider(server))
 
 	server.RegisterCommandProvider(snippet.NewSnippetCommandProvider(server))
 	server.RegisterCommandProvider(extension.NewExtensionCommandProvider(server))
