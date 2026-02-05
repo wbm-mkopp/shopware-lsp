@@ -30,11 +30,7 @@ func TestTwigVersioningDiagnosticsProvider_originalNotFoundMessage(t *testing.T)
 	provider := NewTwigVersioningDiagnosticsProvider(server)
 
 	uri := "file:///tmp/myext/Resources/views/storefront/page/checkout/foo.html.twig"
-	content := []byte(`{% sw_extends '@Storefront/storefront/page/checkout/foo' %}
-{# shopware-block: abc123def456@6.4.15.0 #}
-{% block content %}
-    <p>Override</p>
-{% endblock %}`)
+	content := []byte(`{% sw_extends '@Storefront/storefront/page/checkout/foo' %}{# shopware-block: abc123def456@6.4.15.0 #}{% block content %}test{% endblock %}`)
 
 	parser := tree_sitter.NewParser()
 	lang := tree_sitter.NewLanguage(tree_sitter_twig.Language())
