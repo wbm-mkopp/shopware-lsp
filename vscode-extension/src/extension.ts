@@ -458,8 +458,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     editor.insertSnippet(new vscode.SnippetString(text));
   }));
 
-  // Register generic snippet insertion command (with snippet support for cursor positioning)
-  context.subscriptions.push(vscode.commands.registerCommand('shopware.insertSnippet', async (fileUri: string, line: number, character: number, snippetText: string) => {
+  // Register programmatic snippet insertion command (used by code actions for cursor positioning)
+  context.subscriptions.push(vscode.commands.registerCommand('shopware.editor.insertSnippetAtPosition', async (fileUri: string, line: number, character: number, snippetText: string) => {
     try {
       const document = await vscode.workspace.openTextDocument(vscode.Uri.parse(fileUri));
       const editor = await vscode.window.showTextDocument(document);
