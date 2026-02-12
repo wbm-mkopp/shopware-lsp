@@ -104,7 +104,9 @@ func (p *TwigCodeActionProvider) getVersioningHashAction(params *protocol.CodeAc
 	}
 
 	blockLine := int(blockNode.Range().StartPoint.Row)
-	versionComment := twig.FormatVersionComment(originalHash.Hash, twig.DetectShopwareVersion(p.projectRoot))
+	blockCol := int(blockNode.Range().StartPoint.Column)
+	indent := extractLineIndent(params.DocumentContent, blockLine, blockCol)
+	versionComment := indent + twig.FormatVersionComment(originalHash.Hash, twig.DetectShopwareVersion(p.projectRoot))
 
 	edit := &protocol.WorkspaceEdit{
 		Changes: map[string][]protocol.TextEdit{
@@ -294,4 +296,37 @@ func IsBlock() treesitterhelper.Pattern {
 			1,
 		),
 	)
+}
+
+// extractLineIndent returns the leading whitespace from the given line in content,
+// up to maxCol characters. This preserves the original whitespace (tabs or spaces).
+func extractLineIndent(content []byte, line, maxCol int) string {
+	currentLine := 0
+	lineStart := 0
+
+	for i, b := range content {
+		if currentLine == line {
+			lineStart = i
+			break
+		}
+		if b == '\n' {
+			currentLine++
+		}
+	}
+
+	end := lineStart + maxCol
+	if end > len(content) {
+		end = len(content)
+	}
+
+	indent := content[lineStart:end]
+
+	// Only return actual whitespace characters
+	for i, b := range indent {
+		if b != ' ' && b != '\t' {
+			return string(indent[:i])
+		}
+	}
+
+	return string(indent)
 }
