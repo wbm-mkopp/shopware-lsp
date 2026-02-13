@@ -20,14 +20,21 @@ type TwigBlockReferenceProvider struct {
 }
 
 func NewTwigBlockReferenceProvider(lspServer *lsp.Server) *TwigBlockReferenceProvider {
-	twigIndexer, _ := lspServer.GetIndexer("twig.indexer")
+	indexer, ok := lspServer.GetIndexer("twig.indexer")
+	if !ok || indexer == nil {
+		return &TwigBlockReferenceProvider{twigIndexer: nil}
+	}
+	twigIndexer, ok := indexer.(*twig.TwigIndexer)
+	if !ok {
+		return &TwigBlockReferenceProvider{twigIndexer: nil}
+	}
 	return &TwigBlockReferenceProvider{
-		twigIndexer: twigIndexer.(*twig.TwigIndexer),
+		twigIndexer: twigIndexer,
 	}
 }
 
 func (p *TwigBlockReferenceProvider) GetReferences(ctx context.Context, params *protocol.ReferenceParams) []protocol.Location {
-	if params.Node == nil {
+	if p.twigIndexer == nil || params.Node == nil {
 		return nil
 	}
 
