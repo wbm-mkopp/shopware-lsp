@@ -262,6 +262,16 @@ func (idx *TwigIndexer) GetAllTwigFilters() ([]TwigFilter, error) {
 	return values, nil
 }
 
+// IndexTwigFile directly indexes a pre-built TwigFile into the file index only.
+// It does not update the block hash index or block index. This is useful for
+// testing scenarios where you need precise control over the indexed data
+// (e.g., simulating an empty Blocks map or a file without block hash entries).
+func (idx *TwigIndexer) IndexTwigFile(file TwigFile) error {
+	twigFiles := make(map[string]map[string]TwigFile)
+	twigFiles[file.Path] = map[string]TwigFile{file.RelPath: file}
+	return idx.twigFileIndex.BatchSaveItems(twigFiles)
+}
+
 func (idx *TwigIndexer) GetTwigFilesByRelPath(relPath string) ([]TwigFile, error) {
 	return idx.twigFileIndex.GetValues(relPath)
 }
