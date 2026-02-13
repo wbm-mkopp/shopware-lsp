@@ -4,6 +4,7 @@ node_modules
 /vscode-extension/dist
 /dist
 /zed-extension/target
+/zed-extension/extension.wasm
 /.opencode
 internal/php/alias_resolver.go
 internal/php/php.db
