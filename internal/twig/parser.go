@@ -63,22 +63,46 @@ type TwigBlock struct {
 	VersionComment *TwigVersionComment
 }
 
-// findBlocks recursively traverses the tree to find all blocks
+// findBlocks recursively traverses the tree to find all blocks.
+// It handles both proper "block" nodes and "ERROR" nodes that occur when
+// the tree-sitter grammar fails to parse blocks containing HTML tags.
 func findBlocks(node *tree_sitter.Node, content []byte, file *TwigFile) {
 	if node.Kind() == "block" {
-		for i := 0; i < int(node.NamedChildCount()); i++ {
-			child := node.NamedChild(uint(i))
-			if child.Kind() == "identifier" {
-				blockName := string(child.Utf8Text(content))
-				blockText := string(node.Utf8Text(content))
-				blockHash := calculateBlockHash(blockText)
+		extractBlockFromNode(node, content, file)
+	} else if node.Kind() == "ERROR" {
+		// Tree-sitter produces ERROR nodes for blocks that contain HTML tags.
+		// These have the structure: ERROR > identifier where the ERROR text
+		// starts with "{% block ".
+		nodeText := string(node.Utf8Text(content))
+		if strings.HasPrefix(strings.TrimSpace(nodeText), "{% block ") {
+			extractBlockFromNode(node, content, file)
+		}
+	}
 
-				var versionComment *TwigVersionComment
-				if prevSibling := findPreviousComment(node, content); prevSibling != nil {
-					commentText := string(prevSibling.Utf8Text(content))
-					versionComment = ParseVersionComment(commentText, int(prevSibling.Range().StartPoint.Row)+1)
-				}
+	// Recursively process all named children
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		findBlocks(node.NamedChild(uint(i)), content, file)
+	}
+}
 
+// extractBlockFromNode extracts block name and metadata from a block or ERROR node.
+// First definition wins: if a block name already exists in file.Blocks, it is not
+// overwritten (e.g., when a nested block reuses a parent's name).
+func extractBlockFromNode(node *tree_sitter.Node, content []byte, file *TwigFile) {
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		child := node.NamedChild(uint(i))
+		if child.Kind() == "identifier" {
+			blockName := string(child.Utf8Text(content))
+			blockText := string(node.Utf8Text(content))
+			blockHash := calculateBlockHash(blockText)
+
+			var versionComment *TwigVersionComment
+			if prevSibling := findPreviousComment(node, content); prevSibling != nil {
+				commentText := string(prevSibling.Utf8Text(content))
+				versionComment = ParseVersionComment(commentText, int(prevSibling.Range().StartPoint.Row)+1)
+			}
+
+			if _, exists := file.Blocks[blockName]; !exists {
 				file.Blocks[blockName] = TwigBlock{
 					Name:           blockName,
 					Line:           int(child.Range().StartPoint.Row) + 1,
@@ -86,14 +110,9 @@ func findBlocks(node *tree_sitter.Node, content []byte, file *TwigFile) {
 					Text:           blockText,
 					VersionComment: versionComment,
 				}
-				break
 			}
+			break
 		}
-	}
-
-	// Recursively process all named children
-	for i := 0; i < int(node.NamedChildCount()); i++ {
-		findBlocks(node.NamedChild(uint(i)), content, file)
 	}
 }
 
