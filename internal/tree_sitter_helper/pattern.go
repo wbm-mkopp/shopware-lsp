@@ -586,6 +586,48 @@ func FindAllTwigBlocks(root *tree_sitter.Node, content []byte) []*tree_sitter.No
 	return FindAll(root, TwigBlockPattern, content)
 }
 
+// FindIdentifierNode finds the first identifier node with the given text in the tree.
+// Used by tests for Twig block definition and reference providers.
+func FindIdentifierNode(root *tree_sitter.Node, content []byte, targetText string) *tree_sitter.Node {
+	var result *tree_sitter.Node
+	var visit func(node *tree_sitter.Node)
+	visit = func(node *tree_sitter.Node) {
+		if result != nil {
+			return
+		}
+		if node.Kind() == "identifier" && string(node.Utf8Text(content)) == targetText {
+			result = node
+			return
+		}
+		for i := uint(0); i < node.ChildCount(); i++ {
+			visit(node.Child(i))
+		}
+	}
+	visit(root)
+	return result
+}
+
+// IsTwigBlockIdentifier checks whether the given identifier node is a Twig block name.
+// It handles both proper "block" nodes and "ERROR" nodes that occur when
+// the tree-sitter grammar fails to parse blocks containing HTML tags.
+func IsTwigBlockIdentifier(node *tree_sitter.Node, content []byte) bool {
+	if node.Kind() != "identifier" || node.Parent() == nil {
+		return false
+	}
+
+	parentKind := node.Parent().Kind()
+	if parentKind == "block" {
+		return true
+	}
+
+	if parentKind == "ERROR" {
+		parentText := string(node.Parent().Utf8Text(content))
+		return strings.HasPrefix(strings.TrimSpace(parentText), "{% block ")
+	}
+
+	return false
+}
+
 // Get the name of a Twig block
 func GetTwigBlockName(blockNode *tree_sitter.Node, content []byte) string {
 	nameCapture := Capture("name", NodeKind("string"))
