@@ -93,12 +93,17 @@ func (p *TwigCodeActionProvider) getVersioningHashAction(params *protocol.CodeAc
 		return nil
 	}
 
-	allBlockHashes, err := p.twigIndexer.GetTwigBlockHashes(blockName)
-	if err != nil || len(allBlockHashes) == 0 {
+	rootNode := params.Node
+	for rootNode.Parent() != nil {
+		rootNode = rootNode.Parent()
+	}
+
+	twigFile, err := twig.ParseTwig(params.TextDocument.URI, rootNode, params.DocumentContent)
+	if err != nil {
 		return nil
 	}
 
-	originalHash := twig.FindOriginalStorefrontHash(allBlockHashes)
+	originalHash := twig.ResolveOriginalStorefrontHashForBlock(p.twigIndexer, blockName, twigFile.ExtendsFile)
 	if originalHash == nil {
 		return nil
 	}

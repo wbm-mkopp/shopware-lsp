@@ -78,6 +78,12 @@ func (p *TwigVersioningHoverProvider) hoverBlockIdentifier(node *tree_sitter.Nod
 	}
 
 	originalHash := twig.FindOriginalStorefrontHash(allBlockHashes)
+	if originalHash == nil && len(allBlockHashes) == 0 {
+		extendsFile := p.findCurrentFileExtends(node, []byte(content), uri)
+		if extendsFile != "" {
+			originalHash = twig.ResolveOriginalStorefrontHashForBlock(p.twigIndexer, blockName, extendsFile)
+		}
+	}
 
 	var hoverText strings.Builder
 	hoverText.WriteString(fmt.Sprintf("**Block:** `%s`\n\n", blockName))
@@ -109,6 +115,21 @@ func (p *TwigVersioningHoverProvider) hoverBlockIdentifier(node *tree_sitter.Nod
 			Value: hoverText.String(),
 		},
 	}, nil
+}
+
+func (p *TwigVersioningHoverProvider) findCurrentFileExtends(node *tree_sitter.Node, content []byte, uri string) string {
+	root := node
+	for root.Parent() != nil {
+		root = root.Parent()
+	}
+
+	filePath := strings.TrimPrefix(uri, "file://")
+	twigFile, err := twig.ParseTwig(filePath, root, content)
+	if err != nil || twigFile == nil {
+		return ""
+	}
+
+	return twigFile.ExtendsFile
 }
 
 func (p *TwigVersioningHoverProvider) hoverVersionComment(node *tree_sitter.Node, content string, uri string) (*protocol.Hover, error) {

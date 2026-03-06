@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	tree_sitter_twig "github.com/shopware/shopware-lsp/internal/tree_sitter_grammars/twig/bindings/go"
+	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 const VersionCommentPrefix = "shopware-block:"
@@ -79,6 +82,78 @@ func FindOriginalStorefrontHashForExtends(hashes []TwigBlockHash, extendsFile st
 		}
 	}
 	return nil
+}
+
+func ResolveOriginalStorefrontHashForBlock(indexer *TwigIndexer, blockName, extendsFile string) *TwigBlockHash {
+	if indexer == nil {
+		return nil
+	}
+
+	allBlockHashes, err := indexer.GetTwigBlockHashes(blockName)
+	if err != nil {
+		return nil
+	}
+
+	originalHash := FindOriginalStorefrontHashForExtends(allBlockHashes, extendsFile)
+	if originalHash != nil || len(allBlockHashes) > 0 {
+		return originalHash
+	}
+
+	return resolveOriginalHashFromExtendsFile(indexer, blockName, extendsFile)
+}
+
+func resolveOriginalHashFromExtendsFile(indexer *TwigIndexer, blockName, extendsFile string) *TwigBlockHash {
+	if extendsFile == "" || indexer == nil {
+		return nil
+	}
+
+	parentFiles, err := indexer.GetTwigFilesByRelPath(extendsFile)
+	if err != nil || len(parentFiles) == 0 {
+		return nil
+	}
+
+	for _, parentFile := range parentFiles {
+		runtimeHash, runtimeErr := FindBlockHashInTemplateFile(parentFile.Path, blockName)
+		if runtimeErr != nil || runtimeHash == nil {
+			continue
+		}
+		return runtimeHash
+	}
+
+	return nil
+}
+
+func FindBlockHashInTemplateFile(filePath, blockName string) (*TwigBlockHash, error) {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	parser := tree_sitter.NewParser()
+	if err := parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_twig.Language())); err != nil {
+		return nil, err
+	}
+
+	tree := parser.Parse(content, nil)
+	defer tree.Close()
+
+	twigFile, err := ParseTwig(filePath, tree.RootNode(), content)
+	if err != nil {
+		return nil, err
+	}
+
+	block, ok := twigFile.Blocks[blockName]
+	if !ok {
+		return nil, nil
+	}
+
+	return &TwigBlockHash{
+		Name:         block.Name,
+		RelativePath: ConvertToRelativePath(filePath),
+		AbsolutePath: filePath,
+		Hash:         block.Hash,
+		Text:         block.Text,
+	}, nil
 }
 
 func normalizeTemplatePath(path string) string {

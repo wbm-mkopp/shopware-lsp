@@ -1,6 +1,8 @@
 package twig
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -118,4 +120,34 @@ func TestHashCompatibilityWithPhpStorm(t *testing.T) {
 			assert.Len(t, hash, 64, "SHA-256 hash should be 64 hex characters")
 		})
 	}
+}
+
+func TestFindBlockHashInTemplateFile_PriceUnitBlockWithHTML(t *testing.T) {
+	tempDir := t.TempDir()
+	filePath := filepath.Join(tempDir, "price-unit.html.twig")
+
+	content := []byte(`{% block component_product_box_price_info %}
+    <div class="product-price-info">
+        {% block component_product_box_price_unit %}
+            <p class="product-price-unit">
+                {% block component_product_box_price_purchase_unit %}
+                    {% if referencePrice and referencePrice.unitName %}
+                        <span class="product-unit-label"></span>
+                    {% endif %}
+                {% endblock %}
+            </p>
+        {% endblock %}
+    </div>
+{% endblock %}`)
+	err := os.WriteFile(filePath, content, 0644)
+	assert.NoError(t, err)
+
+	hash, err := FindBlockHashInTemplateFile(filePath, "component_product_box_price_unit")
+	assert.NoError(t, err)
+	assert.NotNil(t, hash)
+	assert.Equal(t, "component_product_box_price_unit", hash.Name)
+	assert.Equal(t, filePath, hash.AbsolutePath)
+	assert.Equal(t, ConvertToRelativePath(filePath), hash.RelativePath)
+	assert.NotEmpty(t, hash.Hash)
+	assert.Contains(t, hash.Text, "{% block component_product_box_price_unit %}")
 }
