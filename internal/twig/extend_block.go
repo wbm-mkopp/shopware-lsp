@@ -55,14 +55,13 @@ func PlanExtendBlock(projectRoot string, twigIndexer *TwigIndexer, sourceURI, bl
 		return nil, protocol.NewLspError("Block already exists", "block.already_exists")
 	}
 
-	versionComment := ""
-	if twigIndexer != nil {
-		if allBlockHashes, err := twigIndexer.GetTwigBlockHashes(blockName); err == nil {
-			if originalHash := FindOriginalStorefrontHash(allBlockHashes); originalHash != nil {
-				versionComment = FormatVersionComment(originalHash.Hash, DetectShopwareVersion(projectRoot))
-			}
-		}
-	}
+	versionComment := resolveVersionCommentForExtendBlock(
+		projectRoot,
+		twigIndexer,
+		originalPath,
+		extendsRelPath,
+		blockName,
+	)
 
 	blockSuffix := "\n\n" + versionComment + "{% block " + blockName + " %}\n\n{% endblock %}\n"
 
@@ -92,6 +91,9 @@ func PlanExtendBlock(projectRoot string, twigIndexer *TwigIndexer, sourceURI, bl
 func (p *ExtendBlockPlan) WorkspaceEdit() *protocol.WorkspaceEdit {
 	edit := p.workspaceTextEdit()
 	return &protocol.WorkspaceEdit{
+		Changes: map[string][]protocol.TextEdit{
+			p.URI: {edit},
+		},
 		DocumentChanges: []protocol.DocumentChange{
 			{
 				TextDocument: protocol.OptionalVersionedTextDocumentIdentifier{
@@ -120,6 +122,33 @@ func (p *ExtendBlockPlan) workspaceTextEdit() protocol.TextEdit {
 		Range:   end,
 		NewText: string(p.NewContent[len(p.OldContent):]),
 	}
+}
+
+func resolveVersionCommentForExtendBlock(
+	projectRoot string,
+	twigIndexer *TwigIndexer,
+	sourcePath, extendsRelPath, blockName string,
+) string {
+	var originalHash *TwigBlockHash
+
+	if twigIndexer != nil {
+		if allBlockHashes, err := twigIndexer.GetTwigBlockHashes(blockName); err == nil {
+			originalHash = FindOriginalStorefrontHashForExtends(allBlockHashes, extendsRelPath)
+		}
+	}
+
+	if originalHash == nil {
+		hash, err := FindBlockHashInTemplateFile(sourcePath, blockName)
+		if err == nil && hash != nil {
+			originalHash = hash
+		}
+	}
+
+	if originalHash == nil {
+		return ""
+	}
+
+	return FormatVersionComment(originalHash.Hash, DetectShopwareVersion(projectRoot))
 }
 
 func blockExistsInContent(content []byte, blockName string) bool {

@@ -45,15 +45,15 @@ func (p *TwigCodeActionProvider) GetCodeActionKinds() []protocol.CodeActionKind 
 }
 
 func (p *TwigCodeActionProvider) GetCodeActions(ctx context.Context, params *protocol.CodeActionParams) []protocol.CodeAction {
-	if params.Node == nil {
-		return nil
-	}
-
 	var codeActions []protocol.CodeAction
 
-	blockName, hasBlockName := twig.ResolveBlockNameForExtend(params.Node, params.DocumentContent, params.Range.Start.Line)
-	if hasBlockName {
-		codeActions = append(codeActions, p.getExtendBlockActions(params, blockName)...)
+	blockNames := twig.ExtendBlockCandidates(params.Node, params.DocumentContent, params.Range.Start.Line)
+	if len(blockNames) > 0 {
+		codeActions = append(codeActions, p.getExtendBlockActions(params, blockNames)...)
+	}
+
+	if params.Node == nil {
+		return codeActions
 	}
 
 	if IsBlock().Matches(params.Node, params.DocumentContent) {
@@ -73,7 +73,7 @@ func (p *TwigCodeActionProvider) GetCodeActions(ctx context.Context, params *pro
 	return codeActions
 }
 
-func (p *TwigCodeActionProvider) getExtendBlockActions(params *protocol.CodeActionParams, blockName string) []protocol.CodeAction {
+func (p *TwigCodeActionProvider) getExtendBlockActions(params *protocol.CodeActionParams, blockNames []string) []protocol.CodeAction {
 	if p.extensionIndexer == nil || !twig.IsOriginalTemplateSource(params.TextDocument.URI) {
 		return nil
 	}
@@ -90,8 +90,8 @@ func (p *TwigCodeActionProvider) getExtendBlockActions(params *protocol.CodeActi
 			continue
 		}
 
-		plan, planErr := twig.PlanExtendBlock(p.projectRoot, p.twigIndexer, params.TextDocument.URI, blockName, ext)
-		if planErr != nil {
+		plan, blockName := p.planFirstExtendableBlock(params, blockNames, ext)
+		if plan == nil {
 			continue
 		}
 
@@ -103,6 +103,24 @@ func (p *TwigCodeActionProvider) getExtendBlockActions(params *protocol.CodeActi
 	}
 
 	return codeActions
+}
+
+func (p *TwigCodeActionProvider) planFirstExtendableBlock(
+	params *protocol.CodeActionParams,
+	blockNames []string,
+	ext extension.ShopwareExtension,
+) (*twig.ExtendBlockPlan, string) {
+	for _, blockName := range blockNames {
+		plan, planErr := twig.PlanExtendBlock(p.projectRoot, p.twigIndexer, params.TextDocument.URI, blockName, ext)
+		if planErr == nil {
+			return plan, blockName
+		}
+		if planErr.Code != "block.already_exists" {
+			return nil, ""
+		}
+	}
+
+	return nil, ""
 }
 
 func (p *TwigCodeActionProvider) getVersioningHashAction(params *protocol.CodeActionParams) *protocol.CodeAction {

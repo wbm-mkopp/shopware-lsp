@@ -47,6 +47,19 @@ func TestBlockNameAtCursor_swagTitlePartial(t *testing.T) {
 	assert.Equal(t, "swag_customized_products_option_type_template_label", name)
 }
 
+func TestBlockNamesAtCursor_swagTitlePartial(t *testing.T) {
+	path := "/Users/mkopp/Projects/Customers/aida/vendor/store.shopware.com/swagcustomizedproducts/src/Resources/views/storefront/component/customized-products/_include/title.html.twig"
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Skip("aida project template not available")
+	}
+
+	names := BlockNamesAtCursor(content, 16)
+	require.NotEmpty(t, names)
+	assert.Equal(t, "swag_customized_products_option_type_template_label_content_text", names[0])
+	assert.Contains(t, names, "swag_customized_products_option_type_template_label_content")
+}
+
 func TestBlockNameAtNode_swagCustomizedProductsTitlePartial(t *testing.T) {
 	path := "/Users/mkopp/Projects/Customers/aida/vendor/store.shopware.com/swagcustomizedproducts/src/Resources/views/storefront/component/customized-products/_include/title.html.twig"
 	content, err := os.ReadFile(path)
@@ -82,6 +95,29 @@ func TestBlockNameAtNode_swagCustomizedProductsTitlePartial(t *testing.T) {
 			assert.Equal(t, tt.blockName, name)
 		})
 	}
+}
+
+func TestExtendBlockCandidates_usesNodeLineOverRangeLine(t *testing.T) {
+	path := "/Users/mkopp/Projects/Customers/aida/vendor/store.shopware.com/swagcustomizedproducts/src/Resources/views/storefront/component/customized-products/_include/title.html.twig"
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Skip("aida project template not available")
+	}
+
+	parser := tree_sitter.NewParser()
+	require.NoError(t, parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_twig.Language())))
+	defer parser.Close()
+
+	tree := parser.Parse(content, nil)
+	defer tree.Close()
+
+	blockName := "swag_customized_products_option_type_template_label_content"
+	node := treesitterhelper.FindIdentifierNode(tree.RootNode(), content, blockName)
+	require.NotNil(t, node)
+
+	candidates := ExtendBlockCandidates(node, content, 0)
+	require.NotEmpty(t, candidates)
+	assert.Equal(t, blockName, candidates[0])
 }
 
 func TestIsBlockTagLinePrefix(t *testing.T) {
