@@ -120,7 +120,7 @@ impl zed::Extension for ShopwareExtension {
                 sections: vec![],
             }),
             "shopware-reindex" => Ok(zed::SlashCommandOutput {
-                text: "Zed does not yet support LSP workspace/executeCommand. To force reindex, reload the Shopware LSP extension or restart Zed. The server will reindex automatically when you open files.".to_string(),
+                text: "Zed cannot register editor commands like VS Code. Use code actions instead: open a PHP/Twig file, press cmd-. (Toggle Code Actions), and choose \"Shopware: Force Reindex\".".to_string(),
                 sections: vec![],
             }),
             _ => Err(format!("unknown slash command: {}", command.name)),

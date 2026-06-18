@@ -42,7 +42,7 @@ type FileScanner struct {
 	watcherCtx  context.Context
 	cancel      context.CancelFunc
 	watcherWg   sync.WaitGroup
-	onUpdate    func()
+	onUpdate       func()
 }
 
 // NewFileScanner creates a new file scanner

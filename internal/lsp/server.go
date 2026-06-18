@@ -150,6 +150,14 @@ func (s *Server) shouldForceReindex() (bool, error) {
 	return forceReindex, nil
 }
 
+func (s *Server) startForceReindex(ctx context.Context) {
+	go func() {
+		if err := s.indexAll(ctx, true); err != nil {
+			log.Printf("Error force reindexing: %v", err)
+		}
+	}()
+}
+
 // indexAll builds or updates all registered indexes
 // If forceReindex is true, it will clear the existing index before rebuilding
 func (s *Server) indexAll(ctx context.Context, forceReindex bool) error {
@@ -391,15 +399,26 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 		return s.codeAction(ctx, &params), nil
 
 	case "shopware/forceReindex":
-		// Force reindex all indexers
-		go func() {
-			if err := s.indexAll(ctx, true); err != nil {
-				log.Printf("Error force reindexing: %v", err)
-			}
-		}()
+		s.startForceReindex(ctx)
 		return map[string]interface{}{
 			"message": "Force reindexing started",
 		}, nil
+
+	case "workspace/executeCommand":
+		var params struct {
+			Command string `json:"command"`
+		}
+		if err := json.Unmarshal(*req.Params, &params); err != nil {
+			return nil, err
+		}
+		if params.Command == "shopware.forceReindex" {
+			s.startForceReindex(ctx)
+			return nil, nil
+		}
+		return nil, &jsonrpc2.Error{
+			Code:    jsonrpc2.CodeMethodNotFound,
+			Message: "Unknown command: " + params.Command,
+		}
 
 	case "shutdown":
 		// Clean up resources
@@ -559,6 +578,9 @@ func (s *Server) initialize(ctx context.Context, params *protocol.InitializePara
 			},
 			"codeActionProvider": map[string]interface{}{
 				"codeActionKinds": codeActionKinds,
+			},
+			"executeCommandProvider": map[string]interface{}{
+				"commands": []string{"shopware.forceReindex"},
 			},
 			"workspace": map[string]interface{}{
 				"fileOperations": map[string]interface{}{

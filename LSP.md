@@ -9,6 +9,8 @@ This document lists the custom LSP commands and notifications provided by the Sh
 * **Action:** Forces a rebuild of all indexes by invoking `indexAll` with `forceReindex` set to `true`.
 * **Returns:** `{ "message": "Force reindexing started" }`
 
+Also available as a code action (**Shopware: Force Reindex**) and via `workspace/executeCommand` with command `shopware.forceReindex`.
+
 ### `shopware/extension/all`
 * **Parameters:** none
 * **Action:** Returns all detected Shopware extensions via the `ExtensionIndexer`.

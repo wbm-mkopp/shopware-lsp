@@ -109,6 +109,7 @@ func main() {
 	server.RegisterHoverProvider(hover.NewAdminHoverProvider(projectRoot, server))
 
 	// Register code action providers
+	server.RegisterCodeActionProvider(codeaction.NewWorkspaceCodeActionProvider())
 	server.RegisterCodeActionProvider(codeaction.NewSnippetCodeActionProvider(server))
 	server.RegisterCodeActionProvider(codeaction.NewTwigCodeActionProvider(projectRoot, server))
 	server.RegisterCodeActionProvider(codeaction.NewAdminCodeActionProvider(server))

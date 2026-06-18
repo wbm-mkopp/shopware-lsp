@@ -60,10 +60,22 @@ The extension downloads the LSP binary from GitHub releases. If downloads fail, 
 }
 ```
 
+## Force Reindex
+
+Zed extensions cannot register command-palette commands or send LSP requests the way the VS Code extension does. Instead, the LSP exposes **Shopware: Force Reindex** as a code action (same `workspace/executeCommand` path VS Code uses internally).
+
+1. Open any Shopware-related file (PHP, Twig, XML, YAML, etc.)
+2. Run **Toggle Code Actions** (`cmd-.` / `ctrl-.`) or search for it in the command palette
+3. Select **Shopware: Force Reindex**
+
+The LSP receives `workspace/executeCommand` with `shopware.forceReindex` and starts reindexing immediately — no shell task required.
+
+Rebuild the LSP after updating (`go build` in the project root) and ensure Zed uses that binary (dev extension or `lsp.shopware-lsp.binary.path`).
+
 ## Slash Commands
 
 - `/shopware-restart` – Guidance for restarting the language server
-- `/shopware-reindex` – Guidance for forcing a reindex
+- `/shopware-reindex` – Points to the code action workflow above (extension slash commands are deprecated in Zed)
 
 ## Supported Platforms
 
@@ -80,8 +92,7 @@ Compared to the VSCode extension, some features are limited by Zed's extension A
 |---------|--------|
 | Block diff (virtual documents) | Not supported – no `TextDocumentContentProvider` equivalent |
 | Snippet creation dialogs | No multi-step input API – use LSP code actions if Zed supports them |
-| Code lens / executeCommand | Zed has limited `workspace/executeCommand` support – some commands may not run |
-| Restart / force reindex | Slash commands provide guidance; actual restart is via Zed reload |
+| Force reindex | Use code action **Shopware: Force Reindex** via `cmd-.` — no dedicated command palette entry like VS Code |
 
 ## Troubleshooting
 
