@@ -91,14 +91,25 @@ func (p *TwigCodeActionProvider) getExtendBlockActions(params *protocol.CodeActi
 		}
 
 		plan, blockName := p.planFirstExtendableBlock(params, blockNames, ext)
-		if plan == nil {
+		if plan == nil || blockName == "" {
 			continue
 		}
 
+		// After the edit is applied, reveal the new block and place the cursor inside
+		// its body via window/showDocument. Clients that execute code-action commands
+		// (e.g. VSCode, Neovim) honor this; clients that ignore it still get the edit.
 		codeActions = append(codeActions, protocol.CodeAction{
 			Title: fmt.Sprintf("Extend block '%s' in %s", blockName, ext.Name),
 			Kind:  protocol.CodeActionRefactorExtract,
 			Edit:  plan.WorkspaceEdit(),
+			Command: &protocol.CommandAction{
+				Title:   "Focus extended block",
+				Command: lsp.FocusExtendedBlockCommand,
+				Arguments: []any{
+					plan.URI,
+					plan.BlockLine,
+				},
+			},
 		})
 	}
 

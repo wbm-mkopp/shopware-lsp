@@ -137,7 +137,8 @@ func TestExtendBlockCodeAction_titleContentTextAlreadyExistsAida(t *testing.T) {
 	}
 	require.NotNil(t, extendAction, "expected parent block extend action")
 	require.NotNil(t, extendAction.Edit)
-	require.NotEmpty(t, extendAction.Edit.Changes)
 	require.NotEmpty(t, extendAction.Edit.DocumentChanges)
-	assert.Contains(t, extendAction.Edit.Changes[extendAction.Edit.DocumentChanges[0].TextDocument.URI][0].NewText, "shopware-block:")
+	require.NotNil(t, extendAction.Command)
+	assert.Equal(t, lsp.FocusExtendedBlockCommand, extendAction.Command.Command)
+	assert.Contains(t, extendAction.Edit.DocumentChanges[0].Edits[0].NewText, "shopware-block:")
 }

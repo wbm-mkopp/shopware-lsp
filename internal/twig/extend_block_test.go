@@ -32,7 +32,8 @@ func TestPlanExtendBlock_newFile(t *testing.T) {
 	assert.Contains(t, string(plan.NewContent), "{% block buy_widget %}")
 	assert.Contains(t, string(plan.NewContent), "shopware-block:")
 	assert.False(t, plan.FileExisted)
-	assert.Greater(t, plan.BlockLine, 0)
+	// Cursor lands on the empty line inside the block body (line 6: five rows below sw_extends).
+	assert.Equal(t, 6, plan.BlockLine)
 
 	edit := plan.WorkspaceEdit()
 	require.NotNil(t, edit)
@@ -62,6 +63,30 @@ func TestPlanExtendBlock_storePluginSource(t *testing.T) {
 	require.NotNil(t, plan)
 
 	assert.Contains(t, string(plan.NewContent), "{% sw_extends \"@SwagCustomizedProducts/storefront/component/buy-widget/buy-widget.html.twig\" %}")
+}
+
+func TestPlanExtendBlock_existingFile_cursorInsideBlockBody(t *testing.T) {
+	tempDir := t.TempDir()
+
+	storefrontPath := filepath.Join(tempDir, "vendor/shopware/storefront/Resources/views/storefront/component/buy-widget/buy-widget.html.twig")
+	require.NoError(t, os.MkdirAll(filepath.Dir(storefrontPath), 0755))
+	require.NoError(t, os.WriteFile(storefrontPath, []byte("{% block buy_widget %}core{% endblock %}"), 0644))
+
+	pluginDir := filepath.Join(tempDir, "custom/plugins/WbmAidaCore")
+	ext := extension.ShopwareExtension{
+		Name: "WbmAidaCore",
+		Path: filepath.Join(pluginDir, "WbmAidaCore.php"),
+	}
+
+	overridePath := filepath.Join(pluginDir, "Resources/views/storefront/component/buy-widget/buy-widget.html.twig")
+	require.NoError(t, os.MkdirAll(filepath.Dir(overridePath), 0755))
+	require.NoError(t, os.WriteFile(overridePath, []byte("{% block buy_widget_wishlist %}{% endblock %}\n"), 0644))
+
+	plan, err := PlanExtendBlock(tempDir, nil, "file://"+storefrontPath, "buy_widget", ext)
+	require.Nil(t, err)
+	require.NotNil(t, plan)
+	assert.True(t, plan.FileExisted)
+	assert.Equal(t, 6, plan.BlockLine)
 }
 
 func TestEndOfFileRange(t *testing.T) {

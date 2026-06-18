@@ -104,5 +104,7 @@ func TestExtendBlockIntegration_aidaTitlePartial(t *testing.T) {
 	require.NotNil(t, extendAction, "expected WbmAidaCore extend action")
 	require.NotNil(t, extendAction.Edit)
 	require.NotEmpty(t, extendAction.Edit.DocumentChanges)
+	require.NotNil(t, extendAction.Command)
+	assert.Equal(t, lsp.FocusExtendedBlockCommand, extendAction.Command.Command)
 	assert.Contains(t, extendAction.Edit.DocumentChanges[0].Edits[0].NewText, "{% block "+blockName+" %}")
 }

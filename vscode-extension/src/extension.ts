@@ -421,11 +421,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const document = await vscode.workspace.openTextDocument(vscode.Uri.parse(result.uri));
       const editor = await vscode.window.showTextDocument(document);
 
-      const position = new vscode.Position(result.line, 0);
+      const position = new vscode.Position(Math.max(0, result.line - 1), 0);
       editor.selection = new vscode.Selection(position, position);
+      editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
 
       vscode.window.showInformationMessage(`Block ${blockName} extended successfully in ${selectedExtension}`);
     }
+  }));
+
+  context.subscriptions.push(vscode.commands.registerCommand('shopware.twig.focusExtendedBlock', async (fileUri: string, line: number) => {
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.parse(fileUri));
+    const editor = await vscode.window.showTextDocument(document);
+
+    const position = new vscode.Position(Math.max(0, line - 1), 0);
+    editor.selection = new vscode.Selection(position, position);
+    editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
   }));
 
   context.subscriptions.push(vscode.commands.registerCommand('shopware.twig.showBlockDiff', async (textUri: string, blockName: string) => {

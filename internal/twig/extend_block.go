@@ -12,6 +12,8 @@ import (
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
+const extendBlockBodyCursorLineOffset = 1
+
 // ExtendBlockPlan describes how to extend a Twig block in a local extension.
 type ExtendBlockPlan struct {
 	URI         string
@@ -19,7 +21,7 @@ type ExtendBlockPlan struct {
 	OldContent  []byte
 	NewContent  []byte
 	FileExisted bool
-	BlockLine   int
+	BlockLine   int // 1-based line where the cursor should be placed inside the new block body
 }
 
 func PlanExtendBlock(projectRoot string, twigIndexer *TwigIndexer, sourceURI, blockName string, ext extension.ShopwareExtension) (*ExtendBlockPlan, *protocol.ShopwareLspError) {
@@ -73,7 +75,7 @@ func PlanExtendBlock(projectRoot string, twigIndexer *TwigIndexer, sourceURI, bl
 		newContent = append(currentContent, []byte(blockSuffix)...)
 	}
 
-	blockLine, err := blockLineInContent(newContent, blockName)
+	cursorLine, err := extendBlockCursorLineInContent(newContent, blockName)
 	if err != nil {
 		return nil, protocol.NewLspError("Block not found after planning", "block.not_found")
 	}
@@ -84,7 +86,7 @@ func PlanExtendBlock(projectRoot string, twigIndexer *TwigIndexer, sourceURI, bl
 		OldContent:  currentContent,
 		NewContent:  newContent,
 		FileExisted: fileExists,
-		BlockLine:   blockLine,
+		BlockLine:   cursorLine,
 	}, nil
 }
 
@@ -169,7 +171,7 @@ func blockExistsInContent(content []byte, blockName string) bool {
 	return len(blocks) > 0
 }
 
-func blockLineInContent(content []byte, blockName string) (int, error) {
+func blockOpeningLineInContent(content []byte, blockName string) (int, error) {
 	parser := tree_sitter.NewParser()
 	_ = parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_twig.Language()))
 
@@ -180,6 +182,15 @@ func blockLineInContent(content []byte, blockName string) (int, error) {
 	}
 
 	return int(blocks[0].StartPosition().Row) + 1, nil
+}
+
+func extendBlockCursorLineInContent(content []byte, blockName string) (int, error) {
+	blockLine, err := blockOpeningLineInContent(content, blockName)
+	if err != nil {
+		return 0, err
+	}
+
+	return blockLine + extendBlockBodyCursorLineOffset, nil
 }
 
 func endOfFileRange(content []byte) protocol.Range {
