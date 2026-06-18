@@ -76,7 +76,7 @@ Rebuild the LSP after updating (`go build` in the project root) and ensure Zed u
 
 When viewing a block in `vendor/shopware/storefront` or a `vendor/store.shopware.com` plugin template, place the cursor on the block name and run **Toggle Code Actions** (`cmd-.` / `ctrl-.`). Choose **Extend block '…' in …** for your target extension.
 
-The LSP runs `workspace/executeCommand` with `shopware.twig.extendBlock`, creates or updates the override template with `{% sw_extends %}`, and inserts an empty `{% block %}` for the selected block.
+The LSP applies a workspace edit that creates or updates the override template with `{% sw_extends %}` and inserts an empty `{% block %}`. Zed and VS Code open the modified file when the edit is applied.
 
 ## Slash Commands
 

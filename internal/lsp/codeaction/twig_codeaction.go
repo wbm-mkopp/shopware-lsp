@@ -88,18 +88,15 @@ func (p *TwigCodeActionProvider) getExtendBlockActions(params *protocol.CodeActi
 			continue
 		}
 
+		plan, planErr := twig.PlanExtendBlock(p.projectRoot, p.twigIndexer, params.TextDocument.URI, blockName, ext)
+		if planErr != nil {
+			continue
+		}
+
 		codeActions = append(codeActions, protocol.CodeAction{
 			Title: fmt.Sprintf("Extend block '%s' in %s", blockName, ext.Name),
 			Kind:  protocol.CodeActionRefactorExtract,
-			Command: &protocol.CommandAction{
-				Title:   lsp.ExtendBlockCommand,
-				Command: lsp.ExtendBlockCommand,
-				Arguments: []any{
-					params.TextDocument.URI,
-					blockName,
-					ext.Name,
-				},
-			},
+			Edit:  plan.WorkspaceEdit(),
 		})
 	}
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/shopware/shopware-lsp/internal/extension"
@@ -274,9 +275,18 @@ class WbmAidaCore extends Plugin {}
 			}
 
 			require.NotNil(t, extendAction, "expected extend block code action")
-			require.NotNil(t, extendAction.Command)
-			assert.Equal(t, lsp.ExtendBlockCommand, extendAction.Command.Command)
-			assert.Equal(t, []any{params.TextDocument.URI, tc.block, "WbmAidaCore"}, extendAction.Command.Arguments)
+			require.NotNil(t, extendAction.Edit)
+			require.NotEmpty(t, extendAction.Edit.Changes)
+
+			var hasBlockEdit bool
+			for _, edits := range extendAction.Edit.Changes {
+				for _, edit := range edits {
+					if strings.Contains(edit.NewText, "{% block "+tc.block+" %}") {
+						hasBlockEdit = true
+					}
+				}
+			}
+			assert.True(t, hasBlockEdit)
 		})
 	}
 }

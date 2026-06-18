@@ -843,7 +843,16 @@ func (s *Server) executeExtendBlockCommand(ctx context.Context, arguments []json
 		}
 	}
 
-	return cmd(ctx, &payload)
+	result, err := cmd(ctx, &payload)
+	if err != nil {
+		return nil, err
+	}
+
+	if uri, line, ok := parseExtendBlockSuccess(result); ok {
+		s.showDocumentAtLine(ctx, uri, line)
+	}
+
+	return result, nil
 }
 
 func marshalExtendBlockArgs(arguments []json.RawMessage) (json.RawMessage, error) {
