@@ -19,9 +19,10 @@ var (
 	shopwareVersionOnce sync.Once
 )
 
+// IsStorefrontTemplate reports whether path is an upstream template source (core
+// Storefront or a store.shopware.com plugin) rather than a local override.
 func IsStorefrontTemplate(uri string) bool {
-	return strings.Contains(uri, "src/Storefront/Resources/views/storefront") ||
-		strings.Contains(uri, "vendor/shopware/storefront/Resources/views/storefront")
+	return IsOriginalTemplateSource(uri)
 }
 
 func DetectShopwareVersion(projectRoot string) string {
@@ -65,23 +66,99 @@ func FindOriginalStorefrontHash(hashes []TwigBlockHash) *TwigBlockHash {
 
 func FindOriginalStorefrontHashForExtends(hashes []TwigBlockHash, extendsFile string) *TwigBlockHash {
 	if extendsFile != "" {
-		normalizedExtends := normalizeTemplatePath(extendsFile)
-		for _, hash := range hashes {
-			normalizedHashPath := normalizeTemplatePath(hash.RelativePath)
-			if normalizedHashPath == normalizedExtends {
-				return &hash
+		for i := range hashes {
+			hash := &hashes[i]
+			if twigRelPathsEquivalent(hash.RelativePath, extendsFile) {
+				return hash
 			}
+		}
+
+		var best *TwigBlockHash
+		bestScore := 0
+		for i := range hashes {
+			hash := &hashes[i]
+			score, ok := twigHashExtendsMatchScore(hash, extendsFile)
+			if !ok {
+				continue
+			}
+			if best == nil || score > bestScore {
+				best = hash
+				bestScore = score
+			}
+		}
+		return best
+	}
+
+	return pickBestOriginalHash(hashes)
+}
+
+func twigHashExtendsMatchScore(hash *TwigBlockHash, extendsFile string) (int, bool) {
+	if !IsOriginalTemplateSource(hash.AbsolutePath) {
+		return 0, false
+	}
+
+	extendsBundle, extendsView := splitTwigRelPath(extendsFile)
+	hashView := normalizeTemplatePath(hash.RelativePath)
+	if !twigViewPathsMatch(hashView, extendsView) {
+		return 0, false
+	}
+
+	if extendsBundle == "" {
+		return 1, true
+	}
+
+	hashBundle, _ := splitTwigRelPath(hash.RelativePath)
+	if strings.EqualFold(hashBundle, extendsBundle) {
+		score := 2
+		if strings.EqualFold(extendsBundle, "Storefront") && isCoreStorefrontPath(hash.AbsolutePath) {
+			score = 3
+		}
+		return score, true
+	}
+
+	if isStoreShopwarePluginStorefrontPath(hash.AbsolutePath) {
+		resolvedBundle := resolveTwigBundleNamespace(hash.AbsolutePath)
+		if strings.EqualFold(resolvedBundle, extendsBundle) {
+			return 2, true
 		}
 	}
 
-	for _, hash := range hashes {
-		if strings.HasPrefix(hash.RelativePath, "@Storefront/") ||
-			strings.Contains(hash.AbsolutePath, "vendor/shopware/storefront/") ||
-			strings.Contains(hash.AbsolutePath, "src/Storefront/") {
-			return &hash
+	return 0, false
+}
+
+func pickBestOriginalHash(hashes []TwigBlockHash) *TwigBlockHash {
+	var coreHash *TwigBlockHash
+	var pluginHash *TwigBlockHash
+	// When multiple store plugins share a block name, pick the lowest bundle
+	// name so the result is stable regardless of index iteration order.
+	var pluginBundle string
+
+	for i := range hashes {
+		hash := &hashes[i]
+		if !IsOriginalTemplateSource(hash.AbsolutePath) {
+			continue
+		}
+
+		if isCoreStorefrontPath(hash.AbsolutePath) {
+			if coreHash == nil {
+				coreHash = hash
+			}
+			continue
+		}
+
+		bundle, _ := splitTwigRelPath(hash.RelativePath)
+		lowerBundle := strings.ToLower(bundle)
+		if pluginHash == nil || lowerBundle < pluginBundle {
+			pluginHash = hash
+			pluginBundle = lowerBundle
 		}
 	}
-	return nil
+
+	if coreHash != nil {
+		return coreHash
+	}
+
+	return pluginHash
 }
 
 func ResolveOriginalStorefrontHashForBlock(indexer *TwigIndexer, blockName, extendsFile string) *TwigBlockHash {
@@ -95,7 +172,7 @@ func ResolveOriginalStorefrontHashForBlock(indexer *TwigIndexer, blockName, exte
 	}
 
 	originalHash := FindOriginalStorefrontHashForExtends(allBlockHashes, extendsFile)
-	if originalHash != nil || len(allBlockHashes) > 0 {
+	if originalHash != nil {
 		return originalHash
 	}
 
@@ -107,12 +184,15 @@ func resolveOriginalHashFromExtendsFile(indexer *TwigIndexer, blockName, extends
 		return nil
 	}
 
-	parentFiles, err := indexer.GetTwigFilesByRelPath(extendsFile)
+	parentFiles, err := lookupParentFilesForExtends(indexer, extendsFile)
 	if err != nil || len(parentFiles) == 0 {
 		return nil
 	}
 
 	for _, parentFile := range parentFiles {
+		if !IsOriginalTemplateSource(parentFile.Path) {
+			continue
+		}
 		runtimeHash, runtimeErr := FindBlockHashInTemplateFile(parentFile.Path, blockName)
 		if runtimeErr != nil || runtimeHash == nil {
 			continue
@@ -121,6 +201,26 @@ func resolveOriginalHashFromExtendsFile(indexer *TwigIndexer, blockName, extends
 	}
 
 	return nil
+}
+
+func lookupParentFilesForExtends(indexer *TwigIndexer, extendsFile string) ([]TwigFile, error) {
+	parentFiles, err := indexer.GetTwigFilesByRelPath(extendsFile)
+	if err != nil {
+		return nil, err
+	}
+	if len(parentFiles) > 0 {
+		return parentFiles, nil
+	}
+
+	parentFiles, err = indexer.GetTwigFilesByRelPathCaseInsensitive(extendsFile)
+	if err != nil {
+		return nil, err
+	}
+	if len(parentFiles) > 0 {
+		return parentFiles, nil
+	}
+
+	return indexer.GetTwigFilesByRelPathViewMatch(extendsFile)
 }
 
 func FindBlockHashInTemplateFile(filePath, blockName string) (*TwigBlockHash, error) {
@@ -157,15 +257,8 @@ func FindBlockHashInTemplateFile(filePath, blockName string) (*TwigBlockHash, er
 }
 
 func normalizeTemplatePath(path string) string {
-	path = strings.TrimPrefix(path, "@Storefront/")
-	path = strings.TrimPrefix(path, "@")
-	if idx := strings.Index(path, "/"); idx != -1 {
-		parts := strings.SplitN(path, "/", 2)
-		if len(parts) == 2 && strings.HasSuffix(parts[0], "Storefront") {
-			path = parts[1]
-		}
-	}
-	return path
+	_, view := splitTwigRelPath(path)
+	return view
 }
 
 func FormatVersionComment(hash, version string) string {

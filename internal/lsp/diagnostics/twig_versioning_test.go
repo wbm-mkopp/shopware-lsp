@@ -3,6 +3,7 @@ package diagnostics
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -144,4 +145,60 @@ func TestTwigVersioningDiagnosticsProvider_PriceUnitParentBlockFoundViaFallback(
 			diag.Message,
 		)
 	}
+}
+
+func TestTwigVersioningDiagnosticsProvider_storePluginMissingVersionComment(t *testing.T) {
+	ctx := context.Background()
+	tempDir := t.TempDir()
+
+	fileScanner, err := indexer.NewFileScanner(tempDir, filepath.Join(tempDir, "scanner.db"))
+	require.NoError(t, err)
+
+	server := lsp.NewServer(fileScanner, tempDir, "test")
+	twigIndexer, err := twig.NewTwigIndexer(tempDir)
+	require.NoError(t, err)
+	server.RegisterIndexer(twigIndexer, nil)
+
+	provider := NewTwigVersioningDiagnosticsProvider(server)
+
+	parser := tree_sitter.NewParser()
+	lang := tree_sitter.NewLanguage(tree_sitter_twig.Language())
+	require.NoError(t, parser.SetLanguage(lang))
+	defer parser.Close()
+
+	pluginRoot := filepath.Join(tempDir, "vendor/store.shopware.com/MyPlugin")
+	pluginPath := filepath.Join(pluginRoot, "src/Resources/views/storefront/page/foo.html.twig")
+	require.NoError(t, os.MkdirAll(filepath.Dir(pluginPath), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(pluginRoot, "composer.json"), []byte(`{
+		"extra": {
+			"shopware-plugin-class": "MyPlugin\\MyPlugin"
+		}
+	}`), 0644))
+	pluginContent := []byte(`{% block content %}plugin content{% endblock %}`)
+	require.NoError(t, os.WriteFile(pluginPath, pluginContent, 0644))
+	pluginTree := parser.Parse(pluginContent, nil)
+	defer pluginTree.Close()
+	require.NoError(t, twigIndexer.Index(pluginPath, pluginTree.RootNode(), pluginContent))
+
+	overridePath := filepath.Join(tempDir, "custom/plugins/MyOverride/src/Resources/views/storefront/page/foo.html.twig")
+	overrideURI := fmt.Sprintf(lsp.FileURIFormat, overridePath)
+	overrideContent := []byte(`{% sw_extends '@MyPlugin/storefront/page/foo.html.twig' %}
+{% block content %}override content{% endblock %}`)
+	overrideTree := parser.Parse(overrideContent, nil)
+	defer overrideTree.Close()
+
+	diagnostics, err := provider.GetDiagnostics(ctx, overrideURI, overrideTree.RootNode(), overrideContent)
+	require.NoError(t, err)
+
+	require.Len(t, diagnostics, 1)
+	assert.Contains(t, diagnostics[0].Message, "does not have a versioning comment")
+	assert.Equal(t, protocol.DiagnosticSeverityWarning, diagnostics[0].Severity)
+	assert.Equal(t, 1, diagnostics[0].Range.Start.Line)
+	assert.Equal(t, 0, diagnostics[0].Range.Start.Character)
+	assert.Greater(t, diagnostics[0].Range.End.Character, 0)
+
+	originalHash := twig.ResolveOriginalStorefrontHashForBlock(twigIndexer, "content", "@MyPlugin/storefront/page/foo.html.twig")
+	require.NotNil(t, originalHash)
+	assert.Equal(t, pluginPath, originalHash.AbsolutePath)
+	assert.Equal(t, "@MyPlugin/storefront/page/foo.html.twig", originalHash.RelativePath)
 }
