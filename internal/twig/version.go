@@ -180,8 +180,21 @@ func ResolveOriginalStorefrontHashForBlock(indexer *TwigIndexer, blockName, exte
 }
 
 func resolveOriginalHashFromExtendsFile(indexer *TwigIndexer, blockName, extendsFile string) *TwigBlockHash {
+	return resolveOriginalHashFromExtendsFileVisited(indexer, blockName, extendsFile, nil)
+}
+
+func resolveOriginalHashFromExtendsFileVisited(indexer *TwigIndexer, blockName, extendsFile string, visited map[string]struct{}) *TwigBlockHash {
 	if extendsFile == "" || indexer == nil {
 		return nil
+	}
+
+	lookupKey := twigRelPathLookupKey(extendsFile)
+	if visited == nil {
+		visited = map[string]struct{}{lookupKey: {}}
+	} else if _, seen := visited[lookupKey]; seen {
+		return nil
+	} else {
+		visited[lookupKey] = struct{}{}
 	}
 
 	parentFiles, err := lookupParentFilesForExtends(indexer, extendsFile)
@@ -193,11 +206,33 @@ func resolveOriginalHashFromExtendsFile(indexer *TwigIndexer, blockName, extends
 		if !IsOriginalTemplateSource(parentFile.Path) {
 			continue
 		}
-		runtimeHash, runtimeErr := FindBlockHashInTemplateFile(parentFile.Path, blockName)
-		if runtimeErr != nil || runtimeHash == nil {
+
+		parsed, parseErr := parseTwigFileAtPath(parentFile.Path)
+		if parseErr != nil {
 			continue
 		}
-		return runtimeHash
+
+		if block, ok := parsed.Blocks[blockName]; ok {
+			return &TwigBlockHash{
+				Name:         block.Name,
+				RelativePath: ConvertToRelativePath(parentFile.Path),
+				AbsolutePath: parentFile.Path,
+				Hash:         block.Hash,
+				Text:         block.Text,
+			}
+		}
+
+		parentExtends := parsed.ExtendsFile
+		if parentExtends == "" {
+			parentExtends = parentFile.ExtendsFile
+		}
+		if parentExtends == "" {
+			continue
+		}
+
+		if upstream := resolveOriginalHashFromExtendsFileVisited(indexer, blockName, parentExtends, visited); upstream != nil {
+			return upstream
+		}
 	}
 
 	return nil
@@ -223,7 +258,7 @@ func lookupParentFilesForExtends(indexer *TwigIndexer, extendsFile string) ([]Tw
 	return indexer.GetTwigFilesByRelPathViewMatch(extendsFile)
 }
 
-func FindBlockHashInTemplateFile(filePath, blockName string) (*TwigBlockHash, error) {
+func parseTwigFileAtPath(filePath string) (*TwigFile, error) {
 	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, err
@@ -237,7 +272,11 @@ func FindBlockHashInTemplateFile(filePath, blockName string) (*TwigBlockHash, er
 	tree := parser.Parse(content, nil)
 	defer tree.Close()
 
-	twigFile, err := ParseTwig(filePath, tree.RootNode(), content)
+	return ParseTwig(filePath, tree.RootNode(), content)
+}
+
+func FindBlockHashInTemplateFile(filePath, blockName string) (*TwigBlockHash, error) {
+	twigFile, err := parseTwigFileAtPath(filePath)
 	if err != nil {
 		return nil, err
 	}

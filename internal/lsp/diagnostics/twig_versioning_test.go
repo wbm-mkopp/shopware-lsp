@@ -202,3 +202,81 @@ func TestTwigVersioningDiagnosticsProvider_storePluginMissingVersionComment(t *t
 	assert.Equal(t, pluginPath, originalHash.AbsolutePath)
 	assert.Equal(t, "@MyPlugin/storefront/page/foo.html.twig", originalHash.RelativePath)
 }
+
+func TestTwigVersioningDiagnosticsProvider_storePluginExtendsStorefrontBlock(t *testing.T) {
+	ctx := context.Background()
+	tempDir := t.TempDir()
+
+	fileScanner, err := indexer.NewFileScanner(tempDir, filepath.Join(tempDir, "scanner.db"))
+	require.NoError(t, err)
+
+	server := lsp.NewServer(fileScanner, tempDir, "test")
+	twigIndexer, err := twig.NewTwigIndexer(tempDir)
+	require.NoError(t, err)
+	server.RegisterIndexer(twigIndexer, nil)
+
+	provider := NewTwigVersioningDiagnosticsProvider(server)
+
+	parser := tree_sitter.NewParser()
+	lang := tree_sitter.NewLanguage(tree_sitter_twig.Language())
+	require.NoError(t, parser.SetLanguage(lang))
+	defer parser.Close()
+
+	storefrontPath := filepath.Join(tempDir, "vendor/shopware/storefront/Resources/views/storefront/component/buy-widget/buy-widget.html.twig")
+	pluginRoot := filepath.Join(tempDir, "vendor/store.shopware.com/swagcustomizedproducts")
+	pluginPath := filepath.Join(pluginRoot, "src/Resources/views/storefront/component/buy-widget/buy-widget.html.twig")
+	overridePath := filepath.Join(tempDir, "src/WbmAidaCore/Resources/views/storefront/component/buy-widget/buy-widget.html.twig")
+
+	require.NoError(t, os.MkdirAll(filepath.Dir(storefrontPath), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Dir(pluginPath), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Dir(overridePath), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(pluginRoot, "composer.json"), []byte(`{
+		"extra": {
+			"shopware-plugin-class": "Swag\\CustomizedProducts\\SwagCustomizedProducts"
+		}
+	}`), 0644))
+
+	storefrontContent := []byte(`{% block buy_widget_ordernumber_container %}
+    <div class="ordernumber">storefront</div>
+{% endblock %}`)
+	pluginContent := []byte(`{% sw_extends '@Storefront/storefront/component/buy-widget/buy-widget.html.twig' %}
+
+{% block buy_widget_tax %}
+    plugin tax
+{% endblock %}`)
+	overrideContent := []byte(`{% sw_extends '@SwagCustomizedProducts/storefront/component/buy-widget/buy-widget.html.twig' %}
+
+{% block buy_widget_ordernumber_container %}
+    custom ordernumber
+{% endblock %}`)
+
+	require.NoError(t, os.WriteFile(storefrontPath, storefrontContent, 0644))
+	require.NoError(t, os.WriteFile(pluginPath, pluginContent, 0644))
+
+	storefrontTree := parser.Parse(storefrontContent, nil)
+	defer storefrontTree.Close()
+	require.NoError(t, twigIndexer.Index(storefrontPath, storefrontTree.RootNode(), storefrontContent))
+
+	pluginTree := parser.Parse(pluginContent, nil)
+	defer pluginTree.Close()
+	require.NoError(t, twigIndexer.Index(pluginPath, pluginTree.RootNode(), pluginContent))
+
+	overrideURI := fmt.Sprintf(lsp.FileURIFormat, overridePath)
+	overrideTree := parser.Parse(overrideContent, nil)
+	defer overrideTree.Close()
+
+	diagnostics, err := provider.GetDiagnostics(ctx, overrideURI, overrideTree.RootNode(), overrideContent)
+	require.NoError(t, err)
+
+	for _, diag := range diagnostics {
+		assert.False(
+			t,
+			strings.Contains(diag.Message, "Original block not found in Storefront for block 'buy_widget_ordernumber_container'"),
+			"storefront block reached via plugin extends chain should be resolvable, got: %s",
+			diag.Message,
+		)
+	}
+
+	require.Len(t, diagnostics, 1)
+	assert.Contains(t, diagnostics[0].Message, "does not have a versioning comment")
+}
