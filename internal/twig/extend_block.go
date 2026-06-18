@@ -90,38 +90,45 @@ func PlanExtendBlock(projectRoot string, twigIndexer *TwigIndexer, sourceURI, bl
 }
 
 func (p *ExtendBlockPlan) WorkspaceEdit() *protocol.WorkspaceEdit {
-	if !p.FileExisted {
-		return &protocol.WorkspaceEdit{
-			Changes: map[string][]protocol.TextEdit{
-				p.URI: {
-					{
-						Range: protocol.Range{
-							Start: protocol.Position{Line: 0, Character: 0},
-							End:   protocol.Position{Line: 0, Character: 0},
-						},
-						NewText: string(p.NewContent),
-					},
+	edit := p.workspaceTextEdit()
+	return &protocol.WorkspaceEdit{
+		DocumentChanges: []protocol.DocumentChange{
+			{
+				TextDocument: protocol.OptionalVersionedTextDocumentIdentifier{
+					URI:     p.URI,
+					Version: nil,
 				},
+				Edits: []protocol.TextEdit{edit},
 			},
+		},
+	}
+}
+
+func (p *ExtendBlockPlan) workspaceTextEdit() protocol.TextEdit {
+	if !p.FileExisted {
+		return protocol.TextEdit{
+			Range: protocol.Range{
+				Start: protocol.Position{Line: 0, Character: 0},
+				End:   protocol.Position{Line: 0, Character: 0},
+			},
+			NewText: string(p.NewContent),
 		}
 	}
 
 	end := endOfFileRange(p.OldContent)
-	return &protocol.WorkspaceEdit{
-		Changes: map[string][]protocol.TextEdit{
-			p.URI: {
-				{
-					Range:   end,
-					NewText: string(p.NewContent[len(p.OldContent):]),
-				},
-			},
-		},
+	return protocol.TextEdit{
+		Range:   end,
+		NewText: string(p.NewContent[len(p.OldContent):]),
 	}
 }
 
 func blockExistsInContent(content []byte, blockName string) bool {
 	if len(content) == 0 {
 		return false
+	}
+
+	if blockNameDeclaredInContent(content, blockName) {
+		return true
 	}
 
 	parser := tree_sitter.NewParser()

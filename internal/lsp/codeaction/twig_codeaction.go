@@ -51,9 +51,12 @@ func (p *TwigCodeActionProvider) GetCodeActions(ctx context.Context, params *pro
 
 	var codeActions []protocol.CodeAction
 
-	if IsBlock().Matches(params.Node, params.DocumentContent) {
-		codeActions = append(codeActions, p.getExtendBlockActions(params)...)
+	blockName, hasBlockName := twig.ResolveBlockNameForExtend(params.Node, params.DocumentContent, params.Range.Start.Line)
+	if hasBlockName {
+		codeActions = append(codeActions, p.getExtendBlockActions(params, blockName)...)
+	}
 
+	if IsBlock().Matches(params.Node, params.DocumentContent) {
 		if action := p.getVersioningHashAction(params); action != nil {
 			codeActions = append(codeActions, *action)
 		}
@@ -70,7 +73,7 @@ func (p *TwigCodeActionProvider) GetCodeActions(ctx context.Context, params *pro
 	return codeActions
 }
 
-func (p *TwigCodeActionProvider) getExtendBlockActions(params *protocol.CodeActionParams) []protocol.CodeAction {
+func (p *TwigCodeActionProvider) getExtendBlockActions(params *protocol.CodeActionParams, blockName string) []protocol.CodeAction {
 	if p.extensionIndexer == nil || !twig.IsOriginalTemplateSource(params.TextDocument.URI) {
 		return nil
 	}
@@ -80,7 +83,6 @@ func (p *TwigCodeActionProvider) getExtendBlockActions(params *protocol.CodeActi
 		return nil
 	}
 
-	blockName := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
 	var codeActions []protocol.CodeAction
 
 	for _, ext := range extensions {

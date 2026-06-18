@@ -814,6 +814,11 @@ func (s *Server) codeAction(ctx context.Context, params *protocol.CodeActionPara
 	if ok {
 		params.Node = node
 		params.DocumentContent = docText.Text
+	} else if strings.HasPrefix(params.TextDocument.URI, "file://") {
+		path := strings.TrimPrefix(params.TextDocument.URI, "file://")
+		if content, err := os.ReadFile(path); err == nil {
+			params.DocumentContent = content
+		}
 	}
 
 	// Collect code actions from all providers

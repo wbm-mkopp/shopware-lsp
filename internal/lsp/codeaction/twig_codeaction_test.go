@@ -276,11 +276,11 @@ class WbmAidaCore extends Plugin {}
 
 			require.NotNil(t, extendAction, "expected extend block code action")
 			require.NotNil(t, extendAction.Edit)
-			require.NotEmpty(t, extendAction.Edit.Changes)
+			require.NotEmpty(t, extendAction.Edit.DocumentChanges)
 
 			var hasBlockEdit bool
-			for _, edits := range extendAction.Edit.Changes {
-				for _, edit := range edits {
+			for _, change := range extendAction.Edit.DocumentChanges {
+				for _, edit := range change.Edits {
 					if strings.Contains(edit.NewText, "{% block "+tc.block+" %}") {
 						hasBlockEdit = true
 					}

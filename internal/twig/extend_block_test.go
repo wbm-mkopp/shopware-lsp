@@ -35,8 +35,8 @@ func TestPlanExtendBlock_newFile(t *testing.T) {
 
 	edit := plan.WorkspaceEdit()
 	require.NotNil(t, edit)
-	require.NotEmpty(t, edit.Changes[plan.URI])
-	assert.Contains(t, edit.Changes[plan.URI][0].NewText, "{% block buy_widget %}")
+	require.NotEmpty(t, edit.DocumentChanges)
+	assert.Contains(t, edit.DocumentChanges[0].Edits[0].NewText, "{% block buy_widget %}")
 }
 
 func TestPlanExtendBlock_storePluginSource(t *testing.T) {
