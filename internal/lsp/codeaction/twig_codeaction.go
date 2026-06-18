@@ -2,8 +2,10 @@ package codeaction
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
+	"github.com/shopware/shopware-lsp/internal/extension"
 	"github.com/shopware/shopware-lsp/internal/lsp"
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
 	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
@@ -12,20 +14,27 @@ import (
 )
 
 type TwigCodeActionProvider struct {
-	twigIndexer *twig.TwigIndexer
-	projectRoot string
+	twigIndexer      *twig.TwigIndexer
+	extensionIndexer *extension.ExtensionIndexer
+	projectRoot      string
 }
 
 func NewTwigCodeActionProvider(projectRoot string, server *lsp.Server) *TwigCodeActionProvider {
-	indexer, ok := server.GetIndexer("twig.indexer")
-	if !ok {
-		return &TwigCodeActionProvider{twigIndexer: nil, projectRoot: projectRoot}
+	provider := &TwigCodeActionProvider{projectRoot: projectRoot}
+
+	if indexer, ok := server.GetIndexer("twig.indexer"); ok {
+		if twigIndexer, ok := indexer.(*twig.TwigIndexer); ok {
+			provider.twigIndexer = twigIndexer
+		}
 	}
-	twigIndexer, ok := indexer.(*twig.TwigIndexer)
-	if !ok {
-		return &TwigCodeActionProvider{twigIndexer: nil, projectRoot: projectRoot}
+
+	if indexer, ok := server.GetIndexer("extension.indexer"); ok {
+		if extensionIndexer, ok := indexer.(*extension.ExtensionIndexer); ok {
+			provider.extensionIndexer = extensionIndexer
+		}
 	}
-	return &TwigCodeActionProvider{twigIndexer: twigIndexer, projectRoot: projectRoot}
+
+	return provider
 }
 
 func (p *TwigCodeActionProvider) GetCodeActionKinds() []protocol.CodeActionKind {
@@ -43,19 +52,7 @@ func (p *TwigCodeActionProvider) GetCodeActions(ctx context.Context, params *pro
 	var codeActions []protocol.CodeAction
 
 	if IsBlock().Matches(params.Node, params.DocumentContent) {
-		if strings.Contains(params.TextDocument.URI, "Resources/views/storefront") {
-			textValue := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
-
-			codeActions = append(codeActions, protocol.CodeAction{
-				Title: "Overwrite this block in Extension",
-				Kind:  protocol.CodeActionRefactorExtract,
-				Command: &protocol.CommandAction{
-					Title:     "Overwrite Block",
-					Command:   "shopware.twig.extendBlock",
-					Arguments: []any{params.TextDocument.URI, textValue},
-				},
-			})
-		}
+		codeActions = append(codeActions, p.getExtendBlockActions(params)...)
 
 		if action := p.getVersioningHashAction(params); action != nil {
 			codeActions = append(codeActions, *action)
@@ -68,6 +65,42 @@ func (p *TwigCodeActionProvider) GetCodeActions(ctx context.Context, params *pro
 
 	if action := p.getShowDiffActionFromComment(params); action != nil {
 		codeActions = append(codeActions, *action)
+	}
+
+	return codeActions
+}
+
+func (p *TwigCodeActionProvider) getExtendBlockActions(params *protocol.CodeActionParams) []protocol.CodeAction {
+	if p.extensionIndexer == nil || !twig.IsOriginalTemplateSource(params.TextDocument.URI) {
+		return nil
+	}
+
+	extensions, err := p.extensionIndexer.GetAll()
+	if err != nil || len(extensions) == 0 {
+		return nil
+	}
+
+	blockName := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
+	var codeActions []protocol.CodeAction
+
+	for _, ext := range extensions {
+		if !ext.IsLocal() {
+			continue
+		}
+
+		codeActions = append(codeActions, protocol.CodeAction{
+			Title: fmt.Sprintf("Extend block '%s' in %s", blockName, ext.Name),
+			Kind:  protocol.CodeActionRefactorExtract,
+			Command: &protocol.CommandAction{
+				Title:   lsp.ExtendBlockCommand,
+				Command: lsp.ExtendBlockCommand,
+				Arguments: []any{
+					params.TextDocument.URI,
+					blockName,
+					ext.Name,
+				},
+			},
+		})
 	}
 
 	return codeActions

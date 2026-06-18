@@ -8,7 +8,7 @@ Zed extension providing [Shopware LSP](https://github.com/shopwareLabs/shopware-
 - **Go-to-definition** – Jump to definitions for services, templates, snippets, routes, and more
 - **Hover** – Documentation and translations on hover
 - **Diagnostics** – Missing snippets, icons, component props, outdated block hashes
-- **Code actions** – Add versioning hash, extend block, create snippet (when Zed supports them)
+- **Code actions** – Add versioning hash, extend block in extension, create snippet (when Zed supports them)
 - **Code lens** – Block overwrites, goto parent block
 
 ## Installation
@@ -71,6 +71,12 @@ Zed extensions cannot register command-palette commands or send LSP requests the
 The LSP receives `workspace/executeCommand` with `shopware.forceReindex` and starts reindexing immediately — no shell task required.
 
 Rebuild the LSP after updating (`go build` in the project root) and ensure Zed uses that binary (dev extension or `lsp.shopware-lsp.binary.path`).
+
+## Extend Twig Block
+
+When viewing a block in `vendor/shopware/storefront` or a `vendor/store.shopware.com` plugin template, place the cursor on the block name and run **Toggle Code Actions** (`cmd-.` / `ctrl-.`). Choose **Extend block '…' in …** for your target extension.
+
+The LSP runs `workspace/executeCommand` with `shopware.twig.extendBlock`, creates or updates the override template with `{% sw_extends %}`, and inserts an empty `{% block %}` for the selected block.
 
 ## Slash Commands
 

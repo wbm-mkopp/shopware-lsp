@@ -406,18 +406,23 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 
 	case "workspace/executeCommand":
 		var params struct {
-			Command string `json:"command"`
+			Command   string            `json:"command"`
+			Arguments []json.RawMessage `json:"arguments"`
 		}
 		if err := json.Unmarshal(*req.Params, &params); err != nil {
 			return nil, err
 		}
-		if params.Command == "shopware.forceReindex" {
+		switch params.Command {
+		case ForceReindexCommand:
 			s.startForceReindex(ctx)
 			return nil, nil
-		}
-		return nil, &jsonrpc2.Error{
-			Code:    jsonrpc2.CodeMethodNotFound,
-			Message: "Unknown command: " + params.Command,
+		case ExtendBlockCommand:
+			return s.executeExtendBlockCommand(ctx, params.Arguments)
+		default:
+			return nil, &jsonrpc2.Error{
+				Code:    jsonrpc2.CodeMethodNotFound,
+				Message: "Unknown command: " + params.Command,
+			}
 		}
 
 	case "shutdown":
@@ -580,7 +585,7 @@ func (s *Server) initialize(ctx context.Context, params *protocol.InitializePara
 				"codeActionKinds": codeActionKinds,
 			},
 			"executeCommandProvider": map[string]interface{}{
-				"commands": []string{"shopware.forceReindex"},
+				"commands": []string{ForceReindexCommand, ExtendBlockCommand},
 			},
 			"workspace": map[string]interface{}{
 				"fileOperations": map[string]interface{}{
@@ -819,4 +824,61 @@ func (s *Server) codeAction(ctx context.Context, params *protocol.CodeActionPara
 	}
 
 	return allCodeActions
+}
+
+func (s *Server) executeExtendBlockCommand(ctx context.Context, arguments []json.RawMessage) (interface{}, error) {
+	cmd, ok := s.commandMap["shopware/twig/extendBlock"]
+	if !ok {
+		return nil, &jsonrpc2.Error{
+			Code:    jsonrpc2.CodeInternalError,
+			Message: "extend block command not registered",
+		}
+	}
+
+	payload, err := marshalExtendBlockArgs(arguments)
+	if err != nil {
+		return nil, &jsonrpc2.Error{
+			Code:    jsonrpc2.CodeInvalidParams,
+			Message: err.Error(),
+		}
+	}
+
+	return cmd(ctx, &payload)
+}
+
+func marshalExtendBlockArgs(arguments []json.RawMessage) (json.RawMessage, error) {
+	if len(arguments) == 1 {
+		return arguments[0], nil
+	}
+
+	if len(arguments) < 3 {
+		return nil, fmt.Errorf("extend block requires textUri, blockName, and extension arguments")
+	}
+
+	textUri, err := decodeJSONString(arguments[0])
+	if err != nil {
+		return nil, err
+	}
+	blockName, err := decodeJSONString(arguments[1])
+	if err != nil {
+		return nil, err
+	}
+	extension, err := decodeJSONString(arguments[2])
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{
+		"textUri":   textUri,
+		"blockName": blockName,
+		"extension": extension,
+	})
+}
+
+func decodeJSONString(raw json.RawMessage) (string, error) {
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", err
+	}
+	return value, nil
 }

@@ -14,7 +14,19 @@ const (
 	coreStorefrontVendorPath = "vendor/shopware/storefront/Resources/views/storefront"
 	storeShopwareVendorPath  = "vendor/store.shopware.com/"
 	storefrontViewsSegment   = "/Resources/views/storefront"
+	resourcesViewsPrefix     = "Resources/views/"
 )
+
+// StorefrontViewRelativePath returns the view path under Resources/views, e.g.
+// "storefront/component/buy-widget/buy-widget.html.twig".
+func StorefrontViewRelativePath(twigPath string) string {
+	idx := strings.Index(twigPath, resourcesViewsPrefix)
+	if idx == -1 {
+		return ""
+	}
+
+	return twigPath[idx+len(resourcesViewsPrefix):]
+}
 
 type storePluginNamespaceCacheEntry struct {
 	namespace string

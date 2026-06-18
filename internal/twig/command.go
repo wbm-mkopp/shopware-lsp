@@ -63,12 +63,20 @@ func (t *TwigCommandProvider) extendBlock(ctx context.Context, args *json.RawMes
 
 	originalPath := strings.TrimPrefix(params.TextUri, "file://")
 
-	resourcesIndex := strings.Index(originalPath, "Resources/views/storefront")
-	if resourcesIndex == -1 {
+	if !IsOriginalTemplateSource(originalPath) {
 		return protocol.NewLspError("Not a storefront view file", "view.not_storefront"), nil
 	}
 
-	storefrontRelativePath := originalPath[resourcesIndex+16:]
+	storefrontRelativePath := StorefrontViewRelativePath(originalPath)
+	if storefrontRelativePath == "" {
+		return protocol.NewLspError("Not a storefront view file", "view.not_storefront"), nil
+	}
+
+	extendsRelPath := ConvertToRelativePath(originalPath)
+	if extendsRelPath == "" {
+		return protocol.NewLspError("Failed to resolve template path", "view.path_failed"), nil
+	}
+
 	extensionViewPath := path.Join(extension.GetStorefrontViewsPath(), storefrontRelativePath)
 	extensionViewPathDir := path.Dir(extensionViewPath)
 
@@ -82,7 +90,8 @@ func (t *TwigCommandProvider) extendBlock(ctx context.Context, args *json.RawMes
 	_, err := os.Stat(extensionViewPath)
 
 	if os.IsNotExist(err) {
-		if err := os.WriteFile(extensionViewPath, []byte("{% sw_extends \"@Storefront/"+storefrontRelativePath+"\" %}\n"), 0644); err != nil {
+		extendsLine := "{% sw_extends \"" + extendsRelPath + "\" %}\n"
+		if err := os.WriteFile(extensionViewPath, []byte(extendsLine), 0644); err != nil {
 			log.Printf("Failed to create file: %s", extensionViewPath)
 			return protocol.NewLspError("Failed to create file", "file.create_failed"), nil
 		}

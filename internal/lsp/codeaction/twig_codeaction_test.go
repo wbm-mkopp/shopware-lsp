@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/shopware/shopware-lsp/internal/extension"
+	"github.com/shopware/shopware-lsp/internal/indexer"
 	"github.com/shopware/shopware-lsp/internal/lsp"
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
 	tree_sitter_twig "github.com/shopware/shopware-lsp/internal/tree_sitter_grammars/twig/bindings/go"
@@ -15,7 +17,22 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
+	tree_sitter_php "github.com/tree-sitter/tree-sitter-php/bindings/go"
 )
+
+func indexPluginBundleForTest(t *testing.T, extIndexer *extension.ExtensionIndexer, pluginPath string) {
+	content, err := os.ReadFile(pluginPath)
+	require.NoError(t, err)
+
+	parser := tree_sitter.NewParser()
+	require.NoError(t, parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_php.LanguagePHP())))
+	defer parser.Close()
+
+	tree := parser.Parse(content, nil)
+	defer tree.Close()
+
+	require.NoError(t, extIndexer.Index(pluginPath, tree.RootNode(), content))
+}
 
 func TestExtractLineIndent(t *testing.T) {
 	tests := []struct {
@@ -179,4 +196,161 @@ func TestGetVersioningHashActionUsesExtendsFallbackWhenBlockHashesMissing(t *tes
 	}
 
 	assert.True(t, hasVersioningAction, "expected quick-fix to add twig versioning hash")
+}
+
+func TestGetExtendBlockActionsForStorefrontAndStorePlugin(t *testing.T) {
+	tempDir := t.TempDir()
+
+	parser := tree_sitter.NewParser()
+	require.NoError(t, parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_twig.Language())))
+	defer parser.Close()
+
+	pluginDir := filepath.Join(tempDir, "custom/plugins/WbmAidaCore")
+	pluginPath := filepath.Join(pluginDir, "WbmAidaCore.php")
+	require.NoError(t, os.MkdirAll(pluginDir, 0755))
+	require.NoError(t, os.WriteFile(pluginPath, []byte(`<?php
+namespace Wbm\AidaCore;
+
+use Shopware\Core\Framework\Plugin;
+
+class WbmAidaCore extends Plugin {}
+`), 0644))
+
+	fileScanner, err := indexer.NewFileScanner(tempDir, filepath.Join(tempDir, "scanner.db"))
+	require.NoError(t, err)
+
+	server := lsp.NewServer(fileScanner, tempDir, "test")
+	extIndexer, err := extension.NewExtensionIndexer(tempDir)
+	require.NoError(t, err)
+	server.RegisterIndexer(extIndexer, nil)
+	indexPluginBundleForTest(t, extIndexer, pluginPath)
+
+	provider := NewTwigCodeActionProvider(tempDir, server)
+
+	testCases := []struct {
+		name     string
+		twigPath string
+		block    string
+	}{
+		{
+			name:     "shopware storefront",
+			twigPath: filepath.Join(tempDir, "vendor/shopware/storefront/Resources/views/storefront/component/buy-widget/buy-widget.html.twig"),
+			block:    "buy_widget",
+		},
+		{
+			name:     "store.shopware.com plugin",
+			twigPath: filepath.Join(tempDir, "vendor/store.shopware.com/swagcustomizedproducts/src/Resources/views/storefront/component/buy-widget/buy-widget.html.twig"),
+			block:    "buy_widget",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.NoError(t, os.MkdirAll(filepath.Dir(tc.twigPath), 0755))
+			content := []byte("{% block " + tc.block + " %}content{% endblock %}")
+			require.NoError(t, os.WriteFile(tc.twigPath, content, 0644))
+
+			tree := parser.Parse(content, nil)
+			defer tree.Close()
+
+			node := treesitterhelper.FindIdentifierNode(tree.RootNode(), content, tc.block)
+			require.NotNil(t, node)
+
+			params := &protocol.CodeActionParams{
+				Node:            node,
+				DocumentContent: content,
+			}
+			params.TextDocument.URI = fmt.Sprintf(lsp.FileURIFormat, tc.twigPath)
+
+			actions := provider.GetCodeActions(context.Background(), params)
+			require.NotEmpty(t, actions)
+
+			var extendAction *protocol.CodeAction
+			for _, action := range actions {
+				if action.Title == fmt.Sprintf("Extend block '%s' in WbmAidaCore", tc.block) {
+					extendAction = &action
+					break
+				}
+			}
+
+			require.NotNil(t, extendAction, "expected extend block code action")
+			require.NotNil(t, extendAction.Command)
+			assert.Equal(t, lsp.ExtendBlockCommand, extendAction.Command.Command)
+			assert.Equal(t, []any{params.TextDocument.URI, tc.block, "WbmAidaCore"}, extendAction.Command.Arguments)
+		})
+	}
+}
+
+func TestGetExtendBlockActionsSkipsVendorExtensions(t *testing.T) {
+	tempDir := t.TempDir()
+
+	parser := tree_sitter.NewParser()
+	require.NoError(t, parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_twig.Language())))
+	defer parser.Close()
+
+	localDir := filepath.Join(tempDir, "custom/plugins/WbmAidaCore")
+	localPath := filepath.Join(localDir, "WbmAidaCore.php")
+	require.NoError(t, os.MkdirAll(localDir, 0755))
+	require.NoError(t, os.WriteFile(localPath, []byte(`<?php
+namespace Wbm\AidaCore;
+
+use Shopware\Core\Framework\Plugin;
+
+class WbmAidaCore extends Plugin {}
+`), 0644))
+
+	vendorDir := filepath.Join(tempDir, "vendor/store.shopware.com/VendorPlugin")
+	vendorPath := filepath.Join(vendorDir, "src/VendorPlugin.php")
+	require.NoError(t, os.MkdirAll(filepath.Dir(vendorPath), 0755))
+	require.NoError(t, os.WriteFile(vendorPath, []byte(`<?php
+namespace VendorPlugin;
+
+use Shopware\Core\Framework\Plugin;
+
+class VendorPlugin extends Plugin {}
+`), 0644))
+
+	fileScanner, err := indexer.NewFileScanner(tempDir, filepath.Join(tempDir, "scanner.db"))
+	require.NoError(t, err)
+
+	server := lsp.NewServer(fileScanner, tempDir, "test")
+	extIndexer, err := extension.NewExtensionIndexer(tempDir)
+	require.NoError(t, err)
+	server.RegisterIndexer(extIndexer, nil)
+	indexPluginBundleForTest(t, extIndexer, localPath)
+	indexPluginBundleForTest(t, extIndexer, vendorPath)
+
+	provider := NewTwigCodeActionProvider(tempDir, server)
+
+	storefrontPath := filepath.Join(tempDir, "vendor/shopware/storefront/Resources/views/storefront/component/buy-widget/buy-widget.html.twig")
+	require.NoError(t, os.MkdirAll(filepath.Dir(storefrontPath), 0755))
+	content := []byte("{% block buy_widget %}content{% endblock %}")
+	require.NoError(t, os.WriteFile(storefrontPath, content, 0644))
+
+	tree := parser.Parse(content, nil)
+	defer tree.Close()
+
+	node := treesitterhelper.FindIdentifierNode(tree.RootNode(), content, "buy_widget")
+	require.NotNil(t, node)
+
+	params := &protocol.CodeActionParams{
+		Node:            node,
+		DocumentContent: content,
+	}
+	params.TextDocument.URI = fmt.Sprintf(lsp.FileURIFormat, storefrontPath)
+
+	actions := provider.GetCodeActions(context.Background(), params)
+
+	for _, action := range actions {
+		assert.NotContains(t, action.Title, "VendorPlugin")
+	}
+
+	var hasLocalAction bool
+	for _, action := range actions {
+		if action.Title == "Extend block 'buy_widget' in WbmAidaCore" {
+			hasLocalAction = true
+			break
+		}
+	}
+	assert.True(t, hasLocalAction)
 }

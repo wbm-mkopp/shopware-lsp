@@ -83,6 +83,18 @@ func TestTwigRelPathLookupKeys(t *testing.T) {
 	assert.Equal(t, "view:storefront/page/foo.html.twig", twigRelPathViewLookupKey(relPath))
 }
 
+func TestStorefrontViewRelativePath(t *testing.T) {
+	assert.Equal(t,
+		"storefront/component/buy-widget/buy-widget.html.twig",
+		StorefrontViewRelativePath("/project/vendor/shopware/storefront/Resources/views/storefront/component/buy-widget/buy-widget.html.twig"),
+	)
+	assert.Equal(t,
+		"storefront/page/foo.html.twig",
+		StorefrontViewRelativePath("/project/vendor/store.shopware.com/MyFoo/src/Resources/views/storefront/page/foo.html.twig"),
+	)
+	assert.Equal(t, "", StorefrontViewRelativePath("/project/custom/plugins/MyPlugin/foo.html.twig"))
+}
+
 func TestGetBundleNameByPath(t *testing.T) {
 	assert.Equal(t, "foo", getBundleNameByPath("foo/Resources/views/storefront/base.html.twig"))
 	assert.Equal(t, "storefront", getBundleNameByPath("vendor/shopware/storefront/Resources/views/storefront/base.html.twig"))

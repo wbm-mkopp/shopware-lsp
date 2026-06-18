@@ -4,10 +4,9 @@ import (
 	"context"
 	"strings"
 
+	"github.com/shopware/shopware-lsp/internal/lsp"
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
 )
-
-const ForceReindexCommand = "shopware.forceReindex"
 
 type WorkspaceCodeActionProvider struct{}
 
@@ -32,7 +31,7 @@ func (p *WorkspaceCodeActionProvider) GetCodeActions(_ context.Context, params *
 			Kind:  protocol.CodeActionSource,
 			Command: &protocol.CommandAction{
 				Title:   "Shopware: Force Reindex",
-				Command: ForceReindexCommand,
+				Command: lsp.ForceReindexCommand,
 			},
 		},
 	}
