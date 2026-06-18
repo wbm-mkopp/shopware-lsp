@@ -275,6 +275,23 @@ func parseTwigFileAtPath(filePath string) (*TwigFile, error) {
 	return ParseTwig(filePath, tree.RootNode(), content)
 }
 
+// ResolveBlockLine returns the absolute path and 0-based line of blockName as
+// defined in the template referenced by hash. When the block is not present in
+// the parsed index (e.g. parser issues), it falls back to the file start.
+func (idx *TwigIndexer) ResolveBlockLine(hash *TwigBlockHash, blockName string) (string, int) {
+	files, _ := idx.GetTwigFilesByRelPath(hash.RelativePath)
+	for _, f := range files {
+		if f.Path == hash.AbsolutePath {
+			if block, ok := f.Blocks[blockName]; ok {
+				return f.Path, block.Line - 1
+			}
+			break
+		}
+	}
+
+	return hash.AbsolutePath, 0
+}
+
 func FindBlockHashInTemplateFile(filePath, blockName string) (*TwigBlockHash, error) {
 	twigFile, err := parseTwigFileAtPath(filePath)
 	if err != nil {

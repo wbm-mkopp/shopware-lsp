@@ -48,11 +48,7 @@ func (p *TwigBlockReferenceProvider) GetReferences(ctx context.Context, params *
 
 	blockName := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
 
-	// Walk up to get root node for parsing
-	root := params.Node
-	for root.Parent() != nil {
-		root = root.Parent()
-	}
+	root := treesitterhelper.RootNode(params.Node)
 
 	filePath := strings.TrimPrefix(params.TextDocument.URI, lsp.FileURIPrefix)
 	twigFile, err := twig.ParseTwig(filePath, root, params.DocumentContent)
@@ -102,35 +98,14 @@ func (p *TwigBlockReferenceProvider) GetReferences(ctx context.Context, params *
 	if originalHash != nil && !includedPaths[originalHash.AbsolutePath] {
 		includedPaths[originalHash.AbsolutePath] = true
 
-		// Try to get the exact line from the TwigFile index.
-		var added bool
-		files, _ := p.twigIndexer.GetTwigFilesByRelPath(originalHash.RelativePath)
-		for _, f := range files {
-			if f.Path == originalHash.AbsolutePath {
-				if block, ok := f.Blocks[blockName]; ok {
-					locations = append(locations, protocol.Location{
-						URI: fmt.Sprintf(lsp.FileURIFormat, f.Path),
-						Range: protocol.Range{
-							Start: protocol.Position{Line: block.Line - 1, Character: 0},
-							End:   protocol.Position{Line: block.Line - 1, Character: 0},
-						},
-					})
-					added = true
-				}
-				break
-			}
-		}
-
-		if !added {
-			// Fallback: file-start position when blocks weren't parsed.
-			locations = append(locations, protocol.Location{
-				URI: fmt.Sprintf(lsp.FileURIFormat, originalHash.AbsolutePath),
-				Range: protocol.Range{
-					Start: protocol.Position{Line: 0, Character: 0},
-					End:   protocol.Position{Line: 0, Character: 0},
-				},
-			})
-		}
+		path, line := p.twigIndexer.ResolveBlockLine(originalHash, blockName)
+		locations = append(locations, protocol.Location{
+			URI: fmt.Sprintf(lsp.FileURIFormat, path),
+			Range: protocol.Range{
+				Start: protocol.Position{Line: line, Character: 0},
+				End:   protocol.Position{Line: line, Character: 0},
+			},
+		})
 	}
 
 	return locations

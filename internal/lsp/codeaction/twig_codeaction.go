@@ -154,10 +154,7 @@ func (p *TwigCodeActionProvider) getVersioningHashAction(params *protocol.CodeAc
 		return nil
 	}
 
-	rootNode := params.Node
-	for rootNode.Parent() != nil {
-		rootNode = rootNode.Parent()
-	}
+	rootNode := treesitterhelper.RootNode(params.Node)
 
 	twigFile, err := twig.ParseTwig(params.TextDocument.URI, rootNode, params.DocumentContent)
 	if err != nil {
@@ -211,10 +208,7 @@ func (p *TwigCodeActionProvider) getShowDiffAction(params *protocol.CodeActionPa
 
 	blockName := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
 
-	rootNode := params.Node
-	for rootNode.Parent() != nil {
-		rootNode = rootNode.Parent()
-	}
+	rootNode := treesitterhelper.RootNode(params.Node)
 
 	twigFile, err := twig.ParseTwig(params.TextDocument.URI, rootNode, params.DocumentContent)
 	if err != nil {
@@ -226,29 +220,7 @@ func (p *TwigCodeActionProvider) getShowDiffAction(params *protocol.CodeActionPa
 		return nil
 	}
 
-	allBlockHashes, err := p.twigIndexer.GetTwigBlockHashes(blockName)
-	if err != nil || len(allBlockHashes) == 0 {
-		return nil
-	}
-
-	originalHash := twig.FindOriginalStorefrontHash(allBlockHashes)
-	if originalHash == nil {
-		return nil
-	}
-
-	if block.VersionComment.Hash == originalHash.Hash {
-		return nil
-	}
-
-	return &protocol.CodeAction{
-		Title: "Show block difference",
-		Kind:  protocol.CodeActionQuickFix,
-		Command: &protocol.CommandAction{
-			Title:     "Show Block Difference",
-			Command:   "shopware.twig.showBlockDiff",
-			Arguments: []any{params.TextDocument.URI, blockName},
-		},
-	}
+	return p.showDiffActionIfOutdated(params.TextDocument.URI, blockName, block.VersionComment.Hash)
 }
 
 func (p *TwigCodeActionProvider) getShowDiffActionFromComment(params *protocol.CodeActionParams) *protocol.CodeAction {
@@ -276,10 +248,7 @@ func (p *TwigCodeActionProvider) getShowDiffActionFromComment(params *protocol.C
 
 	commentLine := int(params.Node.Range().StartPoint.Row) + 1
 
-	rootNode := params.Node
-	for rootNode.Parent() != nil {
-		rootNode = rootNode.Parent()
-	}
+	rootNode := treesitterhelper.RootNode(params.Node)
 
 	twigFile, err := twig.ParseTwig(params.TextDocument.URI, rootNode, params.DocumentContent)
 	if err != nil {
@@ -298,17 +267,19 @@ func (p *TwigCodeActionProvider) getShowDiffActionFromComment(params *protocol.C
 		return nil
 	}
 
+	return p.showDiffActionIfOutdated(params.TextDocument.URI, blockName, versionComment.Hash)
+}
+
+// showDiffActionIfOutdated returns a "Show block difference" code action when the
+// block's original Storefront hash differs from currentHash, or nil otherwise.
+func (p *TwigCodeActionProvider) showDiffActionIfOutdated(uri, blockName, currentHash string) *protocol.CodeAction {
 	allBlockHashes, err := p.twigIndexer.GetTwigBlockHashes(blockName)
 	if err != nil || len(allBlockHashes) == 0 {
 		return nil
 	}
 
 	originalHash := twig.FindOriginalStorefrontHash(allBlockHashes)
-	if originalHash == nil {
-		return nil
-	}
-
-	if versionComment.Hash == originalHash.Hash {
+	if originalHash == nil || currentHash == originalHash.Hash {
 		return nil
 	}
 
@@ -318,7 +289,7 @@ func (p *TwigCodeActionProvider) getShowDiffActionFromComment(params *protocol.C
 		Command: &protocol.CommandAction{
 			Title:     "Show Block Difference",
 			Command:   "shopware.twig.showBlockDiff",
-			Arguments: []any{params.TextDocument.URI, blockName},
+			Arguments: []any{uri, blockName},
 		},
 	}
 }

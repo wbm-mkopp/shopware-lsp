@@ -7,6 +7,7 @@ import (
 
 	"github.com/shopware/shopware-lsp/internal/lsp"
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
+	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
 	"github.com/shopware/shopware-lsp/internal/twig"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
@@ -118,12 +119,9 @@ func (p *TwigVersioningHoverProvider) hoverBlockIdentifier(node *tree_sitter.Nod
 }
 
 func (p *TwigVersioningHoverProvider) findCurrentFileExtends(node *tree_sitter.Node, content []byte, uri string) string {
-	root := node
-	for root.Parent() != nil {
-		root = root.Parent()
-	}
+	root := treesitterhelper.RootNode(node)
 
-	filePath := strings.TrimPrefix(uri, "file://")
+	filePath := strings.TrimPrefix(uri, lsp.FileURIPrefix)
 	twigFile, err := twig.ParseTwig(filePath, root, content)
 	if err != nil || twigFile == nil {
 		return ""

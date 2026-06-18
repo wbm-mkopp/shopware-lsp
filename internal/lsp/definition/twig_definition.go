@@ -133,11 +133,7 @@ func (p *TwigDefinitionProvider) twigDefinitions(ctx context.Context, params *pr
 	if treesitterhelper.IsTwigBlockIdentifier(params.Node, params.DocumentContent) {
 		blockName := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
 
-		// Walk up to get root node for parsing
-		root := params.Node
-		for root.Parent() != nil {
-			root = root.Parent()
-		}
+		root := treesitterhelper.RootNode(params.Node)
 
 		filePath := strings.TrimPrefix(params.TextDocument.URI, lsp.FileURIPrefix)
 		twigFile, err := twig.ParseTwig(filePath, root, params.DocumentContent)
@@ -243,30 +239,12 @@ func (p *TwigDefinitionProvider) findStorefrontBlockLocation(blockName string) *
 		return nil
 	}
 
-	// Look up the actual TwigFile to get the block's exact line number.
-	files, _ := p.twigIndexer.GetTwigFilesByRelPath(originalHash.RelativePath)
-	for _, f := range files {
-		if f.Path == originalHash.AbsolutePath {
-			if block, ok := f.Blocks[blockName]; ok {
-				return &protocol.Location{
-					URI: fmt.Sprintf(lsp.FileURIFormat, f.Path),
-					Range: protocol.Range{
-						Start: protocol.Position{Line: block.Line - 1, Character: 0},
-						End:   protocol.Position{Line: block.Line - 1, Character: 0},
-					},
-				}
-			}
-			break
-		}
-	}
-
-	// File found in hash but block not in Blocks map (parser issue) — fall back
-	// to file start position.
+	path, line := p.twigIndexer.ResolveBlockLine(originalHash, blockName)
 	return &protocol.Location{
-		URI: fmt.Sprintf(lsp.FileURIFormat, originalHash.AbsolutePath),
+		URI: fmt.Sprintf(lsp.FileURIFormat, path),
 		Range: protocol.Range{
-			Start: protocol.Position{Line: 0, Character: 0},
-			End:   protocol.Position{Line: 0, Character: 0},
+			Start: protocol.Position{Line: line, Character: 0},
+			End:   protocol.Position{Line: line, Character: 0},
 		},
 	}
 }

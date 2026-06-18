@@ -607,6 +607,15 @@ func FindIdentifierNode(root *tree_sitter.Node, content []byte, targetText strin
 	return result
 }
 
+// RootNode walks up from node to the top-most ancestor and returns it.
+func RootNode(node *tree_sitter.Node) *tree_sitter.Node {
+	root := node
+	for root.Parent() != nil {
+		root = root.Parent()
+	}
+	return root
+}
+
 // IsTwigBlockIdentifier checks whether the given identifier node is a Twig block name.
 // It handles both proper "block" nodes and "ERROR" nodes that occur when
 // the tree-sitter grammar fails to parse blocks containing HTML tags.
