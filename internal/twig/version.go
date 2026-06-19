@@ -81,6 +81,23 @@ func FindOriginalStorefrontHashForExtends(hashes []TwigBlockHash, extendsFile st
 	return nil
 }
 
+// ResolveBlockLine returns the absolute path and 0-based line of blockName as
+// defined in the template referenced by hash. When the block is not present in
+// the parsed index (e.g. parser issues), it falls back to the file start.
+func (idx *TwigIndexer) ResolveBlockLine(hash *TwigBlockHash, blockName string) (string, int) {
+	files, _ := idx.GetTwigFilesByRelPath(hash.RelativePath)
+	for _, f := range files {
+		if f.Path == hash.AbsolutePath {
+			if block, ok := f.Blocks[blockName]; ok {
+				return f.Path, block.Line - 1
+			}
+			break
+		}
+	}
+
+	return hash.AbsolutePath, 0
+}
+
 func normalizeTemplatePath(path string) string {
 	path = strings.TrimPrefix(path, "@Storefront/")
 	path = strings.TrimPrefix(path, "@")
