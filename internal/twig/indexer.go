@@ -57,6 +57,13 @@ func (idx *TwigIndexer) ID() string {
 }
 
 func (idx *TwigIndexer) Index(path string, node *tree_sitter.Node, fileContent []byte) error {
+	if filepath.Base(path) == "composer.json" && strings.Contains(path, storeShopwareVendorPath) {
+		if pluginRoot := storePluginRootFromPath(path); pluginRoot != "" {
+			InvalidateStorePluginBundleNamespaceCache(pluginRoot)
+		}
+		return nil
+	}
+
 	switch filepath.Ext(path) {
 	case ".twig":
 		return idx.indexTwig(path, node, fileContent)
@@ -79,7 +86,7 @@ func (idx *TwigIndexer) indexTwig(path string, node *tree_sitter.Node, fileConte
 
 	// Use batch save for twig files
 	twigFiles := make(map[string]map[string]TwigFile)
-	twigFiles[path] = map[string]TwigFile{file.RelPath: *file}
+	twigFiles[path] = twigFileIndexEntries(*file)
 
 	if err := idx.twigFileIndex.BatchSaveItems(twigFiles); err != nil {
 		return err
@@ -88,10 +95,10 @@ func (idx *TwigIndexer) indexTwig(path string, node *tree_sitter.Node, fileConte
 	twigBlocks := make(map[string]map[string]TwigBlock)
 	twigBlocks[file.Path] = make(map[string]TwigBlock)
 
-	isStorefrontTemplate := IsStorefrontTemplate(path)
+	isOriginalTemplateSource := IsOriginalTemplateSource(path) && file.RelPath != ""
 
 	twigBlockHashes := make(map[string]map[string]TwigBlockHash)
-	if isStorefrontTemplate {
+	if isOriginalTemplateSource {
 		twigBlockHashes[file.Path] = make(map[string]TwigBlockHash)
 	}
 
@@ -100,7 +107,7 @@ func (idx *TwigIndexer) indexTwig(path string, node *tree_sitter.Node, fileConte
 			twigBlocks[file.Path][block.Name] = block
 		}
 
-		if isStorefrontTemplate {
+		if isOriginalTemplateSource {
 			blockHash := TwigBlockHash{
 				Name:         block.Name,
 				RelativePath: ConvertToRelativePath(path),
@@ -262,8 +269,87 @@ func (idx *TwigIndexer) GetAllTwigFilters() ([]TwigFilter, error) {
 	return values, nil
 }
 
+// IndexTwigFile directly indexes a pre-built TwigFile into the file index only.
+// It does not update the block hash index or block index. This is useful for
+// testing scenarios where you need precise control over the indexed data
+// (e.g., simulating an empty Blocks map or a file without block hash entries).
+func (idx *TwigIndexer) IndexTwigFile(file TwigFile) error {
+	twigFiles := make(map[string]map[string]TwigFile)
+	twigFiles[file.Path] = twigFileIndexEntries(file)
+	return idx.twigFileIndex.BatchSaveItems(twigFiles)
+}
+
+func twigFileIndexEntries(file TwigFile) map[string]TwigFile {
+	entries := map[string]TwigFile{file.RelPath: file}
+	if file.RelPath == "" {
+		return entries
+	}
+
+	if lookupKey := twigRelPathLookupKey(file.RelPath); lookupKey != file.RelPath {
+		entries[lookupKey] = file
+	}
+
+	if viewKey := twigRelPathViewLookupKey(file.RelPath); viewKey != "" {
+		entries[viewKey] = file
+	}
+
+	return entries
+}
+
 func (idx *TwigIndexer) GetTwigFilesByRelPath(relPath string) ([]TwigFile, error) {
 	return idx.twigFileIndex.GetValues(relPath)
+}
+
+func (idx *TwigIndexer) GetTwigFilesByRelPathCaseInsensitive(relPath string) ([]TwigFile, error) {
+	return idx.twigFileIndex.GetValues(twigRelPathLookupKey(relPath))
+}
+
+func (idx *TwigIndexer) GetTwigFilesByRelPathViewMatch(relPath string) ([]TwigFile, error) {
+	viewKey := twigRelPathViewLookupKey(relPath)
+	if viewKey == "" {
+		return nil, nil
+	}
+
+	files, err := idx.twigFileIndex.GetValues(viewKey)
+	if err != nil {
+		return nil, err
+	}
+
+	targetBundle, _ := splitTwigRelPath(relPath)
+	if targetBundle == "" {
+		var originals []TwigFile
+		for _, file := range files {
+			if IsOriginalTemplateSource(file.Path) {
+				originals = append(originals, file)
+			}
+		}
+		if len(originals) == 1 {
+			return originals, nil
+		}
+		return nil, nil
+	}
+
+	var matched []TwigFile
+	for _, file := range files {
+		if !IsOriginalTemplateSource(file.Path) {
+			continue
+		}
+
+		fileBundle, _ := splitTwigRelPath(file.RelPath)
+		if strings.EqualFold(fileBundle, targetBundle) {
+			matched = append(matched, file)
+			continue
+		}
+
+		if isStoreShopwarePluginStorefrontPath(file.Path) {
+			resolvedBundle := resolveTwigBundleNamespace(file.Path)
+			if strings.EqualFold(resolvedBundle, targetBundle) {
+				matched = append(matched, file)
+			}
+		}
+	}
+
+	return matched, nil
 }
 
 func (idx *TwigIndexer) GetTwigBlockHashes(blockName string) ([]TwigBlockHash, error) {

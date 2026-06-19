@@ -51,12 +51,7 @@ func (p *TwigVersioningDiagnosticsProvider) GetDiagnostics(ctx context.Context, 
 
 	for _, block := range currentFile.Blocks {
 		if block.VersionComment != nil {
-			allBlockHashes, err := p.twigIndexer.GetTwigBlockHashes(block.Name)
-			if err != nil {
-				continue
-			}
-
-			originalHash := twig.FindOriginalStorefrontHashForExtends(allBlockHashes, currentFile.ExtendsFile)
+			originalHash := twig.ResolveOriginalStorefrontHashForBlock(p.twigIndexer, block.Name, currentFile.ExtendsFile)
 			if originalHash == nil {
 				lineIdx := block.Line - 1
 				diagnostics = append(diagnostics, protocol.Diagnostic{
@@ -84,12 +79,7 @@ func (p *TwigVersioningDiagnosticsProvider) GetDiagnostics(ctx context.Context, 
 				})
 			}
 		} else {
-			allBlockHashes, err := p.twigIndexer.GetTwigBlockHashes(block.Name)
-			if err != nil {
-				continue
-			}
-
-			originalHash := twig.FindOriginalStorefrontHashForExtends(allBlockHashes, currentFile.ExtendsFile)
+			originalHash := twig.ResolveOriginalStorefrontHashForBlock(p.twigIndexer, block.Name, currentFile.ExtendsFile)
 			if originalHash != nil {
 				lineIdx := block.Line - 1
 				diagnostics = append(diagnostics, protocol.Diagnostic{
