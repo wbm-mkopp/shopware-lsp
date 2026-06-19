@@ -55,12 +55,12 @@ func (p *TwigDefinitionProvider) twigDefinitions(ctx context.Context, params *pr
 
 		var locations []protocol.Location
 		for _, file := range files {
-			if file.Path == strings.TrimPrefix(params.TextDocument.URI, "file://") {
+			if file.Path == strings.TrimPrefix(params.TextDocument.URI, lsp.FileURIPrefix) {
 				continue
 			}
 
 			locations = append(locations, protocol.Location{
-				URI: fmt.Sprintf("file://%s", file.Path),
+				URI: fmt.Sprintf(lsp.FileURIFormat, file.Path),
 				Range: protocol.Range{
 					Start: protocol.Position{
 						Line:      0,
@@ -87,7 +87,7 @@ func (p *TwigDefinitionProvider) twigDefinitions(ctx context.Context, params *pr
 			var locations []protocol.Location
 			for _, filter := range filters {
 				locations = append(locations, protocol.Location{
-					URI: fmt.Sprintf("file://%s", filter.FilePath),
+					URI: fmt.Sprintf(lsp.FileURIFormat, filter.FilePath),
 					Range: protocol.Range{
 						Start: protocol.Position{
 							Line:      int(filter.Line) - 1,
@@ -109,7 +109,7 @@ func (p *TwigDefinitionProvider) twigDefinitions(ctx context.Context, params *pr
 			var locations []protocol.Location
 			for _, function := range functions {
 				locations = append(locations, protocol.Location{
-					URI: fmt.Sprintf("file://%s", function.FilePath),
+					URI: fmt.Sprintf(lsp.FileURIFormat, function.FilePath),
 					Range: protocol.Range{
 						Start: protocol.Position{
 							Line:      int(function.Line) - 1,
@@ -142,7 +142,7 @@ func (p *TwigDefinitionProvider) twigDefinitions(ctx context.Context, params *pr
 		if icon != "" {
 			locations := []protocol.Location{
 				{
-					URI: fmt.Sprintf("file://%s", icon),
+					URI: fmt.Sprintf(lsp.FileURIFormat, icon),
 					Range: protocol.Range{
 						Start: protocol.Position{
 							Line:      0,
@@ -171,7 +171,7 @@ func (p *TwigDefinitionProvider) phpDefinitions(ctx context.Context, params *pro
 		var locations []protocol.Location
 		for _, file := range files {
 			locations = append(locations, protocol.Location{
-				URI: fmt.Sprintf("file://%s", file.Path),
+				URI: fmt.Sprintf(lsp.FileURIFormat, file.Path),
 				Range: protocol.Range{
 					Start: protocol.Position{
 						Line:      0,

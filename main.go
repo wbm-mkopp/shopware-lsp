@@ -95,6 +95,7 @@ func main() {
 	server.RegisterCodeLensProvider(codelens.NewTwigCodeLensProvider(server))
 
 	server.RegisterReferencesProvider(reference.NewRouteReferenceProvider(server))
+	server.RegisterReferencesProvider(reference.NewTwigBlockReferenceProvider(server))
 
 	server.RegisterDiagnosticsProvider(diagnostics.NewSnippetDiagnosticsProvider(server))
 	server.RegisterDiagnosticsProvider(diagnostics.NewThemeDiagnosticsProvider(projectRoot, server))
