@@ -42,9 +42,6 @@ func PlanExtendBlock(projectRoot string, twigIndexer *TwigIndexer, sourceURI, bl
 	}
 
 	extensionViewPath := path.Join(ext.GetStorefrontViewsPath(), storefrontRelativePath)
-	if err := os.MkdirAll(path.Dir(extensionViewPath), 0755); err != nil {
-		return nil, protocol.NewLspError("Failed to create directory", "directory.create_failed")
-	}
 
 	var currentContent []byte
 	fileExists := false
@@ -92,19 +89,36 @@ func PlanExtendBlock(projectRoot string, twigIndexer *TwigIndexer, sourceURI, bl
 
 func (p *ExtendBlockPlan) WorkspaceEdit() *protocol.WorkspaceEdit {
 	edit := p.workspaceTextEdit()
+
+	textDocumentEdit := protocol.DocumentChange{
+		TextDocument: protocol.OptionalVersionedTextDocumentIdentifier{
+			URI:     p.URI,
+			Version: nil,
+		},
+		Edits: []protocol.TextEdit{edit},
+	}
+
+	// When the override file does not yet exist, the text edit alone cannot
+	// create it: a strict LSP client (e.g. Zed, Neovim) applies edits only to
+	// existing documents. Prepend a CreateFile resource operation so the file
+	// (and its parent directories) is created before the edit fills it.
+	documentChanges := make([]any, 0, 2)
+	if !p.FileExisted {
+		documentChanges = append(documentChanges, protocol.CreateFile{
+			Kind: "create",
+			URI:  p.URI,
+			Options: &protocol.CreateFileOptions{
+				IgnoreIfExists: true,
+			},
+		})
+	}
+	documentChanges = append(documentChanges, textDocumentEdit)
+
 	return &protocol.WorkspaceEdit{
 		Changes: map[string][]protocol.TextEdit{
 			p.URI: {edit},
 		},
-		DocumentChanges: []protocol.DocumentChange{
-			{
-				TextDocument: protocol.OptionalVersionedTextDocumentIdentifier{
-					URI:     p.URI,
-					Version: nil,
-				},
-				Edits: []protocol.TextEdit{edit},
-			},
-		},
+		DocumentChanges: documentChanges,
 	}
 }
 

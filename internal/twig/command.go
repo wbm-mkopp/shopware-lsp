@@ -65,6 +65,11 @@ func (t *TwigCommandProvider) extendBlock(ctx context.Context, args *json.RawMes
 		return planErr, nil
 	}
 
+	if err := os.MkdirAll(filepath.Dir(plan.Path), 0755); err != nil {
+		log.Printf("Failed to create directory: %s", filepath.Dir(plan.Path))
+		return protocol.NewLspError("Failed to create directory", "directory.create_failed"), nil
+	}
+
 	if err := os.WriteFile(plan.Path, plan.NewContent, 0644); err != nil {
 		log.Printf("Failed to write file: %s", plan.Path)
 		return protocol.NewLspError("Failed to write file", "file.write_failed"), nil

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/shopware/shopware-lsp/internal/extension"
+	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -40,6 +41,17 @@ func TestPlanExtendBlock_newFile(t *testing.T) {
 	require.NotEmpty(t, edit.Changes[plan.URI])
 	require.NotEmpty(t, edit.DocumentChanges)
 	assert.Contains(t, edit.Changes[plan.URI][0].NewText, "{% block buy_widget %}")
+
+	// A new override file must be created via a CreateFile resource operation
+	// (ordered before the text edit), so edit-only clients actually create it.
+	create, ok := edit.DocumentChanges[0].(protocol.CreateFile)
+	require.True(t, ok, "first document change should be a CreateFile op")
+	assert.Equal(t, "create", create.Kind)
+	assert.Equal(t, plan.URI, create.URI)
+
+	textEdits := edit.TextDocumentEdits()
+	require.NotEmpty(t, textEdits)
+	assert.Contains(t, textEdits[0].Edits[0].NewText, "{% block buy_widget %}")
 }
 
 func TestPlanExtendBlock_storePluginSource(t *testing.T) {

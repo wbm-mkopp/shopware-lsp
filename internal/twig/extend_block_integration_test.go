@@ -106,5 +106,7 @@ func TestExtendBlockIntegration_aidaTitlePartial(t *testing.T) {
 	require.NotEmpty(t, extendAction.Edit.DocumentChanges)
 	require.NotNil(t, extendAction.Command)
 	assert.Equal(t, lsp.FocusExtendedBlockCommand, extendAction.Command.Command)
-	assert.Contains(t, extendAction.Edit.DocumentChanges[0].Edits[0].NewText, "{% block "+blockName+" %}")
+	textEdits := extendAction.Edit.TextDocumentEdits()
+	require.NotEmpty(t, textEdits)
+	assert.Contains(t, textEdits[0].Edits[0].NewText, "{% block "+blockName+" %}")
 }
