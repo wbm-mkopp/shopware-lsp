@@ -2,8 +2,10 @@ package codeaction
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
+	"github.com/shopware/shopware-lsp/internal/extension"
 	"github.com/shopware/shopware-lsp/internal/lsp"
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
 	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
@@ -12,20 +14,27 @@ import (
 )
 
 type TwigCodeActionProvider struct {
-	twigIndexer *twig.TwigIndexer
-	projectRoot string
+	twigIndexer      *twig.TwigIndexer
+	extensionIndexer *extension.ExtensionIndexer
+	projectRoot      string
 }
 
 func NewTwigCodeActionProvider(projectRoot string, server *lsp.Server) *TwigCodeActionProvider {
-	indexer, ok := server.GetIndexer("twig.indexer")
-	if !ok {
-		return &TwigCodeActionProvider{twigIndexer: nil, projectRoot: projectRoot}
+	provider := &TwigCodeActionProvider{projectRoot: projectRoot}
+
+	if indexer, ok := server.GetIndexer("twig.indexer"); ok {
+		if twigIndexer, ok := indexer.(*twig.TwigIndexer); ok {
+			provider.twigIndexer = twigIndexer
+		}
 	}
-	twigIndexer, ok := indexer.(*twig.TwigIndexer)
-	if !ok {
-		return &TwigCodeActionProvider{twigIndexer: nil, projectRoot: projectRoot}
+
+	if indexer, ok := server.GetIndexer("extension.indexer"); ok {
+		if extensionIndexer, ok := indexer.(*extension.ExtensionIndexer); ok {
+			provider.extensionIndexer = extensionIndexer
+		}
 	}
-	return &TwigCodeActionProvider{twigIndexer: twigIndexer, projectRoot: projectRoot}
+
+	return provider
 }
 
 func (p *TwigCodeActionProvider) GetCodeActionKinds() []protocol.CodeActionKind {
@@ -36,27 +45,18 @@ func (p *TwigCodeActionProvider) GetCodeActionKinds() []protocol.CodeActionKind 
 }
 
 func (p *TwigCodeActionProvider) GetCodeActions(ctx context.Context, params *protocol.CodeActionParams) []protocol.CodeAction {
-	if params.Node == nil {
-		return nil
-	}
-
 	var codeActions []protocol.CodeAction
 
+	blockNames := twig.ExtendBlockCandidates(params.Node, params.DocumentContent, params.Range.Start.Line)
+	if len(blockNames) > 0 {
+		codeActions = append(codeActions, p.getExtendBlockActions(params, blockNames)...)
+	}
+
+	if params.Node == nil {
+		return codeActions
+	}
+
 	if IsBlock().Matches(params.Node, params.DocumentContent) {
-		if strings.Contains(params.TextDocument.URI, "Resources/views/storefront") {
-			textValue := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
-
-			codeActions = append(codeActions, protocol.CodeAction{
-				Title: "Overwrite this block in Extension",
-				Kind:  protocol.CodeActionRefactorExtract,
-				Command: &protocol.CommandAction{
-					Title:     "Overwrite Block",
-					Command:   "shopware.twig.extendBlock",
-					Arguments: []any{params.TextDocument.URI, textValue},
-				},
-			})
-		}
-
 		if action := p.getVersioningHashAction(params); action != nil {
 			codeActions = append(codeActions, *action)
 		}
@@ -71,6 +71,67 @@ func (p *TwigCodeActionProvider) GetCodeActions(ctx context.Context, params *pro
 	}
 
 	return codeActions
+}
+
+func (p *TwigCodeActionProvider) getExtendBlockActions(params *protocol.CodeActionParams, blockNames []string) []protocol.CodeAction {
+	if p.extensionIndexer == nil || !twig.IsOriginalTemplateSource(params.TextDocument.URI) {
+		return nil
+	}
+
+	extensions, err := p.extensionIndexer.GetAll()
+	if err != nil || len(extensions) == 0 {
+		return nil
+	}
+
+	var codeActions []protocol.CodeAction
+
+	for _, ext := range extensions {
+		if !ext.IsLocal() {
+			continue
+		}
+
+		plan, blockName := p.planFirstExtendableBlock(params, blockNames, ext)
+		if plan == nil || blockName == "" {
+			continue
+		}
+
+		// After the edit is applied, reveal the new block and place the cursor inside
+		// its body via window/showDocument. Clients that execute code-action commands
+		// (e.g. VSCode, Neovim) honor this; clients that ignore it still get the edit.
+		codeActions = append(codeActions, protocol.CodeAction{
+			Title: fmt.Sprintf("Extend block '%s' in %s", blockName, ext.Name),
+			Kind:  protocol.CodeActionQuickFix,
+			Edit:  plan.WorkspaceEdit(),
+			Command: &protocol.CommandAction{
+				Title:   "Focus extended block",
+				Command: lsp.FocusExtendedBlockCommand,
+				Arguments: []any{
+					plan.URI,
+					plan.BlockLine,
+				},
+			},
+		})
+	}
+
+	return codeActions
+}
+
+func (p *TwigCodeActionProvider) planFirstExtendableBlock(
+	params *protocol.CodeActionParams,
+	blockNames []string,
+	ext extension.ShopwareExtension,
+) (*twig.ExtendBlockPlan, string) {
+	for _, blockName := range blockNames {
+		plan, planErr := twig.PlanExtendBlock(p.projectRoot, p.twigIndexer, params.TextDocument.URI, blockName, ext)
+		if planErr == nil {
+			return plan, blockName
+		}
+		if planErr.Code != "block.already_exists" {
+			return nil, ""
+		}
+	}
+
+	return nil, ""
 }
 
 func (p *TwigCodeActionProvider) getVersioningHashAction(params *protocol.CodeActionParams) *protocol.CodeAction {

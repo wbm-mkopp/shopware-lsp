@@ -409,6 +409,24 @@ func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.
 			"message": "Force reindexing started",
 		}, nil
 
+	case "workspace/executeCommand":
+		var params struct {
+			Command   string            `json:"command"`
+			Arguments []json.RawMessage `json:"arguments"`
+		}
+		if err := json.Unmarshal(*req.Params, &params); err != nil {
+			return nil, err
+		}
+		switch params.Command {
+		case FocusExtendedBlockCommand:
+			return s.executeFocusExtendedBlockCommand(ctx, params.Arguments)
+		default:
+			return nil, &jsonrpc2.Error{
+				Code:    jsonrpc2.CodeMethodNotFound,
+				Message: "Unknown command: " + params.Command,
+			}
+		}
+
 	case "shutdown":
 		// Clean up resources
 		if err := s.CloseAll(); err != nil {
@@ -560,6 +578,9 @@ func (s *Server) initialize(ctx context.Context, params *protocol.InitializePara
 			},
 			"codeActionProvider": map[string]interface{}{
 				"codeActionKinds": codeActionKinds,
+			},
+			"executeCommandProvider": map[string]interface{}{
+				"commands": []string{FocusExtendedBlockCommand},
 			},
 			"workspace": map[string]interface{}{
 				"fileOperations": map[string]interface{}{
@@ -788,6 +809,13 @@ func (s *Server) codeAction(ctx context.Context, params *protocol.CodeActionPara
 	if ok {
 		params.Node = node
 		params.DocumentContent = docText.Text
+	} else if strings.HasPrefix(params.TextDocument.URI, FileURIPrefix) {
+		// Strict clients (e.g. Zed) may not keep the document open in the server;
+		// fall back to reading the file so content-based code actions still work.
+		path := strings.TrimPrefix(params.TextDocument.URI, FileURIPrefix)
+		if content, err := os.ReadFile(path); err == nil {
+			params.DocumentContent = content
+		}
 	}
 
 	// Collect code actions from all providers
@@ -798,4 +826,58 @@ func (s *Server) codeAction(ctx context.Context, params *protocol.CodeActionPara
 	}
 
 	return allCodeActions
+}
+
+func (s *Server) executeFocusExtendedBlockCommand(ctx context.Context, arguments []json.RawMessage) (interface{}, error) {
+	uri, line, err := parseFocusExtendedBlockArgs(arguments)
+	if err != nil {
+		return nil, &jsonrpc2.Error{
+			Code:    jsonrpc2.CodeInvalidParams,
+			Message: err.Error(),
+		}
+	}
+
+	s.showDocumentAtLine(ctx, uri, line)
+	return nil, nil
+}
+
+func parseFocusExtendedBlockArgs(arguments []json.RawMessage) (string, int, error) {
+	if len(arguments) < 2 {
+		return "", 0, fmt.Errorf("focus extended block requires uri and line arguments")
+	}
+
+	uri, err := decodeJSONString(arguments[0])
+	if err != nil {
+		return "", 0, err
+	}
+	if uri == "" {
+		return "", 0, fmt.Errorf("focus extended block requires uri argument")
+	}
+
+	line, err := decodeJSONInt(arguments[1])
+	if err != nil {
+		return "", 0, err
+	}
+	if line <= 0 {
+		return "", 0, fmt.Errorf("focus extended block requires a positive line argument")
+	}
+
+	return uri, line, nil
+}
+
+func decodeJSONInt(raw json.RawMessage) (int, error) {
+	var line int
+	if err := json.Unmarshal(raw, &line); err != nil {
+		return 0, err
+	}
+
+	return line, nil
+}
+
+func decodeJSONString(raw json.RawMessage) (string, error) {
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", err
+	}
+	return value, nil
 }

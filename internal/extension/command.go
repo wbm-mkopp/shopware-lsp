@@ -30,5 +30,12 @@ func (e *ExtensionCommandProvider) allExtensions(ctx context.Context, args *json
 		return nil, err
 	}
 
-	return extensions, nil
+	local := make([]ShopwareExtension, 0, len(extensions))
+	for _, ext := range extensions {
+		if ext.IsLocal() {
+			local = append(local, ext)
+		}
+	}
+
+	return local, nil
 }
