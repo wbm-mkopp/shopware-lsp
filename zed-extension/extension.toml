@@ -1,0 +1,16 @@
+id = "shopware-lsp"
+name = "Shopware Language Server"
+version = "0.0.3"
+schema_version = 1
+authors = ["Shopware"]
+description = "Shopware and Symfony LSP support (completion, go-to-definition, hover, diagnostics)"
+repository = "https://github.com/shopwareLabs/shopware-lsp"
+
+[language_servers.shopware-lsp]
+name = "Shopware Language Server"
+languages = ["PHP", "Twig", "XML", "YAML", "JSON", "SCSS", "JavaScript", "TypeScript"]
+
+[language_servers.shopware-lsp.language_ids]
+"JavaScript" = "javascript"
+"TypeScript" = "typescript"
+"TSX" = "typescriptreact"
