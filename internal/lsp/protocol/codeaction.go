@@ -64,18 +64,50 @@ type TextEdit struct {
 	InsertTextFormat InsertTextFormat `json:"insertTextFormat,omitempty"`
 }
 
-// WorkspaceEdit represents a workspace edit operation
+// WorkspaceEdit represents a workspace edit operation.
+//
+// DocumentChanges is a heterogeneous list: it may contain DocumentChange
+// (a TextDocumentEdit) entries as well as resource operations such as
+// CreateFile. Entries are applied in order, so a CreateFile must precede the
+// TextDocumentEdit that fills the new file. Use TextDocumentEdits to retrieve
+// only the text edits regardless of position.
 type WorkspaceEdit struct {
 	Changes           map[string][]TextEdit       `json:"changes,omitempty"`
-	DocumentChanges   []DocumentChange            `json:"documentChanges,omitempty"`
+	DocumentChanges   []any                       `json:"documentChanges,omitempty"`
 	ChangeAnnotations map[string]ChangeAnnotation `json:"changeAnnotations,omitempty"`
 }
 
-// DocumentChange represents a change to a document
+// TextDocumentEdits returns the TextDocumentEdit (DocumentChange) entries from
+// DocumentChanges, skipping resource operations like CreateFile.
+func (w *WorkspaceEdit) TextDocumentEdits() []DocumentChange {
+	var edits []DocumentChange
+	for _, change := range w.DocumentChanges {
+		if dc, ok := change.(DocumentChange); ok {
+			edits = append(edits, dc)
+		}
+	}
+	return edits
+}
+
+// DocumentChange represents a TextDocumentEdit within DocumentChanges.
 type DocumentChange struct {
 	TextDocument OptionalVersionedTextDocumentIdentifier `json:"textDocument"`
 	Edits        []TextEdit                              `json:"edits"`
 	AnnotationID string                                  `json:"annotationId,omitempty"`
+}
+
+// CreateFile represents a create file resource operation within DocumentChanges.
+type CreateFile struct {
+	Kind         string             `json:"kind"` // always "create"
+	URI          string             `json:"uri"`
+	Options      *CreateFileOptions `json:"options,omitempty"`
+	AnnotationID string             `json:"annotationId,omitempty"`
+}
+
+// CreateFileOptions holds options for a CreateFile resource operation.
+type CreateFileOptions struct {
+	Overwrite      bool `json:"overwrite,omitempty"`
+	IgnoreIfExists bool `json:"ignoreIfExists,omitempty"`
 }
 
 // ChangeAnnotation represents an annotation for a change
@@ -87,6 +119,9 @@ type ChangeAnnotation struct {
 
 // OptionalVersionedTextDocumentIdentifier represents a text document identifier with an optional version
 type OptionalVersionedTextDocumentIdentifier struct {
-	URI     string `json:"uri"`
-	Version *int   `json:"version,omitempty"`
+	URI string `json:"uri"`
+	// Version is required by the LSP spec for a TextDocumentEdit and may be null
+	// (no omitempty): a nil version must serialize as "version": null, otherwise
+	// strict clients reject the whole workspace edit / code-action response.
+	Version *int `json:"version"`
 }
