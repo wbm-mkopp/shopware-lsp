@@ -198,6 +198,84 @@ func TestGetVersioningHashActionUsesExtendsFallbackWhenBlockHashesMissing(t *tes
 	assert.True(t, hasVersioningAction, "expected quick-fix to add twig versioning hash")
 }
 
+// Blocks whose body contains raw HTML are wrapped by tree-sitter in an ERROR
+// node, so the identifier's parent is not "block". The versioning action must
+// still be offered for them.
+func TestGetVersioningHashActionForHTMLBlockWrappedInErrorNode(t *testing.T) {
+	tempDir := t.TempDir()
+
+	indexer, err := twig.NewTwigIndexer(tempDir)
+	require.NoError(t, err)
+	defer indexer.Close()
+
+	parser := tree_sitter.NewParser()
+	require.NoError(t, parser.SetLanguage(tree_sitter.NewLanguage(tree_sitter_twig.Language())))
+	defer parser.Close()
+
+	vendorPath := filepath.Join(tempDir, "vendor/shopware/storefront/Resources/views/storefront/component/buy-widget/buy-widget.html.twig")
+	require.NoError(t, os.MkdirAll(filepath.Dir(vendorPath), 0755))
+	vendorContent := []byte(`{% block buy_widget_delivery_informations %}
+    <div class="product-detail-delivery-information"></div>
+{% endblock %}`)
+	require.NoError(t, os.WriteFile(vendorPath, vendorContent, 0644))
+
+	require.NoError(t, indexer.IndexTwigFile(twig.TwigFile{
+		Path:    vendorPath,
+		RelPath: "@Storefront/storefront/component/buy-widget/buy-widget.html.twig",
+		Blocks:  map[string]twig.TwigBlock{},
+	}))
+
+	overridePath := filepath.Join(tempDir, "src/WbmAidaCore/Resources/views/storefront/component/buy-widget/buy-widget.html.twig")
+	overrideContent := []byte(`{% sw_extends '@Storefront/storefront/component/buy-widget/buy-widget.html.twig' %}
+{% block buy_widget_delivery_informations %}
+    <div class="product-availability">
+        {% if (product.stock > 0 and product.isCloseout == true) or product.isCloseout == false %}
+            <span class="product-availability-available">
+                {{ 'listing.boxAvailabilityAvailable'|trans }}
+            </span>
+        {% else %}
+            <span class="product-availability-unavailable">
+                {{ 'listing.boxAvailabilityUnavailable'|trans }}
+            </span>
+        {% endif %}
+    </div>
+{% endblock %}`)
+	tree := parser.Parse(overrideContent, nil)
+	defer tree.Close()
+
+	node := treesitterhelper.FindIdentifierNode(tree.RootNode(), overrideContent, "buy_widget_delivery_informations")
+	require.NotNil(t, node)
+	// Guard: confirm this reproduces the ERROR-node case the fix targets.
+	require.NotEqual(t, "block", node.Parent().Kind())
+
+	params := &protocol.CodeActionParams{
+		Node:            node,
+		DocumentContent: overrideContent,
+	}
+	params.TextDocument.URI = fmt.Sprintf(lsp.FileURIFormat, overridePath)
+
+	provider := &TwigCodeActionProvider{
+		twigIndexer: indexer,
+		projectRoot: tempDir,
+	}
+
+	actions := provider.GetCodeActions(context.Background(), params)
+
+	var hasVersioningAction bool
+	for _, action := range actions {
+		if action.Title == "Add twig versioning hash" {
+			hasVersioningAction = true
+			require.NotNil(t, action.Edit)
+			edits := action.Edit.Changes[params.TextDocument.URI]
+			require.NotEmpty(t, edits)
+			assert.Contains(t, edits[0].NewText, "shopware-block:")
+			break
+		}
+	}
+
+	assert.True(t, hasVersioningAction, "expected quick-fix to add twig versioning hash for HTML block")
+}
+
 func TestGetExtendBlockActionsForStorefrontAndStorePlugin(t *testing.T) {
 	tempDir := t.TempDir()
 

@@ -56,7 +56,7 @@ func (p *TwigCodeActionProvider) GetCodeActions(ctx context.Context, params *pro
 		return codeActions
 	}
 
-	if IsBlock().Matches(params.Node, params.DocumentContent) {
+	if isTwigBlockName(params.Node, params.DocumentContent) {
 		if action := p.getVersioningHashAction(params); action != nil {
 			codeActions = append(codeActions, *action)
 		}
@@ -143,16 +143,11 @@ func (p *TwigCodeActionProvider) getVersioningHashAction(params *protocol.CodeAc
 		return nil
 	}
 
-	blockNode := params.Node.Parent()
-	if blockNode == nil || blockNode.Kind() != "block" {
+	if !isTwigBlockName(params.Node, params.DocumentContent) {
 		return nil
 	}
 
 	blockName := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
-
-	if p.hasVersioningComment(blockNode, params.DocumentContent) {
-		return nil
-	}
 
 	rootNode := treesitterhelper.RootNode(params.Node)
 
@@ -161,13 +156,20 @@ func (p *TwigCodeActionProvider) getVersioningHashAction(params *protocol.CodeAc
 		return nil
 	}
 
+	// Use the parsed block's version comment rather than the tree-sitter parent:
+	// blocks whose body contains raw HTML are wrapped in an ERROR node and only
+	// recovered by ParseTwig's regex fallback.
+	if block, ok := twigFile.Blocks[blockName]; ok && block.VersionComment != nil {
+		return nil
+	}
+
 	originalHash := twig.ResolveOriginalStorefrontHashForBlock(p.twigIndexer, blockName, twigFile.ExtendsFile)
 	if originalHash == nil {
 		return nil
 	}
 
-	blockLine := int(blockNode.Range().StartPoint.Row)
-	blockCol := int(blockNode.Range().StartPoint.Column)
+	blockLine := int(params.Node.Range().StartPoint.Row)
+	blockCol := int(params.Node.Range().StartPoint.Column)
 	indent := extractLineIndent(params.DocumentContent, blockLine, blockCol)
 	versionComment := indent + twig.FormatVersionComment(originalHash.Hash, twig.ResolveBlockVersion(p.projectRoot, originalHash))
 
@@ -201,17 +203,13 @@ func (p *TwigCodeActionProvider) getShowDiffAction(params *protocol.CodeActionPa
 		return nil
 	}
 
-	blockNode := params.Node.Parent()
-	if blockNode == nil || blockNode.Kind() != "block" {
+	if !isTwigBlockName(params.Node, params.DocumentContent) {
 		return nil
 	}
 
 	blockName := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
 
-	rootNode := params.Node
-	for rootNode.Parent() != nil {
-		rootNode = rootNode.Parent()
-	}
+	rootNode := treesitterhelper.RootNode(params.Node)
 
 	twigFile, err := twig.ParseTwig(params.TextDocument.URI, rootNode, params.DocumentContent)
 	if err != nil {
@@ -320,45 +318,52 @@ func (p *TwigCodeActionProvider) getShowDiffActionFromComment(params *protocol.C
 	}
 }
 
-func (p *TwigCodeActionProvider) hasVersioningComment(blockNode *tree_sitter.Node, content []byte) bool {
-	parent := blockNode.Parent()
-	if parent == nil {
+// isTwigBlockName reports whether node is the block-name identifier in a
+// "{% block NAME %}" tag. It accepts both a proper "block" parent and the ERROR
+// parent tree-sitter produces when the block body contains raw HTML.
+func isTwigBlockName(node *tree_sitter.Node, content []byte) bool {
+	if node == nil || node.Kind() != "identifier" {
+		return false
+	}
+	if parent := node.Parent(); parent != nil && parent.Kind() == "block" {
+		return true
+	}
+	return precededByBlockKeyword(content, int(node.StartByte()))
+}
+
+// precededByBlockKeyword reports whether the bytes before offset form a
+// "{% block" opening tag, tolerating whitespace and the "-" whitespace-control
+// modifier ("{%- block").
+func precededByBlockKeyword(content []byte, offset int) bool {
+	if offset > len(content) {
+		return false
+	}
+	i := offset - 1
+	skipSpace := func() {
+		for i >= 0 && (content[i] == ' ' || content[i] == '\t') {
+			i--
+		}
+	}
+
+	skipSpace()
+	end := i + 1
+	for i >= 0 && isWordByte(content[i]) {
+		i--
+	}
+	if string(content[i+1:end]) != "block" {
 		return false
 	}
 
-	blockStartLine := blockNode.Range().StartPoint.Row
-
-	for i := 0; i < int(parent.NamedChildCount()); i++ {
-		child := parent.NamedChild(uint(i))
-
-		if child.Range().StartPoint.Row == blockNode.Range().StartPoint.Row &&
-			child.Range().StartPoint.Column == blockNode.Range().StartPoint.Column {
-			if i > 0 {
-				prevSibling := parent.NamedChild(uint(i - 1))
-				if prevSibling.Kind() == "comment" {
-					commentEndLine := prevSibling.Range().EndPoint.Row
-					if blockStartLine-commentEndLine <= 1 {
-						commentText := string(prevSibling.Utf8Text(content))
-						if strings.Contains(commentText, twig.VersionCommentPrefix) {
-							return true
-						}
-					}
-				}
-			}
-			break
-		}
+	skipSpace()
+	if i >= 0 && content[i] == '-' { // {%- block
+		i--
+		skipSpace()
 	}
-	return false
+	return i >= 1 && content[i] == '%' && content[i-1] == '{'
 }
 
-func IsBlock() treesitterhelper.Pattern {
-	return treesitterhelper.And(
-		treesitterhelper.NodeKind("identifier"),
-		treesitterhelper.Ancestor(
-			treesitterhelper.NodeKind("block"),
-			1,
-		),
-	)
+func isWordByte(b byte) bool {
+	return b == '_' || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
 }
 
 // extractLineIndent returns the leading whitespace of the given line, capped at
