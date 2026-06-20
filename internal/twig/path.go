@@ -170,6 +170,102 @@ func bundleNamespaceFromComposer(pluginRoot string) string {
 	return bundleNamespaceFromPluginClass(composer.Extra.PluginClass)
 }
 
+// storePluginVersionLabel returns "<BundleName>-<version>" for a twig path that
+// lives inside a store.shopware.com plugin, resolving the bundle name from the
+// plugin composer.json and the version from the project composer.lock. Returns
+// an empty string when the path is not a store plugin or the data is missing.
+func storePluginVersionLabel(projectRoot, twigPath string) string {
+	pluginRoot := storePluginRootFromPath(twigPath)
+	if pluginRoot == "" {
+		return ""
+	}
+
+	bundleName := bundleNamespaceFromComposer(pluginRoot)
+	if bundleName == "" {
+		return ""
+	}
+
+	// store.shopware.com plugins are listed in composer.lock under their store
+	// package name (e.g. "store.shopware.com/swagcustomizedproducts"), which maps
+	// to the vendor path. The composer.json "name" (e.g. "swag/customized-products")
+	// is only an internal/replaced name, so try both.
+	candidates := []string{vendorRelativePath(pluginRoot)}
+	if name := composerPackageName(pluginRoot); name != "" {
+		candidates = append(candidates, name)
+	}
+
+	version := packageVersionFromComposerLock(projectRoot, candidates...)
+	if version == "" {
+		return ""
+	}
+
+	return bundleName + "-" + version
+}
+
+// vendorRelativePath returns the path relative to the vendor directory, which
+// is the composer package name for store.shopware.com plugins
+// (e.g. "store.shopware.com/swagcustomizedproducts").
+func vendorRelativePath(pluginRoot string) string {
+	normalized := filepath.ToSlash(pluginRoot)
+	const vendorSegment = "/vendor/"
+	idx := strings.LastIndex(normalized, vendorSegment)
+	if idx == -1 {
+		return ""
+	}
+	return normalized[idx+len(vendorSegment):]
+}
+
+func composerPackageName(pluginRoot string) string {
+	data, err := os.ReadFile(filepath.Join(pluginRoot, "composer.json"))
+	if err != nil {
+		return ""
+	}
+
+	var composer struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(data, &composer); err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(composer.Name)
+}
+
+func packageVersionFromComposerLock(projectRoot string, packageNames ...string) string {
+	data, err := os.ReadFile(filepath.Join(projectRoot, "composer.lock"))
+	if err != nil {
+		return ""
+	}
+
+	var lock struct {
+		Packages    []composerLockPackage `json:"packages"`
+		PackagesDev []composerLockPackage `json:"packages-dev"`
+	}
+	if err := json.Unmarshal(data, &lock); err != nil {
+		return ""
+	}
+
+	wanted := make(map[string]bool, len(packageNames))
+	for _, name := range packageNames {
+		if name != "" {
+			wanted[name] = true
+		}
+	}
+
+	for _, pkg := range append(lock.Packages, lock.PackagesDev...) {
+		if wanted[pkg.Name] {
+			return pkg.Version
+		}
+	}
+
+	return ""
+}
+
+type composerLockPackage struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
 func bundleNamespaceFromPluginClass(class string) string {
 	class = strings.TrimSpace(class)
 	if class == "" {

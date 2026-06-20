@@ -352,3 +352,33 @@ func TestGetTwigFilesByRelPathViewMatch_rejectsWrongBundle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, files)
 }
+
+func TestResolveBlockVersion_storePluginUsesPluginNameAndVersion(t *testing.T) {
+	tempDir := t.TempDir()
+
+	pluginRoot := filepath.Join(tempDir, "vendor/store.shopware.com/swagcustomizedproducts")
+	require.NoError(t, os.MkdirAll(pluginRoot, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(pluginRoot, "composer.json"), []byte(`{
+		"name": "swag/customized-products",
+		"extra": { "shopware-plugin-class": "Swag\\CustomizedProducts\\SwagCustomizedProducts" }
+	}`), 0644))
+	// composer.lock lists store plugins under their store package name
+	// ("store.shopware.com/<dir>"), not the composer.json "name", so the lookup
+	// must match by the vendor path.
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "composer.lock"), []byte(`{
+		"packages": [
+			{ "name": "shopware/storefront", "version": "v6.7.10.1" },
+			{ "name": "store.shopware.com/swagcustomizedproducts", "version": "6.1.6" }
+		]
+	}`), 0644))
+
+	pluginTwig := filepath.Join(pluginRoot, "src/Resources/views/storefront/component/buy-widget/buy-widget.html.twig")
+	pluginHash := &TwigBlockHash{AbsolutePath: pluginTwig}
+	assert.Equal(t, "SwagCustomizedProducts-6.1.6", ResolveBlockVersion(tempDir, pluginHash))
+
+	// A core Storefront origin must not get a plugin label; it falls back to the
+	// detected Shopware version. Asserted via storePluginVersionLabel directly to
+	// avoid the package-global DetectShopwareVersion sync.Once cache.
+	coreTwig := filepath.Join(tempDir, "vendor/shopware/storefront/Resources/views/storefront/component/buy-widget/buy-widget.html.twig")
+	assert.Empty(t, storePluginVersionLabel(tempDir, coreTwig))
+}

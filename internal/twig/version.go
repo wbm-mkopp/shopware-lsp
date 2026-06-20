@@ -320,3 +320,17 @@ func normalizeTemplatePath(path string) string {
 func FormatVersionComment(hash, version string) string {
 	return fmt.Sprintf("{# %s %s@%s #}\n", VersionCommentPrefix, hash, version)
 }
+
+// ResolveBlockVersion returns the version label for the template a block
+// originates from. When the origin is a store.shopware.com plugin it returns
+// "<BundleName>-<version>" (version resolved from the project composer.lock);
+// otherwise it falls back to the detected Shopware version for core Storefront
+// blocks.
+func ResolveBlockVersion(projectRoot string, originalHash *TwigBlockHash) string {
+	if originalHash != nil {
+		if label := storePluginVersionLabel(projectRoot, originalHash.AbsolutePath); label != "" {
+			return label
+		}
+	}
+	return DetectShopwareVersion(projectRoot)
+}

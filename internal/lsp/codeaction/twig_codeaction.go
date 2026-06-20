@@ -93,18 +93,22 @@ func (p *TwigCodeActionProvider) getVersioningHashAction(params *protocol.CodeAc
 		return nil
 	}
 
-	allBlockHashes, err := p.twigIndexer.GetTwigBlockHashes(blockName)
-	if err != nil || len(allBlockHashes) == 0 {
+	rootNode := treesitterhelper.RootNode(params.Node)
+
+	twigFile, err := twig.ParseTwig(params.TextDocument.URI, rootNode, params.DocumentContent)
+	if err != nil {
 		return nil
 	}
 
-	originalHash := twig.FindOriginalStorefrontHash(allBlockHashes)
+	originalHash := twig.ResolveOriginalStorefrontHashForBlock(p.twigIndexer, blockName, twigFile.ExtendsFile)
 	if originalHash == nil {
 		return nil
 	}
 
 	blockLine := int(blockNode.Range().StartPoint.Row)
-	versionComment := twig.FormatVersionComment(originalHash.Hash, twig.DetectShopwareVersion(p.projectRoot))
+	blockCol := int(blockNode.Range().StartPoint.Column)
+	indent := extractLineIndent(params.DocumentContent, blockLine, blockCol)
+	versionComment := indent + twig.FormatVersionComment(originalHash.Hash, twig.ResolveBlockVersion(p.projectRoot, originalHash))
 
 	edit := &protocol.WorkspaceEdit{
 		Changes: map[string][]protocol.TextEdit{
@@ -294,4 +298,37 @@ func IsBlock() treesitterhelper.Pattern {
 			1,
 		),
 	)
+}
+
+// extractLineIndent returns the leading whitespace of the given line, capped at
+// maxCol, so an inserted version comment keeps the block's indentation.
+func extractLineIndent(content []byte, line, maxCol int) string {
+	currentLine := 0
+	lineStart := 0
+
+	for i, b := range content {
+		if currentLine == line {
+			lineStart = i
+			break
+		}
+		if b == '\n' {
+			currentLine++
+		}
+	}
+
+	end := lineStart + maxCol
+	if end > len(content) {
+		end = len(content)
+	}
+
+	indent := content[lineStart:end]
+
+	// Only return actual whitespace characters
+	for i, b := range indent {
+		if b != ' ' && b != '\t' {
+			return string(indent[:i])
+		}
+	}
+
+	return string(indent)
 }
