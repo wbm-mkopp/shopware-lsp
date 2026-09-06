@@ -383,6 +383,7 @@
     "check-types": "tsc --noEmit",
     "test:entity-designer": "npm run compile && node --test test/entityDesignerWebview.test.js",
     "test:configuration": "npm run compile && node --test test/configuration.test.js",
+    "test:commands": "npm run compile && node --test test/commandEdits.test.js test/translationExtraction.test.js",
     "test:mcp": "npm run compile && node --test test/mcpServer.test.js",
     "test:project-detection": "npm run compile && node --test test/projectDetection.test.js",
     "test:language-configuration": "npm run compile && node --test test/languageConfiguration.test.js",

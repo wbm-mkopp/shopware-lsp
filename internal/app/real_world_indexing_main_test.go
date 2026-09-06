@@ -3,6 +3,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -14,13 +15,13 @@ import (
 	"time"
 
 	"github.com/shopware/shopware-lsp/internal/admin"
-	"github.com/shopware/shopware-lsp/internal/analytics"
 	"github.com/shopware/shopware-lsp/internal/asset"
 	"github.com/shopware/shopware-lsp/internal/console"
 	"github.com/shopware/shopware-lsp/internal/doctrine"
 	"github.com/shopware/shopware-lsp/internal/httpclient"
 	"github.com/shopware/shopware-lsp/internal/indexer"
 	"github.com/shopware/shopware-lsp/internal/lsp"
+	"github.com/shopware/shopware-lsp/internal/lsp/analytics"
 	lspcallhierarchy "github.com/shopware/shopware-lsp/internal/lsp/callhierarchy"
 	"github.com/shopware/shopware-lsp/internal/lsp/codeaction"
 	"github.com/shopware/shopware-lsp/internal/lsp/codelens"
@@ -5694,12 +5695,17 @@ function build(FormBuilderInterface $builder): void
 			Character: int(extractionEndCharacter),
 		},
 	}
+	extractionFile := filepath.Join(t.TempDir(), "real-world-extraction.html.twig")
+	require.NoError(t, os.WriteFile(extractionFile, []byte(extractionSource), 0o644))
+	extractionHost := &realWorldExtractionHost{Server: lsp.NewServer(nil, root, "test"), file: extractionFile}
+	t.Cleanup(func() { require.NoError(t, extractionHost.CloseAll()) })
 	extractionProvider := codeaction.NewTwigTranslationExtractProvider(
 		workspaceTranslationIndex(t, workspace),
+		extractionHost,
 	)
 	extractionCommands := extractionProvider.GetCommands(ctx)
 	extractionRequest := map[string]any{
-		"fileUri": "file:///real-world-extraction.html.twig",
+		"fileUri": uriutil.FileURI(extractionFile),
 		"source":  extractionSource,
 		"range":   extractionRange,
 	}
@@ -9793,4 +9799,21 @@ function real_world_translation_assistant(string $key, string $domain): void {}
 	)
 	t.Logf("cache restore: %s", restoreElapsed.Round(time.Millisecond))
 	require.NoError(t, reopened.Close())
+}
+
+// Synthetic extraction source is isolated from the read-only real-world fixture.
+type realWorldExtractionHost struct {
+	*lsp.Server
+	file string
+}
+
+func (h *realWorldExtractionHost) ResolveDocument(ctx context.Context, uri string) (lsp.DocumentSnapshot, error) {
+	if uri == uriutil.FileURI(h.file) {
+		source, err := os.ReadFile(h.file)
+		if err != nil {
+			return lsp.DocumentSnapshot{}, err
+		}
+		return lsp.DocumentSnapshot{Document: lsp.NewTextDocument(uri, string(source), 0)}, nil
+	}
+	return h.Server.ResolveDocument(ctx, uri)
 }

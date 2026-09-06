@@ -15,11 +15,12 @@ import (
 	"github.com/shopware/shopware-lsp/internal/lsp"
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
 	"github.com/shopware/shopware-lsp/internal/parser/cst"
+	"github.com/shopware/shopware-lsp/internal/rewrite"
 	"github.com/shopware/shopware-lsp/internal/translation"
 )
 
 func TestTwigTranslationExtractCodeActionValidatesStaticHTMLText(t *testing.T) {
-	provider := NewTwigTranslationExtractProvider(newTranslationExtractIndex(t))
+	provider := NewTwigTranslationExtractProvider(newTranslationExtractIndex(t), nil)
 	source := `<div title="Attribute text">Visible text</div>{{ dynamic }}`
 	document := lsp.NewTextDocument(
 		"file:///project/templates/page.html.twig",
@@ -74,7 +75,8 @@ func TestTwigTranslationExtractCodeActionValidatesStaticHTMLText(t *testing.T) {
 
 func TestTwigTranslationExtractionPrepareAndGenerate(t *testing.T) {
 	index := newTranslationExtractIndex(t)
-	provider := NewTwigTranslationExtractProvider(index)
+	host := &generationTestHost{snapshots: map[string]lsp.DocumentSnapshot{}}
+	provider := NewTwigTranslationExtractProvider(index, host)
 	source := `{% trans_default_domain 'admin' %}
 <p> Hello world </p>`
 	request := twigTranslationExtractionRequest{
@@ -82,6 +84,7 @@ func TestTwigTranslationExtractionPrepareAndGenerate(t *testing.T) {
 		Source:  source,
 		Range:   twigExtractRange(source, "Hello world", 0),
 	}
+	host.snapshots[request.FileURI] = lsp.DocumentSnapshot{Document: lsp.NewTextDocument(request.FileURI, source, 0)}
 	raw := marshalTwigExtractionRequest(t, request)
 	preparedValue, err := provider.prepare(context.Background(), &raw)
 	require.NoError(t, err)
@@ -124,7 +127,8 @@ func TestTwigTranslationExtractionUsesWholeTextAtCaretAndRejectsDuplicates(
 	t *testing.T,
 ) {
 	index := newTranslationExtractIndex(t)
-	provider := NewTwigTranslationExtractProvider(index)
+	host := &generationTestHost{snapshots: map[string]lsp.DocumentSnapshot{}}
+	provider := NewTwigTranslationExtractProvider(index, host)
 	source := `<p>  Hello there  </p>`
 	caret := strings.Index(source, "there") + 2
 	lineIndex := cst.NewLineIndex(source)
@@ -143,6 +147,7 @@ func TestTwigTranslationExtractionUsesWholeTextAtCaretAndRejectsDuplicates(
 			},
 		},
 	}
+	host.snapshots[request.FileURI] = lsp.DocumentSnapshot{Document: lsp.NewTextDocument(request.FileURI, source, 0)}
 	raw := marshalTwigExtractionRequest(t, request)
 	preparedValue, err := provider.prepare(context.Background(), &raw)
 	require.NoError(t, err)
@@ -224,4 +229,40 @@ func marshalTwigExtractionRequest(
 	value, err := json.Marshal(request)
 	require.NoError(t, err)
 	return value
+}
+
+func TestTwigTranslationExtractionPlansAfterSelectionAndChecksSource(t *testing.T) {
+	index := newTranslationExtractIndex(t)
+	sourceURI := "file:///project/template.html.twig"
+	source := "<p>Hello 😀</p>"
+	version := 4
+	host := &generationTestHost{snapshots: map[string]lsp.DocumentSnapshot{sourceURI: {Document: lsp.NewTextDocument(sourceURI, source, version), Version: &version}}}
+	provider := NewTwigTranslationExtractProvider(index, host)
+	request := twigTranslationExtractionRequest{FileURI: sourceURI, Source: source, Version: &version, Range: twigExtractRange(source, "Hello 😀", 0), Key: "new.key", Domain: "messages", Preview: true}
+	raw := marshalTwigExtractionRequest(t, request)
+	value, err := provider.generate(context.Background(), &raw)
+	require.NoError(t, err)
+	preview := value.(twigTranslationExtractionEdits)
+	require.Nil(t, preview.Edit)
+	require.Len(t, preview.Targets, 1)
+	require.Empty(t, preview.Targets[0].NewText)
+	targetURI := preview.Targets[0].FileURI
+	targetVersion := 9
+	targetSource := "existing: Unsaved\nother: Extra\n"
+	host.snapshots[targetURI] = lsp.DocumentSnapshot{Document: lsp.NewTextDocument(targetURI, targetSource, targetVersion), Version: &targetVersion}
+	request.Preview = false
+	request.TargetURIs = []string{targetURI}
+	raw = marshalTwigExtractionRequest(t, request)
+	value, err = provider.generate(context.Background(), &raw)
+	require.NoError(t, err)
+	require.NotNil(t, value.(twigTranslationExtractionEdits).Edit)
+	require.Len(t, host.plan.Documents, 2)
+	require.Equal(t, &version, host.plan.Documents[0].Version)
+	require.Equal(t, &targetVersion, host.plan.Documents[1].Version)
+	updated, err := host.plan.Documents[1].Apply()
+	require.NoError(t, err)
+	require.Equal(t, targetSource+"'new.key': 'Hello 😀'\n", updated)
+	host.snapshots[sourceURI] = lsp.DocumentSnapshot{Document: lsp.NewTextDocument(sourceURI, "<p>Changed</p>", version+1)}
+	_, err = provider.generate(context.Background(), &raw)
+	require.ErrorIs(t, err, rewrite.ErrStaleHandle)
 }

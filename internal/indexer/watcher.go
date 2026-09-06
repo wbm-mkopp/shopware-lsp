@@ -131,11 +131,11 @@ func (fs *FileScanner) recordEvent(
 			if !fs.shouldEnterDirectory(event.Name) {
 				return false
 			}
-			if err := fs.addDirectoryToWatcher(event.Name); err != nil {
+			if err := fs.addDirectoryToWatcher(event.Name, adds); err != nil {
 				log.Printf("Error watching new directory: %v", err)
 			}
 		}
-		return false
+		return len(adds) > 0
 	}
 
 	if !fs.shouldIndexPath(event.Name) {
@@ -178,12 +178,15 @@ func (fs *FileScanner) StopWatcher() {
 	fs.watcher = nil
 }
 
-func (fs *FileScanner) addDirectoryToWatcher(dir string) error {
+func (fs *FileScanner) addDirectoryToWatcher(dir string, pending ...map[string]struct{}) error {
 	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return fmt.Errorf("access watch path %s: %w", path, err)
 		}
 		if !info.IsDir() {
+			if len(pending) > 0 && fs.shouldIndexPath(path) {
+				pending[0][path] = struct{}{}
+			}
 			return nil
 		}
 		if !fs.shouldEnterDirectory(path) {

@@ -1,6 +1,7 @@
 package symfony
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -234,6 +235,7 @@ func TestProjectRouteIndexerMergesCompiledFallbackWithSourcePriority(
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, idx.Close()) })
+	attachCompiledRouteScanner(t, projectRoot, idx)
 
 	compiled, err := idx.GetRoute("compiled.only")
 	require.NoError(t, err)
@@ -262,6 +264,7 @@ func TestProjectRouteIndexerReloadsCompiledRoutes(t *testing.T) {
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, idx.Close()) })
+	attachCompiledRouteScanner(t, projectRoot, idx)
 
 	writeCompiledRouteFixture(
 		t,
@@ -299,6 +302,7 @@ func TestProjectRouteIndexerReloadsLegacyCompiledRoutes(t *testing.T) {
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, idx.Close()) })
+	attachCompiledRouteScanner(t, projectRoot, idx)
 
 	writeLegacyCompiledRouteFixture(
 		t,
@@ -316,7 +320,7 @@ func TestProjectRouteIndexerReloadsLegacyCompiledRoutes(t *testing.T) {
 	}, 3*time.Second, 20*time.Millisecond)
 }
 
-func TestCompiledRouteWatcherDiscoversLegacyCacheFiles(t *testing.T) {
+func TestCompiledRouteCatalogDiscoversLegacyCacheFiles(t *testing.T) {
 	t.Run("var cache with hashed dev environment", func(t *testing.T) {
 		projectRoot := t.TempDir()
 		expected := writeLegacyCompiledRouteFixture(
@@ -328,7 +332,7 @@ func TestCompiledRouteWatcherDiscoversLegacyCacheFiles(t *testing.T) {
 			"legacy.var",
 			"/var",
 		)
-		watcher := &CompiledRouteWatcher{projectRoot: projectRoot}
+		watcher := &CompiledRouteCatalog{projectRoot: projectRoot}
 		actual, err := watcher.findRouteFile()
 		require.NoError(t, err)
 		assert.Equal(t, expected, actual)
@@ -345,14 +349,14 @@ func TestCompiledRouteWatcherDiscoversLegacyCacheFiles(t *testing.T) {
 			"legacy.app",
 			"/app",
 		)
-		watcher := &CompiledRouteWatcher{projectRoot: projectRoot}
+		watcher := &CompiledRouteCatalog{projectRoot: projectRoot}
 		actual, err := watcher.findRouteFile()
 		require.NoError(t, err)
 		assert.Equal(t, expected, actual)
 	})
 }
 
-func TestCompiledRouteWatcherPrefersModernDevCatalog(t *testing.T) {
+func TestCompiledRouteCatalogPrefersModernDevCatalog(t *testing.T) {
 	projectRoot := t.TempDir()
 	legacy := writeLegacyCompiledRouteFixture(
 		t,
@@ -374,15 +378,15 @@ func TestCompiledRouteWatcherPrefersModernDevCatalog(t *testing.T) {
 	future := time.Now().Add(time.Hour)
 	require.NoError(t, os.Chtimes(legacy, future, future))
 
-	watcher := &CompiledRouteWatcher{projectRoot: projectRoot}
+	watcher := &CompiledRouteCatalog{projectRoot: projectRoot}
 	actual, err := watcher.findRouteFile()
 	require.NoError(t, err)
 	assert.Equal(t, modern, actual)
 }
 
-func TestCompiledRouteWatcherOnlySubscribesToCacheDirectories(t *testing.T) {
+func TestCompiledRouteCatalogOnlySubscribesToCacheDirectories(t *testing.T) {
 	root := filepath.Join(string(filepath.Separator), "project")
-	watcher := &CompiledRouteWatcher{projectRoot: root}
+	watcher := &CompiledRouteCatalog{projectRoot: root}
 	assert.True(t, watcher.shouldWatchCreatedDirectory(
 		filepath.Join(root, "var"),
 	))
@@ -470,4 +474,21 @@ class appDevUrlGenerator extends Symfony\Component\Routing\Generator\UrlGenerato
 	)
 	require.NoError(t, os.WriteFile(target, []byte(source), 0o644))
 	return target
+}
+
+func attachCompiledRouteScanner(t *testing.T, root string, routes *RouteIndexer) {
+	t.Helper()
+	cache := t.TempDir()
+	store, err := indexer.NewStore(filepath.Join(cache, "indexes.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+	generated, err := NewCompiledRouteIndex(root, cache, routes, store)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, generated.Close()) })
+	scanner, err := indexer.NewFileScanner(root, filepath.Join(cache, "scanner.db"), store)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, scanner.Close()) })
+	scanner.AddIndexer(generated)
+	require.NoError(t, scanner.IndexAll(context.Background()))
+	require.NoError(t, scanner.StartWatcher())
 }

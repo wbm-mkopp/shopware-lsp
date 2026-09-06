@@ -9,9 +9,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/shopware/shopware-lsp/internal/indexer"
 	"github.com/shopware/shopware-lsp/internal/parser/cst"
-	xmlparser "github.com/shopware/shopware-lsp/internal/parser/xml"
 	xmlquery "github.com/shopware/shopware-lsp/internal/parser/xml/query"
+	yamlquery "github.com/shopware/shopware-lsp/internal/parser/yaml/query"
 )
 
 type Insertion struct {
@@ -37,15 +38,41 @@ func (idx *Index) Insertions(domain, key string) ([]Insertion, error) {
 func (idx *Index) InsertionsWithValue(
 	domain, key, value string,
 ) ([]Insertion, error) {
-	if idx == nil || domain == "" || key == "" {
+	targets, err := idx.InsertionTargets(domain)
+	if err != nil {
+		return nil, err
+	}
+	var result []Insertion
+	for _, target := range targets {
+		content, err := os.ReadFile(target.File)
+		if err != nil {
+			continue
+		}
+		insertion, ok := InsertionForSource(target.File, string(content), key, value)
+		if ok {
+			insertion.Locale = target.Locale
+			result = append(result, insertion)
+		}
+	}
+	return result, nil
+}
+
+// InsertionTargets lists indexed resource metadata without reading or parsing files.
+func (idx *Index) InsertionTargets(domain string) ([]Insertion, error) {
+	if idx == nil || domain == "" {
 		return nil, nil
 	}
-	messages, err := idx.GetDomainMessages(domain)
+	paths, err := idx.messages.GetAllFilePaths()
 	if err != nil {
 		return nil, err
 	}
 	files := make(map[string]Message)
-	for _, message := range messages {
+	for _, path := range paths {
+		metadata, ok := catalogueMetadata(path)
+		if !ok || !strings.EqualFold(metadata.domain, normalizeDomain(domain)) {
+			continue
+		}
+		message := Message{File: path, Locale: metadata.locale}
 		extension := strings.ToLower(filepath.Ext(message.File))
 		switch extension {
 		case ".yaml", ".yml", ".xlf", ".xliff", ".xml":
@@ -71,37 +98,45 @@ func (idx *Index) InsertionsWithValue(
 
 	var result []Insertion
 	for _, message := range ordered {
-		content, readErr := os.ReadFile(message.File)
-		if readErr != nil {
-			continue
-		}
-		var insertion Insertion
-		var ok bool
-		switch strings.ToLower(filepath.Ext(message.File)) {
-		case ".yaml", ".yml":
-			insertion, ok = yamlInsertion(
-				message.File,
-				content,
-				key,
-				value,
-			)
-		case ".xlf", ".xliff", ".xml":
-			insertion, ok = xliffInsertion(
-				message.File,
-				content,
-				key,
-				value,
-			)
-		}
-		if ok {
-			insertion.Locale = message.Locale
-			result = append(result, insertion)
-		}
+		result = append(result, Insertion{File: message.File, Locale: message.Locale, Format: strings.TrimPrefix(strings.ToLower(filepath.Ext(message.File)), ".")})
 		if len(result) == 8 {
 			break
 		}
 	}
 	return result, nil
+}
+
+// InsertionForSource builds an insertion against the caller's exact source snapshot.
+func InsertionForSource(file, source, key, value string) (Insertion, bool) {
+	if key == "" {
+		return Insertion{}, false
+	}
+	parsed := indexer.NewParsedFile(file, []byte(source))
+	metadata, _ := catalogueMetadata(file)
+	var messages []Message
+	switch strings.ToLower(filepath.Ext(file)) {
+	case ".yaml", ".yml":
+		tree := parsed.SyntaxTree()
+		if tree == nil || tree.Root == nil || (strings.TrimSpace(source) != "" && !yamlquery.IsMapping(yamlquery.RootValue(tree.Root))) {
+			return Insertion{}, false
+		}
+		messages = parseYAMLResource(parsed, metadata)
+	case ".xlf", ".xliff", ".xml":
+		messages = parseXMLResource(parsed, metadata)
+	}
+	for _, message := range messages {
+		if message.Key == key {
+			return Insertion{}, false
+		}
+	}
+	switch strings.ToLower(filepath.Ext(file)) {
+	case ".yaml", ".yml":
+		return yamlInsertion(file, []byte(source), key, value)
+	case ".xlf", ".xliff", ".xml":
+		return xliffInsertion(file, []byte(source), key, value, parsed.SyntaxTree())
+	default:
+		return Insertion{}, false
+	}
 }
 
 func insertionFilePriority(message Message) int {
@@ -155,12 +190,12 @@ func xliffInsertion(
 	path string,
 	content []byte,
 	key, value string,
+	tree *cst.Tree,
 ) (Insertion, bool) {
-	parsed := xmlparser.Parse(string(content))
-	if parsed.Tree == nil || parsed.Tree.Root == nil {
+	if tree == nil || tree.Root == nil {
 		return Insertion{}, false
 	}
-	roots := xmlquery.Elements(parsed.Tree.Root, "xliff")
+	roots := xmlquery.Elements(tree.Root, "xliff")
 	if len(roots) == 0 {
 		return Insertion{}, false
 	}

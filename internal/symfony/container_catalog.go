@@ -4,21 +4,17 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
-
-	"github.com/fsnotify/fsnotify"
 
 	xmlparser "github.com/shopware/shopware-lsp/internal/parser/xml"
 	xmlsyntax "github.com/shopware/shopware-lsp/internal/parser/xml/syntax"
 )
 
-// ContainerWatcher watches the Symfony container XML file and keeps services in memory
-type ContainerWatcher struct {
+// ContainerCatalog holds the selected compiled container snapshot. FileScanner owns updates.
+type ContainerCatalog struct {
 	projectRoot     string
 	containerPath   string
-	watcher         *fsnotify.Watcher
 	services        map[string]Service
 	parameters      map[string]Parameter
 	twigGlobals     []ContainerTwigGlobal
@@ -30,69 +26,32 @@ type ContainerWatcher struct {
 	containerExists bool
 }
 
-// NewContainerWatcher creates a new watcher for the Symfony container XML file
-func NewContainerWatcher(projectRoot string) (*ContainerWatcher, error) {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		return nil, err
-	}
-
-	cw := &ContainerWatcher{
+// NewContainerCatalog creates an empty compiled container catalog.
+func NewContainerCatalog(projectRoot string) (*ContainerCatalog, error) {
+	cw := &ContainerCatalog{
 		projectRoot:     projectRoot,
-		watcher:         watcher,
 		services:        make(map[string]Service),
 		parameters:      make(map[string]Parameter),
 		doctrineAliases: make(map[string][]string),
 	}
 
-	// Find and load the container file initially
-	if err := cw.findAndLoadContainer(); err != nil {
-		log.Printf("Initial container load failed: %v", err)
-	}
-
-	// Start watching for changes
-	go cw.watchChanges()
-
 	return cw, nil
 }
 
 // findAndLoadContainer locates and loads the Symfony container XML file
-func (cw *ContainerWatcher) findAndLoadContainer() error {
+func (cw *ContainerCatalog) findAndLoadContainer() error {
 	// Look for the container file in the var/cache directory
 	containerPath, err := cw.findContainerFile()
 	if err != nil {
 		cw.mu.Lock()
 		cw.containerExists = false
+		cw.services = make(map[string]Service)
+		cw.parameters = make(map[string]Parameter)
+		cw.twigGlobals = nil
+		cw.twigComponents = nil
+		cw.doctrineAliases = nil
+		cw.revision++
 		cw.mu.Unlock()
-
-		// Even if we can't find the container file, watch the var/cache directory
-		// for when it might be created later
-		cacheDir := filepath.Join(cw.projectRoot, "var", "cache")
-
-		// Check if the cache directory exists
-		if _, err := os.Stat(cacheDir); err == nil {
-			// Watch the cache directory
-			if err := cw.watcher.Add(cacheDir); err != nil {
-				log.Printf("Failed to watch cache directory: %v", err)
-			} else {
-				log.Printf("Watching cache directory for container file creation")
-			}
-
-			// Also try to watch dev subdirectories if they exist
-			entries, err := os.ReadDir(cacheDir)
-			if err == nil {
-				for _, entry := range entries {
-					if entry.IsDir() && strings.HasPrefix(entry.Name(), "dev") {
-						devDir := filepath.Join(cacheDir, entry.Name())
-						if err := cw.watcher.Add(devDir); err != nil {
-							log.Printf("Failed to watch dev directory %s: %v", devDir, err)
-						} else {
-							log.Printf("Watching dev directory %s for container file creation", devDir)
-						}
-					}
-				}
-			}
-		}
 
 		return err
 	}
@@ -102,18 +61,12 @@ func (cw *ContainerWatcher) findAndLoadContainer() error {
 	cw.containerExists = true
 	cw.mu.Unlock()
 
-	// Add the directory to the watcher
-	containerDir := filepath.Dir(containerPath)
-	if err := cw.watcher.Add(containerDir); err != nil {
-		return err
-	}
-
 	// Load the container file
 	return cw.loadContainer()
 }
 
 // findContainerFile searches for the Symfony container XML file
-func (cw *ContainerWatcher) findContainerFile() (string, error) {
+func (cw *ContainerCatalog) findContainerFile() (string, error) {
 	cacheDir := filepath.Join(cw.projectRoot, "var", "cache")
 
 	// Check if the cache directory exists
@@ -139,7 +92,7 @@ func (cw *ContainerWatcher) findContainerFile() (string, error) {
 }
 
 // loadContainer loads the container XML file into memory
-func (cw *ContainerWatcher) loadContainer() error {
+func (cw *ContainerCatalog) loadContainer() error {
 	// Read the file
 	content, err := os.ReadFile(cw.containerPath)
 	if err != nil {
@@ -190,45 +143,8 @@ func (cw *ContainerWatcher) loadContainer() error {
 	return nil
 }
 
-// watchChanges monitors the container file for changes
-func (cw *ContainerWatcher) watchChanges() {
-	for {
-		select {
-		case event, ok := <-cw.watcher.Events:
-			if !ok {
-				return
-			}
-
-			// Check if the event is for our container file
-			containerPath, containerExists := cw.containerState()
-			if containerExists && event.Name == containerPath && (event.Op&(fsnotify.Write|fsnotify.Create) != 0) {
-				log.Printf("Container file changed, reloading")
-				if err := cw.loadContainer(); err != nil {
-					log.Printf("Failed to reload container: %v", err)
-				}
-			} else if !containerExists && strings.HasSuffix(event.Name, "Shopware_Core_KernelDevDebugContainer.xml") && (event.Op&fsnotify.Create != 0) {
-				// Container file was created
-				log.Printf("Container file created: %s", event.Name)
-				cw.mu.Lock()
-				cw.containerPath = event.Name
-				cw.containerExists = true
-				cw.mu.Unlock()
-				if err := cw.loadContainer(); err != nil {
-					log.Printf("Failed to load new container: %v", err)
-				}
-			}
-
-		case err, ok := <-cw.watcher.Errors:
-			if !ok {
-				return
-			}
-			log.Printf("Watcher error: %v", err)
-		}
-	}
-}
-
 // GetServiceByID returns a service by ID from memory
-func (cw *ContainerWatcher) GetServiceByID(id string) (Service, bool) {
+func (cw *ContainerCatalog) GetServiceByID(id string) (Service, bool) {
 	cw.mu.RLock()
 	defer cw.mu.RUnlock()
 	service, found := cw.services[id]
@@ -236,7 +152,7 @@ func (cw *ContainerWatcher) GetServiceByID(id string) (Service, bool) {
 }
 
 // GetParameterByName returns a parameter by name from memory
-func (cw *ContainerWatcher) GetParameterByName(name string) (Parameter, bool) {
+func (cw *ContainerCatalog) GetParameterByName(name string) (Parameter, bool) {
 	cw.mu.RLock()
 	defer cw.mu.RUnlock()
 	param, found := cw.parameters[name]
@@ -244,7 +160,7 @@ func (cw *ContainerWatcher) GetParameterByName(name string) (Parameter, bool) {
 }
 
 // GetAllServices returns all services from memory
-func (cw *ContainerWatcher) GetAllServices() []string {
+func (cw *ContainerCatalog) GetAllServices() []string {
 	cw.mu.RLock()
 	defer cw.mu.RUnlock()
 
@@ -256,7 +172,7 @@ func (cw *ContainerWatcher) GetAllServices() []string {
 	return result
 }
 
-func (cw *ContainerWatcher) GetAllServiceDefinitions() []Service {
+func (cw *ContainerCatalog) GetAllServiceDefinitions() []Service {
 	cw.mu.RLock()
 	defer cw.mu.RUnlock()
 
@@ -267,7 +183,7 @@ func (cw *ContainerWatcher) GetAllServiceDefinitions() []Service {
 	return result
 }
 
-func (cw *ContainerWatcher) GetAllParameters() []Parameter {
+func (cw *ContainerCatalog) GetAllParameters() []Parameter {
 	cw.mu.RLock()
 	defer cw.mu.RUnlock()
 
@@ -278,12 +194,12 @@ func (cw *ContainerWatcher) GetAllParameters() []Parameter {
 	return result
 }
 
-func (cw *ContainerWatcher) GetTwigComponents() []ContainerTwigComponent {
+func (cw *ContainerCatalog) GetTwigComponents() []ContainerTwigComponent {
 	components, _ := cw.GetTwigComponentsState()
 	return components
 }
 
-func (cw *ContainerWatcher) GetTwigComponentsState() (
+func (cw *ContainerCatalog) GetTwigComponentsState() (
 	[]ContainerTwigComponent,
 	uint64,
 ) {
@@ -293,13 +209,13 @@ func (cw *ContainerWatcher) GetTwigComponentsState() (
 		cw.revision
 }
 
-func (cw *ContainerWatcher) GetTwigGlobals() []ContainerTwigGlobal {
+func (cw *ContainerCatalog) GetTwigGlobals() []ContainerTwigGlobal {
 	cw.mu.RLock()
 	defer cw.mu.RUnlock()
 	return append([]ContainerTwigGlobal(nil), cw.twigGlobals...)
 }
 
-func (cw *ContainerWatcher) GetDoctrineNamespaceAliasesState() (
+func (cw *ContainerCatalog) GetDoctrineNamespaceAliasesState() (
 	map[string][]string,
 	uint64,
 ) {
@@ -319,26 +235,20 @@ func cloneDoctrineNamespaceAliases(
 }
 
 // Close stops the watcher and cleans up resources
-func (cw *ContainerWatcher) Close() error {
-	return cw.watcher.Close()
+func (cw *ContainerCatalog) Close() error {
+	return nil
 }
 
 // ContainerExists returns true if the container file exists
-func (cw *ContainerWatcher) ContainerExists() bool {
+func (cw *ContainerCatalog) ContainerExists() bool {
 	cw.mu.RLock()
 	defer cw.mu.RUnlock()
 	return cw.containerExists
 }
 
 // LastUpdated returns the time when the container was last updated
-func (cw *ContainerWatcher) LastUpdated() time.Time {
+func (cw *ContainerCatalog) LastUpdated() time.Time {
 	cw.mu.RLock()
 	defer cw.mu.RUnlock()
 	return cw.lastUpdated
-}
-
-func (cw *ContainerWatcher) containerState() (string, bool) {
-	cw.mu.RLock()
-	defer cw.mu.RUnlock()
-	return cw.containerPath, cw.containerExists
 }

@@ -1,6 +1,13 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
+import type {LanguageClient, WorkspaceEdit} from 'vscode-languageclient/node';
+import {applyCommandEdit} from '../commandEdits';
 import type {ClientState} from '../clientState';
+
+async function createSnippet(client: LanguageClient, method: string, params: unknown): Promise<void> {
+  const result = await client.sendRequest<{edit?: WorkspaceEdit} | null>(method, params);
+  await applyCommandEdit(client, vscode.workspace, result);
+}
 
 class BlockContentProvider implements vscode.TextDocumentContentProvider {
   private contents = new Map<string, string>();
@@ -216,7 +223,7 @@ export function registerEditorCommands(
         return; // User cancelled
       }
 
-      await languageClient.sendRequest('shopware/snippet/storefront/create', {
+      await createSnippet(languageClient, 'shopware/snippet/storefront/create', {
         fileUri,
         snippetKey,
         snippets: snippetsWithValues
@@ -257,7 +264,7 @@ export function registerEditorCommands(
       return;
     }
 
-    const result: {code: string, message: string} | {uri: string, line: number} = await languageClient.sendRequest('shopware/twig/extendBlock', {
+    const result: {code: string, message: string} | {uri: string, line: number, edit?: WorkspaceEdit} = await languageClient.sendRequest('shopware/twig/extendBlock', {
       textUri,
       blockName,
       extension: selected.label,
@@ -265,6 +272,13 @@ export function registerEditorCommands(
 
     if ('code' in result) {
       vscode.window.showErrorMessage(`Error extending block: ${result.message}`);
+      return;
+    }
+
+    try {
+      await applyCommandEdit(languageClient, vscode.workspace, result);
+    } catch (error) {
+      vscode.window.showErrorMessage(`Error extending block: ${error}`);
       return;
     }
 
@@ -317,6 +331,7 @@ export function registerEditorCommands(
         line: number;
         component: string;
         scriptUri: string;
+ edit?: WorkspaceEdit;
       } = await languageClient.sendRequest('shopware/admin/twig/override', {
         textUri,
         blockName,
@@ -327,6 +342,7 @@ export function registerEditorCommands(
         return;
       }
 
+      await applyCommandEdit(languageClient, vscode.workspace, result);
       const document = await vscode.workspace.openTextDocument(vscode.Uri.parse(result.uri));
       const editor = await vscode.window.showTextDocument(document);
       const position = new vscode.Position(result.line, 0);
@@ -502,7 +518,7 @@ export function registerEditorCommands(
       }
 
       // Create the snippet
-      await languageClient.sendRequest('shopware/snippet/storefront/create', {
+      await createSnippet(languageClient, 'shopware/snippet/storefront/create', {
         fileUri,
         snippetKey,
         snippets: snippetsWithValues
@@ -553,7 +569,7 @@ export function registerEditorCommands(
         return; // User cancelled
       }
 
-      await languageClient.sendRequest('shopware/snippet/admin/create', {
+      await createSnippet(languageClient, 'shopware/snippet/admin/create', {
         fileUri,
         snippetKey,
         snippets: snippetsWithValues
@@ -613,7 +629,7 @@ export function registerEditorCommands(
       }
 
       // Create the snippet
-      await languageClient.sendRequest('shopware/snippet/admin/create', {
+      await createSnippet(languageClient, 'shopware/snippet/admin/create', {
         fileUri,
         snippetKey,
         snippets: snippetsWithValues

@@ -2,7 +2,6 @@ package completion
 
 import (
 	"context"
-	"io/fs"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -34,14 +33,18 @@ var (
 // directory-scoped resource completion to native YAML/XML/PHP syntax.
 type BundleResourceCompletionProvider struct {
 	resolver *symfony.RouteResourceResolver
+	paths    symfony.IndexedResourcePaths
 }
 
 func NewBundleResourceCompletionProvider(
 	phpIndex *php.PHPIndex,
+	paths ...symfony.IndexedResourcePaths,
 ) *BundleResourceCompletionProvider {
-	return &BundleResourceCompletionProvider{
-		resolver: symfony.NewRouteResourceResolver(phpIndex),
+	provider := &BundleResourceCompletionProvider{resolver: symfony.NewRouteResourceResolver(phpIndex, paths...)}
+	if len(paths) > 0 {
+		provider.paths = paths[0]
 	}
+	return provider
 }
 
 func (provider *BundleResourceCompletionProvider) GetCompletions(
@@ -88,7 +91,7 @@ func (provider *BundleResourceCompletionProvider) GetCompletions(
 			editRange,
 		)
 	}
-	for _, candidate := range localResourceCandidates(ctx, path) {
+	for _, candidate := range localResourceCandidates(ctx, provider.paths, path) {
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -332,43 +335,36 @@ type localResourceCandidate struct {
 	directory bool
 }
 
-func localResourceCandidates(
-	ctx context.Context,
-	currentPath string,
-) []localResourceCandidate {
-	root := filepath.Dir(currentPath)
-	var result []localResourceCandidate
-	_ = filepath.WalkDir(root, func(
-		path string,
-		entry fs.DirEntry,
-		err error,
-	) error {
-		if ctx.Err() != nil ||
-			len(result) >= maxLocalResourceCandidates {
-			return fs.SkipAll
-		}
-		if err != nil {
-			if entry != nil && entry.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if path == root || filepath.Clean(path) == filepath.Clean(currentPath) {
-			return nil
-		}
-		relative, relativeErr := filepath.Rel(root, path)
-		if relativeErr != nil {
-			return nil
-		}
-		result = append(result, localResourceCandidate{
-			value:     filepath.ToSlash(relative),
-			directory: entry.IsDir(),
-		})
+func localResourceCandidates(ctx context.Context, catalog symfony.IndexedResourcePaths, currentPath string) []localResourceCandidate {
+	if catalog == nil {
 		return nil
-	})
-	sort.Slice(result, func(left, right int) bool {
-		return result[left].value < result[right].value
-	})
+	}
+	root := filepath.Dir(currentPath)
+	paths, err := catalog.ResourcePaths(ctx, root, maxLocalResourceCandidates)
+	if err != nil {
+		return nil
+	}
+	var result []localResourceCandidate
+	seen := make(map[string]bool)
+	for _, path := range paths {
+		if ctx.Err() != nil {
+			return nil
+		}
+		if filepath.Clean(path) == filepath.Clean(currentPath) {
+			continue
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			continue
+		}
+		for value, directory := relative, false; value != "."; value, directory = filepath.Dir(value), true {
+			if !seen[value] {
+				seen[value] = true
+				result = append(result, localResourceCandidate{value: filepath.ToSlash(value), directory: directory})
+			}
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].value < result[j].value })
 	return result
 }
 

@@ -1,12 +1,12 @@
 package app
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
 	"os/user"
 	"path/filepath"
-	"strings"
 )
 
 func projectCacheFolder(projectRoot string) (string, error) {
@@ -15,8 +15,14 @@ func projectCacheFolder(projectRoot string) (string, error) {
 		return "", err
 	}
 
-	replacer := strings.NewReplacer("/", "_", ":", "_", "\\", "_")
-	expectedDir := filepath.Join(configDir, "shopware-lsp", replacer.Replace(projectRoot))
+	root, err := filepath.Abs(projectRoot)
+	if err != nil {
+		return "", fmt.Errorf("normalize project root: %w", err)
+	}
+	// Keep the complete root identity: separator substitution aliases distinct
+	// workspaces, and long readable paths can exceed filesystem name limits.
+	digest := sha256.Sum256([]byte(filepath.Clean(root)))
+	expectedDir := filepath.Join(configDir, "shopware-lsp", fmt.Sprintf("%x", digest))
 	if err := os.MkdirAll(expectedDir, 0o755); err != nil {
 		return "", fmt.Errorf("create project cache directory: %w", err)
 	}

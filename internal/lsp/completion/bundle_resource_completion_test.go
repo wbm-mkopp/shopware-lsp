@@ -132,6 +132,7 @@ func TestBundleResourceCompletionIncludesConventionalAndLocalFiles(
 	)
 	path := filepath.Join(root, "config", "app.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(source), 0o644))
+	require.NoError(t, provider.paths.(*indexer.FileScanner).IndexAll(context.Background()))
 	_, request := bundleResourceCompletionRequest(t, path, source, offset)
 	items := provider.GetCompletions(context.Background(), request)
 
@@ -174,6 +175,7 @@ return static function (object $loader): void {
 		source, offset := completionCaret(t, fixture.source)
 		path := filepath.Join(root, "config", fixture.file)
 		require.NoError(t, os.WriteFile(path, []byte(source), 0o644))
+		require.NoError(t, provider.paths.(*indexer.FileScanner).IndexAll(context.Background()))
 		_, request := bundleResourceCompletionRequest(t, path, source, offset)
 		assert.Empty(t, provider.GetCompletions(
 			context.Background(),
@@ -223,7 +225,11 @@ final class FooBundle implements \Symfony\Component\HttpKernel\Bundle\BundleInte
 		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 		require.NoError(t, os.WriteFile(path, []byte(source), 0o644))
 	}
-	return root, NewBundleResourceCompletionProvider(phpIndex)
+	scanner, err := indexer.NewFileScanner(root, filepath.Join(t.TempDir(), "scanner.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, scanner.Close()) })
+	require.NoError(t, scanner.IndexAll(context.Background()))
+	return root, NewBundleResourceCompletionProvider(phpIndex, scanner)
 }
 
 func bundleResourceCompletionRequest(

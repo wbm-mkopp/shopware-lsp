@@ -1,6 +1,11 @@
 package codeaction
 
 import (
+	"context"
+	"github.com/shopware/shopware-lsp/internal/rewrite"
+	"github.com/shopware/shopware-lsp/internal/uriutil"
+	"os"
+	"path/filepath"
 	"sort"
 	"testing"
 
@@ -53,4 +58,51 @@ func applyCodeActionEdit(
 		updated = updated[:edit.start] + edit.text + updated[edit.end:]
 	}
 	return updated
+}
+
+func applyGeneratedWorkspaceEdit(t *testing.T, edit *protocol.WorkspaceEdit) {
+	t.Helper()
+	require.NotNil(t, edit)
+	for _, change := range edit.DocumentChanges {
+		if change.Kind == protocol.CreateFileOperation {
+			path, err := uriutil.Path(change.URI)
+			require.NoError(t, err)
+			require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+			require.NoError(t, os.WriteFile(path, nil, 0o644))
+			continue
+		}
+		require.NotNil(t, change.TextDocument)
+		uri := change.TextDocument.URI
+		path, err := uriutil.Path(uri)
+		require.NoError(t, err)
+		source, err := os.ReadFile(path)
+		require.NoError(t, err)
+		action := protocol.CodeAction{Edit: &protocol.WorkspaceEdit{Changes: map[string][]protocol.TextEdit{uri: change.Edits}}}
+		updated := applyCodeActionEdit(t, string(source), action, uri, lsp.NewTextDocument(uri, string(source), 0))
+		require.NoError(t, os.WriteFile(path, []byte(updated), 0o644))
+	}
+}
+
+type generationTestHost struct {
+	snapshots map[string]lsp.DocumentSnapshot
+	plan      rewrite.WorkspacePlan
+}
+
+func (h *generationTestHost) ResolveDocument(_ context.Context, uri string) (lsp.DocumentSnapshot, error) {
+	if snapshot, found := h.snapshots[uri]; found {
+		return snapshot, nil
+	}
+	path, err := uriutil.Path(uri)
+	if err != nil {
+		return lsp.DocumentSnapshot{}, err
+	}
+	source, err := os.ReadFile(path)
+	if err != nil {
+		return lsp.DocumentSnapshot{}, err
+	}
+	return lsp.DocumentSnapshot{Document: lsp.NewTextDocument(uri, string(source), 0)}, nil
+}
+func (h *generationTestHost) WorkspaceEdit(_ context.Context, plan rewrite.WorkspacePlan) (*protocol.WorkspaceEdit, error) {
+	h.plan = plan
+	return plan.WorkspaceEdit()
 }

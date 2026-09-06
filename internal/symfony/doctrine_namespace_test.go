@@ -66,6 +66,7 @@ func TestServiceIndexExposesCompiledDoctrineNamespaceAliases(t *testing.T) {
 	index, err := NewServiceIndex(projectRoot, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, index.Close()) })
+	require.NoError(t, index.ReloadCompiledContainer())
 
 	aliases, revision := index.GetDoctrineNamespaceAliasesState()
 	assert.Equal(t, map[string][]string{

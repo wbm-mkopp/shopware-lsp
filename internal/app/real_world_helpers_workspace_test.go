@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/shopware/shopware-lsp/internal/admin"
-	"github.com/shopware/shopware-lsp/internal/analytics"
+	"github.com/shopware/shopware-lsp/internal/lsp/analytics"
 	"github.com/shopware/shopware-lsp/internal/appscript"
 	"github.com/shopware/shopware-lsp/internal/console"
 	"github.com/shopware/shopware-lsp/internal/event"

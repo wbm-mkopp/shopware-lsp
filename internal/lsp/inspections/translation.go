@@ -3,7 +3,6 @@ package inspections
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/shopware/shopware-lsp/internal/language"
@@ -49,7 +48,7 @@ func NewTranslation(
 			}
 			domain := mapString(payload, "domain")
 			key := mapString(payload, "key")
-			insertions, err := index.Insertions(domain, key)
+			insertions, err := index.InsertionTargets(domain)
 			if err != nil {
 				return bound
 			}
@@ -103,7 +102,7 @@ func (f addTranslationFix) Build(
 	); err != nil {
 		return rewrite.WorkspacePlan{}, err
 	}
-	insertions, err := f.index.Insertions(payload.Domain, payload.Key)
+	insertions, err := f.index.InsertionTargets(payload.Domain)
 	if err != nil {
 		return rewrite.WorkspacePlan{}, err
 	}
@@ -122,10 +121,11 @@ func (f addTranslationFix) Build(
 	if err != nil {
 		return rewrite.WorkspacePlan{}, err
 	}
-	disk, err := os.ReadFile(selected.File)
-	if err != nil || string(disk) != target.Document.Source {
-		return rewrite.WorkspacePlan{}, fmt.Errorf("translation target changed")
+	insertion, ok := translation.InsertionForSource(selected.File, target.Document.Source, payload.Key, payload.Key)
+	if !ok {
+		return rewrite.WorkspacePlan{}, fmt.Errorf("translation target does not support insertion")
 	}
+	selected = &insertion
 	offset := target.Document.LineIndex.OffsetUTF16(
 		uint32(selected.Line),
 		uint32(selected.Character),

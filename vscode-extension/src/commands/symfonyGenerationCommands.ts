@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import type {WorkspaceEdit} from 'vscode-languageclient/node';
+import {applyCommandEdit} from '../commandEdits';
 import type {ClientState} from '../clientState';
 
 interface SymfonyServiceGeneration {
@@ -76,6 +78,7 @@ interface LspRange {
 }
 
 interface TwigTranslationExtractionPreparation {
+  workspaceEdits?: boolean;
   text: string;
   range: LspRange;
   defaultKey?: string;
@@ -662,12 +665,15 @@ export function registerSymfonyGenerationCommands(
       }
       try {
         const uri = vscode.Uri.parse(fileUri);
-        let document = await vscode.workspace.openTextDocument(uri);
+        const document = await vscode.workspace.openTextDocument(uri);
+        const source = document.getText();
+        const version = document.version;
         const prepared = await languageClient.sendRequest<TwigTranslationExtractionPreparation>(
           'shopware/symfony/translation/extract/prepare',
           {
             fileUri,
-            source: document.getText(),
+            source,
+            version,
             range: selectedRange,
           },
         );
@@ -714,15 +720,19 @@ export function registerSymfonyGenerationCommands(
           return;
         }
 
-        document = await vscode.workspace.openTextDocument(uri);
+        if (document.version !== version) {
+          throw new Error('The Twig document changed; run extraction again');
+        }
         const generated = await languageClient.sendRequest<TwigTranslationExtractionEdits>(
           'shopware/symfony/translation/extract/generate',
           {
             fileUri,
-            source: document.getText(),
+            source,
+            version,
             range: prepared.range,
             key: key.trim(),
             domain: selectedDomain.label,
+            preview: prepared.workspaceEdits === true,
           },
         );
         const targetItems = generated.targets.map(target => ({
@@ -751,6 +761,21 @@ export function registerSymfonyGenerationCommands(
           return;
         }
 
+        if (document.version !== version) {
+          throw new Error('The Twig document changed; run extraction again');
+        }
+        if (prepared.workspaceEdits) {
+          const planned = await languageClient.sendRequest<{edit: WorkspaceEdit}>(
+            'shopware/symfony/translation/extract/generate',
+            {
+              fileUri, source, version, range: prepared.range,
+              key: key.trim(), domain: selectedDomain.label,
+              targetUris: selectedTargets.map(item => item.target.fileUri),
+            },
+          );
+          if (!planned.edit) throw new Error('The server returned no extraction edit');
+          await applyCommandEdit(languageClient, vscode.workspace, planned);
+        } else {
         const edit = new vscode.WorkspaceEdit();
         edit.replace(
           uri,
@@ -775,6 +800,7 @@ export function registerSymfonyGenerationCommands(
             'Could not apply the Twig translation extraction',
           );
           return;
+        }
         }
         vscode.window.showInformationMessage(
           `Extracted Twig translation “${key.trim()}”`,

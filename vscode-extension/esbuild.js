@@ -54,6 +54,8 @@ async function main() {
   const mcpModelContext = await esbuild.context({
     entryPoints: {
       mcpServerModel: 'src/mcpServerModel.ts',
+      commandEdits: 'src/commandEdits.ts',
+      symfonyGenerationCommands: 'src/commands/symfonyGenerationCommands.ts',
       serverExecutable: 'src/serverExecutable.ts',
       projectDetection: 'src/projectDetection.ts',
       languageConfigurationModel: 'src/languageConfigurationModel.ts',

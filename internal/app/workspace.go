@@ -304,6 +304,20 @@ func NewWorkspace(_ context.Context, root string, server *lsp.Server) (_ *Worksp
 		twigIndex,
 		shopwareVersionText,
 	)
+	if configuration.DomainEnabled("symfony.services") {
+		compiled, err := symfony.NewCompiledContainerIndex(root, cacheDir, serviceIndex, workspace.store)
+		if err != nil {
+			return nil, fmt.Errorf("create compiled container index: %w", err)
+		}
+		workspace.indexers = append(workspace.indexers, compiled)
+	}
+	if configuration.DomainEnabled("symfony.routes") {
+		compiled, err := symfony.NewCompiledRouteIndex(root, cacheDir, routeIndex, workspace.store)
+		if err != nil {
+			return nil, fmt.Errorf("create compiled route index: %w", err)
+		}
+		workspace.indexers = append(workspace.indexers, compiled)
+	}
 	for _, idx := range workspace.indexers {
 		if configuration.DomainEnabled(domainForIndexer(idx.ID())) {
 			workspace.scanner.AddIndexer(idx)
@@ -311,6 +325,7 @@ func NewWorkspace(_ context.Context, root string, server *lsp.Server) (_ *Worksp
 	}
 
 	registerFeatures(server, root, workspaceServices{
+		paths:               workspace.scanner,
 		symbols:             workspace.symbols,
 		services:            serviceIndex,
 		routes:              routeIndex,
@@ -351,9 +366,9 @@ func domainForIndexer(id string) string {
 	switch id {
 	case "php.index":
 		return "php"
-	case "symfony.service":
+	case "symfony.service", "symfony.compiled_container":
 		return "symfony.services"
-	case "symfony.route", "symfony.route_usage":
+	case "symfony.route", "symfony.route_usage", "symfony.compiled_routes":
 		return "symfony.routes"
 	case "symfony.console":
 		return "symfony.console"

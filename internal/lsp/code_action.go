@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
+	"github.com/shopware/shopware-lsp/internal/projectconfig"
 	"github.com/shopware/shopware-lsp/internal/rewrite"
 	"github.com/shopware/shopware-lsp/internal/uriutil"
 )
@@ -43,7 +44,9 @@ func (s *Server) codeAction(ctx context.Context, params *protocol.CodeActionPara
 		if !providerMatchesOnly(provider, params.Context.Only) {
 			continue
 		}
-		actions = append(actions, provider.GetCodeActions(ctx, request)...)
+		for _, action := range provider.GetCodeActions(ctx, request) {
+			actions = append(actions, s.normalizeProviderAction(ctx, action))
+		}
 	}
 	return s.filterCodeActionsForClient(actions)
 }
@@ -68,7 +71,8 @@ func (s *Server) inspectionCodeActions(
 		}
 		registered, found := s.inspections.inspection(envelope.Inspection)
 		if !found || registered != s.inspections.byCode[envelope.Code] ||
-			!supportsLanguage(registered.definition, request.Document.SyntaxLanguage) {
+			!supportsLanguage(registered.definition, request.Document.SyntaxLanguage) ||
+			!s.inspectionActionEnabled(request.Document.URI, registered, envelope.Code) {
 			continue
 		}
 		if _, err := envelope.Anchor.Resolve(
@@ -122,6 +126,10 @@ func (s *Server) resolveCodeAction(
 	ctx context.Context,
 	action protocol.CodeAction,
 ) protocol.CodeAction {
+	var legacy legacyActionEnvelope
+	if decodeJSONValue(action.Data, &legacy) == nil && legacy.Type == legacyActionSchema {
+		return s.filterResolvedCodeActionForClient(s.resolveProviderAction(ctx, action, legacy))
+	}
 	var data codeActionEnvelope
 	if err := decodeJSONValue(action.Data, &data); err != nil ||
 		data.Schema != codeActionEnvelopeSchema {
@@ -138,6 +146,9 @@ func (s *Server) resolveCodeAction(
 	envelope, err := decodeDiagnosticEnvelope(data.Diagnostic.Data)
 	if err != nil || envelope.Inspection != data.Inspection {
 		return disabledCodeAction(action, "The diagnostic data is no longer valid")
+	}
+	if !s.inspectionActionEnabled(envelope.URI, registered, envelope.Code) {
+		return disabledCodeAction(action, "The diagnostic is disabled by the current configuration")
 	}
 	document, found := s.documentManager.GetDocument(envelope.URI)
 	if !found || document.Version != envelope.DocumentVersion {
@@ -180,6 +191,8 @@ func (s *Server) populateInspectionEdit(
 	fix QuickFix,
 	fixContext FixContext,
 ) {
+	action.Edit = nil
+	action.Command = nil
 	if commandFix, ok := fix.(CommandQuickFix); ok {
 		command, err := commandFix.BuildCommand(ctx, fixContext)
 		if err != nil || command == nil {
@@ -229,6 +242,9 @@ func (s *Server) validateWorkspacePlan(ctx context.Context, plan rewrite.Workspa
 		path, err := uriutil.Path(created.URI)
 		if err != nil || !pathWithinRoot(s.rootPath, path) {
 			return fmt.Errorf("created document %q is outside the workspace", created.URI)
+		}
+		if _, open := s.documentManager.GetDocument(created.URI); open {
+			return fmt.Errorf("created document %q is already open", created.URI)
 		}
 		if _, err := os.Stat(path); err == nil || !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("created document %q already exists or cannot be checked", created.URI)
@@ -296,16 +312,16 @@ func (r serverDocumentResolver) ResolveDocument(
 	if r.server == nil {
 		return DocumentSnapshot{}, errors.New("document resolver has no server")
 	}
-	if document, found := r.server.documentManager.GetDocument(uri); found {
-		version := document.Version
-		return DocumentSnapshot{Document: document, Version: &version}, nil
-	}
 	path, err := uriutil.Path(uri)
 	if err != nil {
 		return DocumentSnapshot{}, fmt.Errorf("resolve document URI: %w", err)
 	}
 	if !pathWithinRoot(r.server.rootPath, path) {
 		return DocumentSnapshot{}, fmt.Errorf("document %q is outside the workspace", uri)
+	}
+	if document, found := r.server.documentManager.GetDocument(uri); found {
+		version := document.Version
+		return DocumentSnapshot{Document: document, Version: &version}, nil
 	}
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -376,6 +392,7 @@ func decodeJSONValue(value any, target any) error {
 func disabledCodeAction(action protocol.CodeAction, reason string) protocol.CodeAction {
 	action.Disabled = &protocol.CodeActionDisabled{Reason: reason}
 	action.Edit = nil
+	action.Command = nil
 	return action
 }
 
@@ -384,4 +401,18 @@ func sameOptionalVersion(left, right *int) bool {
 		return left == nil && right == nil
 	}
 	return *left == *right
+}
+
+func (s *Server) inspectionActionEnabled(uri string, inspection *registeredInspection, code DiagnosticID) bool {
+	id := inspection.definition.ID
+	policy := s.diagnosticPolicy(uri)
+	if !s.inspectionPresentedToClient(id) || (inspectionDomain(id) != "" && !s.domainEnabled(inspectionDomain(id))) || !diagnosticInspectionEnabled(policy, id) {
+		return false
+	}
+	definition, found := inspection.problems[code]
+	if !found {
+		return false
+	}
+	severity, configured := diagnosticRuleSeverity(policy, code)
+	return configured && severity != projectconfig.SeverityOff || !configured && !definition.DisabledByDefault
 }

@@ -169,6 +169,8 @@ func TestAdminTwigOverrideGeneratorCreatesLoadableOverride(t *testing.T) {
 	require.NoError(t, err)
 	result, ok := value.(*adminTwigOverrideResponse)
 	require.True(t, ok)
+	require.NoDirExists(t, filepath.Join(administrationSource, "extension"))
+	applyGeneratedWorkspaceEdit(t, result.Edit)
 	assert.Equal(t, "sw-card", result.Component)
 	assert.Equal(t, 0, result.Line)
 
@@ -215,6 +217,9 @@ func TestAdminTwigOverrideGeneratorAppendsAndIsIdempotent(t *testing.T) {
 			}),
 		)
 		require.NoError(t, err)
+		result, ok := value.(*adminTwigOverrideResponse)
+		require.True(t, ok, "%#v", value)
+		applyGeneratedWorkspaceEdit(t, result.Edit)
 		return value
 	}
 
@@ -332,8 +337,10 @@ final class DemoPlugin extends Plugin
 `),
 	)))
 
+	server := lsp.NewServer(nil, root, "test")
+	t.Cleanup(func() { require.NoError(t, server.CloseAll()) })
 	return adminTwigOverrideFixture{
-		provider:     NewAdminTwigOverrideProvider(adminIndex, extensionIndex),
+		provider:     NewAdminTwigOverrideProvider(adminIndex, extensionIndex, server),
 		templatePath: templatePath,
 		pluginSource: pluginSource,
 	}
@@ -348,4 +355,27 @@ func adminTwigOverrideJSON(
 	require.NoError(t, err)
 	message := json.RawMessage(raw)
 	return &message
+}
+
+func TestAdminTwigOverridePreservesUnsavedEntryWithoutWritingFiles(t *testing.T) {
+	fixture := newAdminTwigOverrideFixture(t)
+	entry := filepath.Join(fixture.pluginSource, "Resources/app/administration/src/main.js")
+	uri := uriutil.FileURI(entry)
+	version := 6
+	source := "import './unsaved-module';\n"
+	host := &generationTestHost{snapshots: map[string]lsp.DocumentSnapshot{uri: {Document: lsp.NewTextDocument(uri, source, version), Version: &version}}}
+	fixture.provider.host = host
+	value, err := fixture.provider.generateAdminTwigOverride(context.Background(), adminTwigOverrideJSON(t, adminTwigOverrideRequest{TextURI: uriutil.FileURI(fixture.templatePath), BlockName: "sw_card_header", Extension: "DemoPlugin"}))
+	require.NoError(t, err)
+	result, ok := value.(*adminTwigOverrideResponse)
+	require.True(t, ok, "%#v", value)
+	require.NotNil(t, result.Edit)
+	require.Len(t, host.plan.Creates, 2)
+	require.Len(t, host.plan.Documents, 1)
+	require.Equal(t, &version, host.plan.Documents[0].Version)
+	updated, err := host.plan.Documents[0].Apply()
+	require.NoError(t, err)
+	require.Equal(t, "import './extension/sw-card';\n"+source, updated)
+	require.NoFileExists(t, entry)
+	require.NoDirExists(t, filepath.Join(filepath.Dir(entry), "extension"))
 }

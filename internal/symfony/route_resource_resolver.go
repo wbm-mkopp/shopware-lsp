@@ -2,8 +2,6 @@ package symfony
 
 import (
 	"context"
-	"io/fs"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -36,7 +34,12 @@ type BundleResourceCandidate struct {
 // RouteResourceResolver adds legacy @Bundle resource resolution to the
 // filesystem-relative route resource helpers. Its bundle catalog is rebuilt
 // only when the immutable PHP workspace generation changes.
+type IndexedResourcePaths interface {
+	ResourcePaths(context.Context, string, int) ([]string, error)
+}
+
 type RouteResourceResolver struct {
+	paths    IndexedResourcePaths
 	php      *php.PHPIndex
 	mu       sync.Mutex
 	revision uint64
@@ -45,8 +48,13 @@ type RouteResourceResolver struct {
 
 func NewRouteResourceResolver(
 	phpIndex *php.PHPIndex,
+	paths ...IndexedResourcePaths,
 ) *RouteResourceResolver {
-	return &RouteResourceResolver{php: phpIndex}
+	resolver := &RouteResourceResolver{php: phpIndex}
+	if len(paths) > 0 {
+		resolver.paths = paths[0]
+	}
+	return resolver
 }
 
 func (resolver *RouteResourceResolver) Files(
@@ -129,44 +137,26 @@ func (resolver *RouteResourceResolver) BundleResourceCandidates(
 		for _, root := range catalog.roots[key] {
 			for _, conventional := range bundleResourceRoots {
 				base := filepath.Join(root, filepath.FromSlash(conventional))
-				info, err := os.Stat(base)
-				if err != nil || !info.IsDir() {
+				if resolver.paths == nil || ctx.Err() != nil || len(result) >= maxBundleResourceCandidates {
 					continue
 				}
-				_ = filepath.WalkDir(base, func(
-					path string,
-					entry fs.DirEntry,
-					walkErr error,
-				) error {
-					if ctx.Err() != nil ||
-						len(result) >= maxBundleResourceCandidates {
-						return fs.SkipAll
+				paths, err := resolver.paths.ResourcePaths(ctx, base, maxBundleResourceCandidates-len(result))
+				if err != nil {
+					continue
+				}
+				for _, path := range paths {
+					relative, err := filepath.Rel(root, path)
+					if err != nil {
+						continue
 					}
-					if walkErr != nil {
-						if entry != nil && entry.IsDir() {
-							return filepath.SkipDir
-						}
-						return nil
-					}
-					if entry.IsDir() {
-						return nil
-					}
-					relative, relativeErr := filepath.Rel(root, path)
-					if relativeErr != nil {
-						return nil
-					}
-					value := "@" + name + "/" +
-						filepath.ToSlash(relative)
-					if _, duplicate := seen[value]; duplicate {
-						return nil
+					value := "@" + name + "/" + filepath.ToSlash(relative)
+					if _, exists := seen[value]; exists {
+						continue
 					}
 					seen[value] = struct{}{}
-					result = append(result, BundleResourceCandidate{
-						Value: value,
-						Path:  filepath.Clean(path),
-					})
-					return nil
-				})
+					result = append(result, BundleResourceCandidate{Value: value, Path: path})
+				}
+
 			}
 		}
 	}

@@ -22,7 +22,13 @@ func (s *Server) handle(
 	ctx context.Context,
 	conn *jsonrpc2.Conn,
 	req *jsonrpc2.Request,
-) (interface{}, error) {
+) (result interface{}, err error) {
+	defer func() {
+		if ctx.Err() != nil && !req.Notif {
+			result = nil
+			err = &jsonrpc2.Error{Code: requestCancelledCode, Message: "request cancelled"}
+		}
+	}()
 	s.setConnection(conn)
 	if req.Method == "exit" {
 		log.Println("Received exit notification, exiting")

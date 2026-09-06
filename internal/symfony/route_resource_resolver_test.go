@@ -46,7 +46,11 @@ func TestRouteResourceResolverResolvesLegacyBundleResources(
 		require.NoError(t, os.WriteFile(path, []byte(source), 0o644))
 	}
 
-	resolver := NewRouteResourceResolver(phpIndex)
+	scanner, err := indexer.NewFileScanner(root, filepath.Join(t.TempDir(), "scanner.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, scanner.Close()) })
+	require.NoError(t, scanner.IndexAll(context.Background()))
+	resolver := NewRouteResourceResolver(phpIndex, scanner)
 	assert.Equal(t, []string{routePath}, resolver.Files(
 		"/project/config/routes.xml",
 		RouteResourceReference{

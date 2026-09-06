@@ -92,7 +92,7 @@ change, not a bug fix.
                        │                   └─ store     │  one SQLite file
                        └──────────────────────────────┘
                                      │
-                       ~/.cache/shopware-lsp/<escaped root>/
+                       ~/.cache/shopware-lsp/<root hash>/
                             indexes.db  file_scanner.db  index_version  …
 ```
 
@@ -101,7 +101,10 @@ change, not a bug fix.
 `os.Args` to `internal/cli`.
 
 The cache directory is derived from the workspace root
-(`internal/app/cache.go`), with `/`, `:`, and `\` replaced by `_`. Set
+(`internal/app/cache.go`), using SHA-256 of the normalized absolute root. This
+avoids collisions between distinct paths and bounds cache directory name length.
+Existing caches under separator-substituted names are left untouched; the first
+start with the new identity performs a cold index. Set
 `SHOPWARE_LSP_CACHE_DIR` to relocate it — always do this in tests so you never
 clobber a developer's real cache.
 
@@ -302,6 +305,15 @@ degrade to whatever is indexed.
   200 ms, and become `IndexFiles` / `RemoveFiles` calls.
 - Requests are served from indexes plus the current open document.
 
+Generated Symfony container and route catalogs use supplemental scanner indexers.
+Only selected files directly under cache environment directories are admitted;
+cache pools and generated class trees remain excluded. Catalog records persist
+in the shared store and publish after commit, including deletion and recreation.
+Domain constructors do not start watchers or read generated catalogs.
+
+Resource completion queries the scanner's persisted path index, with bounded
+results and inferred parent directories, instead of walking the filesystem.
+
 ## The three data sources
 
 Every feature answers from some combination of exactly three sources. Knowing
@@ -334,12 +346,12 @@ makes workspace initialization order irrelevant.
 
 Four distinct concurrency regimes, each with different rules.
 
-**1. Request handling is sequential.** `Server.Start` wraps the handler in
-`jsonrpc2.HandlerWithError`, which processes requests in order. A slow provider
-therefore blocks the next request — so providers must return fast and must
-honor `ctx` cancellation. The single exception is `textDocument/diagnostic` in
-CLI mode, which `cliDiagnosticHandler` moves to a background goroutine so
-`check` can analyze several files concurrently.
+**1. Normal requests and document updates stay ordered.** A bounded queue and
+one worker in `request_dispatcher.go` serialize normal handlers. The transport
+reader handles `$/cancelRequest` immediately, cancelling the context of a
+running or queued request by ID. Disconnect cancels active work before teardown.
+CLI pull diagnostics retain their background execution so `check` can analyze
+several files concurrently.
 
 **2. Diagnostics run in cancellable background jobs.** One job per URI,
 debounced 150 ms, superseded (and cancelled) by the next edit. See

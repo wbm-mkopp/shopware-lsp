@@ -582,3 +582,36 @@ eyeball a rewrite against a real project.
   PHP rewrites depend on
 - [`shopware-rector-parity.md`](shopware-rector-parity.md) — the migration
   rewrites and their Rector counterparts
+
+## Interactive Twig and snippet commands
+
+The Storefront Twig block extension and snippet creation commands return an
+`edit` containing a validated workspace edit. They resolve open target documents
+before disk, retain document versions, and build all changes before returning.
+Snippet discovery only suggests paths; it never creates files. The VS Code
+client checks target versions again immediately before applying the returned edit
+and retains compatibility with older custom
+servers that apply the command themselves and return no edit.
+
+Command adapters live in `internal/lsp/commands`; domain indexes expose plain Go
+APIs. The same server snapshot resolver and plan validator serve these commands
+and rewrite quick fixes.
+
+### Snapshot validation for action adapters
+
+Inspection actions recheck the effective diagnostic policy when listed and when
+resolved. Disabling a rule, inspection, domain, or client presentation removes
+its cached fixes as well. Document resolution checks workspace containment
+before consulting open buffers.
+
+Legacy text-edit providers pass through the same workspace-plan validator. The
+server adds open-document versions and source fingerprints; resolving an action
+rejects changed targets, including closed files changed on disk. New resource
+operations belong in typed rewrite fixes or command plans.
+
+Administration Twig overrides return one validated workspace edit for the
+component script, template, and entry point. Translation extraction lists locale
+targets first, then builds the final plan after selection, using the unchanged
+source document and the latest target snapshots. Missing-translation diagnostics
+bind indexed locale metadata without reading or parsing resource files; only the
+selected fix computes an insertion. Existing keys in unsaved targets are rejected.

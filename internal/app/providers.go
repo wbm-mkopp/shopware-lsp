@@ -42,6 +42,7 @@ import (
 )
 
 type workspaceServices struct {
+	paths               *indexer.FileScanner
 	symbols             *indexer.WorkspaceSymbolCatalog
 	services            *symfony.ServiceIndex
 	routes              *symfony.RouteIndexer

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -17,6 +16,7 @@ import (
 	jsquery "github.com/shopware/shopware-lsp/internal/parser/javascript/query"
 	jssyntax "github.com/shopware/shopware-lsp/internal/parser/javascript/syntax"
 	twigquery "github.com/shopware/shopware-lsp/internal/parser/twig/query"
+	"github.com/shopware/shopware-lsp/internal/rewrite"
 	"github.com/shopware/shopware-lsp/internal/twig"
 	"github.com/shopware/shopware-lsp/internal/uriutil"
 )
@@ -31,6 +31,7 @@ const (
 // selection while component resolution and all filesystem validation remain
 // server-side.
 type AdminTwigOverrideProvider struct {
+	host           lsp.WorkspaceEditHost
 	adminIndex     *admin.AdminComponentIndexer
 	extensionIndex *extension.ExtensionIndexer
 }
@@ -38,8 +39,10 @@ type AdminTwigOverrideProvider struct {
 func NewAdminTwigOverrideProvider(
 	adminIndex *admin.AdminComponentIndexer,
 	extensionIndex *extension.ExtensionIndexer,
+	host lsp.WorkspaceEditHost,
 ) *AdminTwigOverrideProvider {
 	return &AdminTwigOverrideProvider{
+		host:           host,
 		adminIndex:     adminIndex,
 		extensionIndex: extensionIndex,
 	}
@@ -103,10 +106,11 @@ type adminTwigOverrideRequest struct {
 }
 
 type adminTwigOverrideResponse struct {
-	URI       string `json:"uri"`
-	Line      int    `json:"line"`
-	Component string `json:"component"`
-	ScriptURI string `json:"scriptUri"`
+	Edit      *protocol.WorkspaceEdit `json:"edit"`
+	URI       string                  `json:"uri"`
+	Line      int                     `json:"line"`
+	Component string                  `json:"component"`
+	ScriptURI string                  `json:"scriptUri"`
 }
 
 func (p *AdminTwigOverrideProvider) generateAdminTwigOverride(
@@ -178,6 +182,7 @@ func (p *AdminTwigOverrideProvider) generateAdminTwigOverride(
 	}
 
 	result, generationErr := generateAdminOverrideFiles(
+		ctx, p.host,
 		target,
 		component.Name,
 		params.BlockName,
@@ -192,10 +197,26 @@ func (p *AdminTwigOverrideProvider) generateAdminTwigOverride(
 }
 
 func generateAdminOverrideFiles(
+	ctx context.Context, host lsp.WorkspaceEditHost,
 	target extension.ShopwareExtension,
 	componentName,
 	blockName string,
 ) (*adminTwigOverrideResponse, error) {
+	if host == nil {
+		return nil, fmt.Errorf("workspace edit host is unavailable")
+	}
+	snapshots := make(map[string]lsp.DocumentSnapshot)
+	readOptional := func(file string) ([]byte, bool, error) {
+		snapshot, err := lsp.ResolveOptionalDocument(ctx, host, uriutil.FileURI(file))
+		if err != nil {
+			return nil, false, err
+		}
+		snapshots[file] = snapshot
+		if snapshot.Document == nil {
+			return nil, false, nil
+		}
+		return []byte(snapshot.Document.Source), true, nil
+	}
 	administrationSource := target.GetAdministrationSourcePath()
 	overrideDirectory := filepath.Join(
 		administrationSource,
@@ -206,7 +227,7 @@ func generateAdminOverrideFiles(
 	templatePath := filepath.Join(overrideDirectory, templateName)
 	scriptPath := filepath.Join(overrideDirectory, "index.js")
 
-	scriptContent, scriptExists, err := readOptionalFile(scriptPath)
+	scriptContent, scriptExists, err := readOptional(scriptPath)
 	if err != nil {
 		return nil, fmt.Errorf("read component override: %w", err)
 	}
@@ -229,7 +250,7 @@ func generateAdminOverrideFiles(
 		))
 	}
 
-	templateContent, templateExists, err := readOptionalFile(templatePath)
+	templateContent, templateExists, err := readOptional(templatePath)
 	if err != nil {
 		return nil, fmt.Errorf("read Twig override: %w", err)
 	}
@@ -255,7 +276,7 @@ func generateAdminOverrideFiles(
 	}
 
 	entryPath, entryContent, entryExists, err := administrationEntry(
-		administrationSource,
+		administrationSource, readOptional,
 	)
 	if err != nil {
 		return nil, err
@@ -266,26 +287,27 @@ func generateAdminOverrideFiles(
 		entryExists = false
 	}
 
-	if err := os.MkdirAll(overrideDirectory, 0o755); err != nil {
-		return nil, fmt.Errorf("create override directory: %w", err)
-	}
-	if !scriptExists {
-		if err := os.WriteFile(scriptPath, scriptContent, 0o644); err != nil {
-			return nil, fmt.Errorf("write component override: %w", err)
+	plan := rewrite.WorkspacePlan{}
+	for _, file := range []struct {
+		path    string
+		content []byte
+		changed bool
+	}{
+		{scriptPath, scriptContent, !scriptExists}, {templatePath, templateContent, templateChanged}, {entryPath, entryContent, !entryExists},
+	} {
+		if file.changed {
+			if err := lsp.AddDocumentReplacement(&plan, uriutil.FileURI(file.path), snapshots[file.path], string(file.content)); err != nil {
+				return nil, err
+			}
 		}
 	}
-	if templateChanged {
-		if err := os.WriteFile(templatePath, templateContent, 0o644); err != nil {
-			return nil, fmt.Errorf("write Twig override: %w", err)
-		}
-	}
-	if !entryExists {
-		if err := os.WriteFile(entryPath, entryContent, 0o644); err != nil {
-			return nil, fmt.Errorf("write Administration entry point: %w", err)
-		}
+	edit, err := host.WorkspaceEdit(ctx, plan)
+	if err != nil {
+		return nil, err
 	}
 
 	return &adminTwigOverrideResponse{
+		Edit:      edit,
 		URI:       uriutil.FileURI(templatePath),
 		Line:      line,
 		Component: componentName,
@@ -315,17 +337,6 @@ func safeGeneratedName(value string, allowHyphen bool) bool {
 		return false
 	}
 	return true
-}
-
-func readOptionalFile(filePath string) ([]byte, bool, error) {
-	content, err := os.ReadFile(filePath)
-	if err == nil {
-		return content, true, nil
-	}
-	if os.IsNotExist(err) {
-		return nil, false, nil
-	}
-	return nil, false, err
 }
 
 func validateAdminOverrideScript(
@@ -382,10 +393,11 @@ func twigBlockStartLine(content []byte, blockName string) int {
 
 func administrationEntry(
 	administrationSource string,
+	readOptional func(string) ([]byte, bool, error),
 ) (string, []byte, bool, error) {
 	for _, name := range []string{"main.js", "main.ts"} {
 		entryPath := filepath.Join(administrationSource, name)
-		content, exists, err := readOptionalFile(entryPath)
+		content, exists, err := readOptional(entryPath)
 		if err != nil {
 			return "", nil, false, fmt.Errorf(
 				"read Administration entry point: %w",

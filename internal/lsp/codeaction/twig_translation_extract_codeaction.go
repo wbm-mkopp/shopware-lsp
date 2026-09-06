@@ -14,8 +14,8 @@ import (
 	"github.com/shopware/shopware-lsp/internal/lsp"
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
 	"github.com/shopware/shopware-lsp/internal/parser/cst"
-	twigparser "github.com/shopware/shopware-lsp/internal/parser/twig"
 	twigsyntax "github.com/shopware/shopware-lsp/internal/parser/twig/syntax"
+	"github.com/shopware/shopware-lsp/internal/rewrite"
 	"github.com/shopware/shopware-lsp/internal/translation"
 	"github.com/shopware/shopware-lsp/internal/uriutil"
 )
@@ -33,12 +33,14 @@ const (
 // desired key, domain, and target locale files.
 type TwigTranslationExtractProvider struct {
 	index *translation.Index
+	host  lsp.WorkspaceEditHost
 }
 
 func NewTwigTranslationExtractProvider(
 	index *translation.Index,
+	host lsp.WorkspaceEditHost,
 ) *TwigTranslationExtractProvider {
-	return &TwigTranslationExtractProvider{index: index}
+	return &TwigTranslationExtractProvider{index: index, host: host}
 }
 
 func (p *TwigTranslationExtractProvider) GetCodeActionKinds() []protocol.CodeActionKind {
@@ -87,19 +89,23 @@ func (p *TwigTranslationExtractProvider) GetCommands(
 }
 
 type twigTranslationExtractionRequest struct {
-	FileURI string         `json:"fileUri"`
-	Source  string         `json:"source"`
-	Range   protocol.Range `json:"range"`
-	Key     string         `json:"key,omitempty"`
-	Domain  string         `json:"domain,omitempty"`
+	Version    *int           `json:"version,omitempty"`
+	Preview    bool           `json:"preview,omitempty"`
+	TargetURIs []string       `json:"targetUris,omitempty"`
+	FileURI    string         `json:"fileUri"`
+	Source     string         `json:"source"`
+	Range      protocol.Range `json:"range"`
+	Key        string         `json:"key,omitempty"`
+	Domain     string         `json:"domain,omitempty"`
 }
 
 type twigTranslationExtractionPreparation struct {
-	Text          string         `json:"text"`
-	Range         protocol.Range `json:"range"`
-	DefaultKey    string         `json:"defaultKey,omitempty"`
-	DefaultDomain string         `json:"defaultDomain"`
-	Domains       []string       `json:"domains"`
+	WorkspaceEdits bool           `json:"workspaceEdits"`
+	Text           string         `json:"text"`
+	Range          protocol.Range `json:"range"`
+	DefaultKey     string         `json:"defaultKey,omitempty"`
+	DefaultDomain  string         `json:"defaultDomain"`
+	Domains        []string       `json:"domains"`
 }
 
 type twigTranslationExtractionTarget struct {
@@ -113,6 +119,7 @@ type twigTranslationExtractionTarget struct {
 }
 
 type twigTranslationExtractionEdits struct {
+	Edit        *protocol.WorkspaceEdit           `json:"edit,omitempty"`
 	Replacement string                            `json:"replacement"`
 	Range       protocol.Range                    `json:"range"`
 	Targets     []twigTranslationExtractionTarget `json:"targets"`
@@ -129,7 +136,7 @@ func (p *TwigTranslationExtractProvider) prepare(
 	ctx context.Context,
 	raw *json.RawMessage,
 ) (interface{}, error) {
-	params, selection, err := decodeTwigTranslationExtraction(ctx, raw)
+	params, selection, err := p.decodeTwigTranslationExtraction(ctx, raw)
 	if err != nil {
 		return nil, err
 	}
@@ -143,11 +150,12 @@ func (p *TwigTranslationExtractProvider) prepare(
 			strings.ToLower(domains[right])
 	})
 	return twigTranslationExtractionPreparation{
-		Text:          selection.text,
-		Range:         extractionProtocolRange(params.Source, selection),
-		DefaultKey:    defaultTranslationKey(selection.text),
-		DefaultDomain: selection.activeDomain,
-		Domains:       domains,
+		WorkspaceEdits: true,
+		Text:           selection.text,
+		Range:          extractionProtocolRange(params.Source, selection),
+		DefaultKey:     defaultTranslationKey(selection.text),
+		DefaultDomain:  selection.activeDomain,
+		Domains:        domains,
 	}, nil
 }
 
@@ -155,7 +163,7 @@ func (p *TwigTranslationExtractProvider) generate(
 	ctx context.Context,
 	raw *json.RawMessage,
 ) (interface{}, error) {
-	params, selection, err := decodeTwigTranslationExtraction(ctx, raw)
+	params, selection, err := p.decodeTwigTranslationExtraction(ctx, raw)
 	if err != nil {
 		return nil, err
 	}
@@ -170,6 +178,8 @@ func (p *TwigTranslationExtractProvider) generate(
 	if domain == "" || strings.ContainsAny(domain, "\r\n\x00") {
 		return nil, fmt.Errorf("translation domain must not be empty")
 	}
+	params.Key = key
+	params.Domain = domain
 	exists, err := p.index.HasMessage(domain, key)
 	if err != nil {
 		return nil, err
@@ -181,11 +191,7 @@ func (p *TwigTranslationExtractProvider) generate(
 			domain,
 		)
 	}
-	insertions, err := p.index.InsertionsWithValue(
-		domain,
-		key,
-		selection.text,
-	)
+	insertions, err := p.index.InsertionTargets(domain)
 	if err != nil {
 		return nil, err
 	}
@@ -201,6 +207,19 @@ func (p *TwigTranslationExtractProvider) generate(
 		len(insertions),
 	)
 	for _, insertion := range insertions {
+		// Older clients still receive preview positions, calculated from current snapshots.
+		if !params.Preview && len(params.TargetURIs) == 0 {
+			snapshot, err := p.host.ResolveDocument(ctx, uriutil.FileURI(insertion.File))
+			if err != nil {
+				return nil, err
+			}
+			computed, ok := translation.InsertionForSource(insertion.File, snapshot.Document.Source, key, selection.text)
+			if !ok {
+				continue
+			}
+			computed.Locale = insertion.Locale
+			insertion = computed
+		}
 		targets = append(targets, twigTranslationExtractionTarget{
 			FileURI:   uriutil.FileURI(insertion.File),
 			File:      filepath.Base(insertion.File),
@@ -216,14 +235,22 @@ func (p *TwigTranslationExtractProvider) generate(
 		replacement += "({}, '" + escapeTwigSingleQuoted(domain) + "')"
 	}
 	replacement += " }}"
+	var edit *protocol.WorkspaceEdit
+	if len(params.TargetURIs) != 0 {
+		edit, err = p.extractionEdit(ctx, params, selection, replacement, targets)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return twigTranslationExtractionEdits{
+		Edit:        edit,
 		Replacement: replacement,
 		Range:       extractionProtocolRange(params.Source, selection),
 		Targets:     targets,
 	}, nil
 }
 
-func decodeTwigTranslationExtraction(
+func (p *TwigTranslationExtractProvider) decodeTwigTranslationExtraction(
 	ctx context.Context,
 	raw *json.RawMessage,
 ) (twigTranslationExtractionRequest, twigTranslationSelection, error) {
@@ -245,16 +272,24 @@ func decodeTwigTranslationExtraction(
 			"translation extraction requires a Twig template",
 		)
 	}
-	parsed := twigparser.Parse(params.Source)
-	if parsed.Tree == nil || parsed.Tree.Root == nil {
-		return params, twigTranslationSelection{}, fmt.Errorf(
-			"parse Twig template",
-		)
+	if p.host == nil {
+		return params, twigTranslationSelection{}, fmt.Errorf("workspace edit host is unavailable")
 	}
-	lineIndex := cst.NewLineIndex(params.Source)
+	snapshot, err := p.host.ResolveDocument(ctx, params.FileURI)
+	if err != nil {
+		return params, twigTranslationSelection{}, err
+	}
+	if snapshot.Document.Source != params.Source || params.Version != nil && (snapshot.Version == nil || *params.Version != *snapshot.Version) {
+		return params, twigTranslationSelection{}, rewrite.ErrStaleHandle
+	}
+	tree := snapshot.Document.SyntaxTree
+	if tree == nil || tree.Root == nil {
+		return params, twigTranslationSelection{}, fmt.Errorf("parse Twig template")
+	}
+	lineIndex := snapshot.Document.LineIndex
 	selection, ok := twigTranslationExtraction(
 		[]byte(params.Source),
-		parsed.Tree.Root,
+		tree.Root,
 		lineIndex,
 		params.Range,
 	)

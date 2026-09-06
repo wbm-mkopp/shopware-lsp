@@ -1,17 +1,18 @@
-package extension
+package commands
 
 import (
 	"context"
 	"encoding/json"
+	"github.com/shopware/shopware-lsp/internal/extension"
 
 	"github.com/shopware/shopware-lsp/internal/lsp"
 )
 
 type ExtensionCommandProvider struct {
-	extensionIndex *ExtensionIndexer
+	extensionIndex *extension.ExtensionIndexer
 }
 
-func NewExtensionCommandProvider(extensionIndex *ExtensionIndexer) *ExtensionCommandProvider {
+func NewExtensionCommandProvider(extensionIndex *extension.ExtensionIndexer) *ExtensionCommandProvider {
 	return &ExtensionCommandProvider{extensionIndex: extensionIndex}
 }
 func (e *ExtensionCommandProvider) GetCommands(ctx context.Context) map[string]lsp.CommandFunc {

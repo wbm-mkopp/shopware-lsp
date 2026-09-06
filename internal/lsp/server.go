@@ -522,46 +522,17 @@ func (s *Server) Start(in io.Reader, out io.Writer) error {
 	// Create a new JSON-RPC connection
 	stream := jsonrpc2.NewBufferedStream(rwc{in, out}, jsonrpc2.VSCodeObjectCodec{})
 	ordered := jsonrpc2.HandlerWithError(s.handle)
-	conn := jsonrpc2.NewConn(
-		context.Background(),
-		stream,
-		&cliDiagnosticHandler{
-			server:  s,
-			ordered: ordered,
-		},
-	)
+	dispatcher := newRequestDispatcher(ordered)
+	dispatcher.server = s
+	conn := jsonrpc2.NewConn(context.Background(), stream, dispatcher)
 	s.setConnection(conn)
 
 	// Wait for the connection to close
 	<-conn.DisconnectNotify()
+	dispatcher.close()
 	s.setConnection(nil)
 
 	return s.CloseAll()
-}
-
-// cliDiagnosticHandler keeps normal LSP request ordering intact while letting
-// the CLI issue a bounded set of independent pull-diagnostic requests. Each
-// didOpen notification is still handled synchronously before its diagnostic
-// request, and the CLI sends didClose only after that request completes.
-type cliDiagnosticHandler struct {
-	server  *Server
-	ordered jsonrpc2.Handler
-}
-
-func (handler *cliDiagnosticHandler) Handle(
-	ctx context.Context,
-	conn *jsonrpc2.Conn,
-	request *jsonrpc2.Request,
-) {
-	if request.Method == "textDocument/diagnostic" &&
-		handler.server.initializationOptions.CLIMode {
-		if handler.server.startBackground(func(context.Context) {
-			handler.ordered.Handle(ctx, conn, request)
-		}) {
-			return
-		}
-	}
-	handler.ordered.Handle(ctx, conn, request)
 }
 
 // rwc combines a reader and writer into a single ReadWriteCloser

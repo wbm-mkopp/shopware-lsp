@@ -76,7 +76,7 @@ func (rl RouteList) GetByController(name string) *Route {
 type RouteIndexer struct {
 	dataIndexer           *indexer.DataIndexer[Route]
 	resourceImportIndexer *indexer.DataIndexer[RouteResourceImport]
-	compiledRoutes        *CompiledRouteWatcher
+	compiledRoutes        *CompiledRouteCatalog
 }
 
 func NewRouteIndexer(configDir string, stores ...*indexer.Store) (*RouteIndexer, error) {
@@ -108,7 +108,7 @@ func NewProjectRouteIndexer(
 	if err != nil {
 		return nil, err
 	}
-	watcher, watcherErr := NewCompiledRouteWatcher(projectRoot)
+	watcher, watcherErr := NewCompiledRouteCatalog(projectRoot)
 	if watcherErr != nil {
 		log.Printf("Failed to initialize compiled route watcher: %v", watcherErr)
 		return idx, nil

@@ -2,55 +2,35 @@ package symfony
 
 import (
 	"errors"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/fsnotify/fsnotify"
 )
 
-type CompiledRouteWatcher struct {
+type CompiledRouteCatalog struct {
 	projectRoot string
-	watcher     *fsnotify.Watcher
 
 	mu       sync.RWMutex
 	path     string
 	routes   map[string]Route
 	revision uint64
-
-	watchedDirs map[string]struct{}
-	wg          sync.WaitGroup
-	closeOnce   sync.Once
-	closeErr    error
 }
 
-func NewCompiledRouteWatcher(
+func NewCompiledRouteCatalog(
 	projectRoot string,
-) (*CompiledRouteWatcher, error) {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		return nil, err
-	}
-	result := &CompiledRouteWatcher{
+) (*CompiledRouteCatalog, error) {
+	result := &CompiledRouteCatalog{
 		projectRoot: projectRoot,
-		watcher:     watcher,
 		routes:      make(map[string]Route),
-		watchedDirs: make(map[string]struct{}),
 	}
-	result.watchCacheDirectories()
-	if err := result.Refresh(); err != nil && !errors.Is(err, os.ErrNotExist) {
-		log.Printf("Initial compiled route load failed: %v", err)
-	}
-	result.wg.Add(1)
-	go result.watchChanges()
+
 	return result, nil
 }
 
-func (w *CompiledRouteWatcher) Refresh() error {
+func (w *CompiledRouteCatalog) Refresh() error {
 	if w == nil {
 		return nil
 	}
@@ -70,7 +50,7 @@ func (w *CompiledRouteWatcher) Refresh() error {
 	return nil
 }
 
-func (w *CompiledRouteWatcher) Routes() ([]Route, uint64) {
+func (w *CompiledRouteCatalog) Routes() ([]Route, uint64) {
 	if w == nil {
 		return nil, 0
 	}
@@ -89,7 +69,7 @@ func (w *CompiledRouteWatcher) Routes() ([]Route, uint64) {
 	return result, w.revision
 }
 
-func (w *CompiledRouteWatcher) Route(name string) (Route, bool) {
+func (w *CompiledRouteCatalog) Route(name string) (Route, bool) {
 	if w == nil || name == "" {
 		return Route{}, false
 	}
@@ -99,18 +79,9 @@ func (w *CompiledRouteWatcher) Route(name string) (Route, bool) {
 	return route, found
 }
 
-func (w *CompiledRouteWatcher) Close() error {
-	if w == nil {
-		return nil
-	}
-	w.closeOnce.Do(func() {
-		w.closeErr = w.watcher.Close()
-		w.wg.Wait()
-	})
-	return w.closeErr
-}
+func (w *CompiledRouteCatalog) Close() error { return nil }
 
-func (w *CompiledRouteWatcher) publish(
+func (w *CompiledRouteCatalog) publish(
 	path string,
 	routes []Route,
 ) {
@@ -127,7 +98,7 @@ func (w *CompiledRouteWatcher) publish(
 	w.revision++
 }
 
-func (w *CompiledRouteWatcher) findRouteFile() (string, error) {
+func (w *CompiledRouteCatalog) findRouteFile() (string, error) {
 	type candidate struct {
 		path           string
 		environmentDev bool
@@ -193,27 +164,7 @@ func (w *CompiledRouteWatcher) findRouteFile() (string, error) {
 	return candidates[0].path, nil
 }
 
-func (w *CompiledRouteWatcher) watchCacheDirectories() {
-	for _, cacheDir := range w.cacheDirectories() {
-		w.addWatchDirectory(cacheDir)
-		entries, err := os.ReadDir(cacheDir)
-		if err != nil {
-			parent := filepath.Dir(cacheDir)
-			w.addWatchDirectory(parent)
-			if _, exists := w.watchedDirs[parent]; !exists {
-				w.addWatchDirectory(w.projectRoot)
-			}
-			continue
-		}
-		for _, entry := range entries {
-			if entry.IsDir() {
-				w.addWatchDirectory(filepath.Join(cacheDir, entry.Name()))
-			}
-		}
-	}
-}
-
-func (w *CompiledRouteWatcher) cacheDirectories() []string {
+func (w *CompiledRouteCatalog) cacheDirectories() []string {
 	return []string{
 		filepath.Join(w.projectRoot, "var", "cache"),
 		filepath.Join(w.projectRoot, "app", "cache"),
@@ -226,60 +177,7 @@ func isCompiledRouteFileName(name string) bool {
 		strings.HasSuffix(name, "UrlGenerator.php")
 }
 
-func (w *CompiledRouteWatcher) addWatchDirectory(path string) {
-	if path == "" {
-		return
-	}
-	if _, exists := w.watchedDirs[path]; exists {
-		return
-	}
-	info, err := os.Stat(path)
-	if err != nil || !info.IsDir() {
-		return
-	}
-	if err := w.watcher.Add(path); err != nil {
-		log.Printf("Failed to watch compiled route directory %s: %v", path, err)
-		return
-	}
-	w.watchedDirs[path] = struct{}{}
-}
-
-func (w *CompiledRouteWatcher) watchChanges() {
-	defer w.wg.Done()
-	for {
-		select {
-		case event, ok := <-w.watcher.Events:
-			if !ok {
-				return
-			}
-			createdRelevantDirectory := false
-			if event.Op&fsnotify.Create != 0 {
-				if info, err := os.Stat(event.Name); err == nil &&
-					info.IsDir() &&
-					w.shouldWatchCreatedDirectory(event.Name) {
-					w.addWatchDirectory(event.Name)
-					w.watchCacheDirectories()
-					createdRelevantDirectory = true
-				}
-			}
-			if !createdRelevantDirectory &&
-				!isCompiledRouteFileName(filepath.Base(event.Name)) {
-				continue
-			}
-			if err := w.Refresh(); err != nil &&
-				!errors.Is(err, os.ErrNotExist) {
-				log.Printf("Failed to reload compiled routes: %v", err)
-			}
-		case err, ok := <-w.watcher.Errors:
-			if !ok {
-				return
-			}
-			log.Printf("Compiled route watcher error: %v", err)
-		}
-	}
-}
-
-func (w *CompiledRouteWatcher) shouldWatchCreatedDirectory(
+func (w *CompiledRouteCatalog) shouldWatchCreatedDirectory(
 	path string,
 ) bool {
 	path = filepath.Clean(path)

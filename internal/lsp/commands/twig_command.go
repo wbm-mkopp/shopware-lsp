@@ -1,11 +1,11 @@
-package twig
+package commands
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/shopware/shopware-lsp/internal/twig"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -16,24 +16,28 @@ import (
 	"github.com/shopware/shopware-lsp/internal/extension"
 	"github.com/shopware/shopware-lsp/internal/lsp"
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
+	"github.com/shopware/shopware-lsp/internal/rewrite"
 	"github.com/shopware/shopware-lsp/internal/uriutil"
 )
 
 type TwigCommandProvider struct {
 	extensionIndex *extension.ExtensionIndexer
-	versioning     *VersioningService
+	versioning     *twig.VersioningService
 	projectRoot    string
+	host           EditHost
 }
 
 func NewTwigCommandProvider(
 	projectRoot string,
 	extensionIndex *extension.ExtensionIndexer,
-	versioning *VersioningService,
+	versioning *twig.VersioningService,
+	host EditHost,
 ) *TwigCommandProvider {
 	return &TwigCommandProvider{
 		extensionIndex: extensionIndex,
 		versioning:     versioning,
 		projectRoot:    projectRoot,
+		host:           host,
 	}
 }
 
@@ -75,31 +79,17 @@ func (t *TwigCommandProvider) extendBlock(ctx context.Context, args *json.RawMes
 
 	storefrontRelativePath := originalPath[resourcesIndex+16:]
 	extensionViewPath := path.Join(extension.GetStorefrontViewsPath(), storefrontRelativePath)
-	extensionViewPathDir := path.Dir(extensionViewPath)
-
-	if _, err := os.Stat(extensionViewPathDir); os.IsNotExist(err) {
-		if err := os.MkdirAll(extensionViewPathDir, 0755); err != nil {
-			log.Printf("Failed to create directory: %s", extensionViewPathDir)
-			return protocol.NewLspError("Failed to create directory", "directory.create_failed"), nil
-		}
-	}
-
-	_, err = os.Stat(extensionViewPath)
-
-	if os.IsNotExist(err) {
-		if err := os.WriteFile(extensionViewPath, []byte("{% sw_extends \"@Storefront/"+storefrontRelativePath+"\" %}\n"), 0644); err != nil {
-			log.Printf("Failed to create file: %s", extensionViewPath)
-			return protocol.NewLspError("Failed to create file", "file.create_failed"), nil
-		}
-	}
-
-	currentContent, err := os.ReadFile(extensionViewPath)
-
+	uri := uriutil.FileURI(extensionViewPath)
+	snapshot, err := targetSnapshot(ctx, t.host, uri)
 	if err != nil {
-		return protocol.NewLspError("Failed to read file", "file.read_failed"), nil
+		return nil, err
+	}
+	currentContent := []byte("{% sw_extends \"@Storefront/" + storefrontRelativePath + "\" %}\n")
+	if snapshot.Document != nil {
+		currentContent = []byte(snapshot.Document.SourceString())
 	}
 
-	twigFile, err := ParseTwig(extensionViewPath, currentContent)
+	twigFile, err := twig.ParseTwig(extensionViewPath, currentContent)
 	if err != nil {
 		return protocol.NewLspError("Failed to parse twig file", "parse.failed"), nil
 	}
@@ -113,7 +103,7 @@ func (t *TwigCommandProvider) extendBlock(ctx context.Context, args *json.RawMes
 			params.BlockName,
 			originalPath,
 		); hashErr == nil && found {
-			versionComment = FormatVersionComment(
+			versionComment = twig.FormatVersionComment(
 				originalHash.Hash,
 				t.versioning.VersionForPath(originalHash.AbsolutePath),
 			)
@@ -121,12 +111,16 @@ func (t *TwigCommandProvider) extendBlock(ctx context.Context, args *json.RawMes
 	}
 
 	currentContent = append(currentContent, []byte("\n\n"+versionComment+"{% block "+params.BlockName+" %}\n\n{% endblock %}\n")...)
-	if err := os.WriteFile(extensionViewPath, currentContent, 0644); err != nil {
-		log.Printf("Failed to write file: %s", extensionViewPath)
-		return protocol.NewLspError("Failed to write file", "file.write_failed"), nil
+	plan := rewrite.WorkspacePlan{}
+	if err := addReplacement(&plan, uri, snapshot, string(currentContent)); err != nil {
+		return nil, err
+	}
+	edit, err := t.host.WorkspaceEdit(ctx, plan)
+	if err != nil {
+		return nil, err
 	}
 
-	twigFile, err = ParseTwig(extensionViewPath, currentContent)
+	twigFile, err = twig.ParseTwig(extensionViewPath, currentContent)
 	if err != nil {
 		return protocol.NewLspError("Failed to parse twig file", "parse.failed"), nil
 	}
@@ -138,6 +132,7 @@ func (t *TwigCommandProvider) extendBlock(ctx context.Context, args *json.RawMes
 	return map[string]any{
 		"uri":  uriutil.FileURI(extensionViewPath),
 		"line": block.Line,
+		"edit": edit,
 	}, nil
 }
 
@@ -164,7 +159,7 @@ func (t *TwigCommandProvider) getBlockDiff(ctx context.Context, args *json.RawMe
 		return protocol.NewLspError("Failed to read override file", "file.read_failed"), nil
 	}
 
-	twigFile, err := ParseTwig(filePath, overrideContent)
+	twigFile, err := twig.ParseTwig(filePath, overrideContent)
 	if err != nil {
 		return protocol.NewLspError("Failed to parse twig file", "parse.failed"), nil
 	}
@@ -190,7 +185,7 @@ func (t *TwigCommandProvider) getBlockDiff(ctx context.Context, args *json.RawMe
 		return protocol.NewLspError("Failed to resolve upstream block", "block.hash_failed"), nil
 	}
 	if len(resolution.Candidates) == 0 ||
-		!IsStorefrontTemplate(resolution.Candidates[0].AbsolutePath) {
+		!twig.IsStorefrontTemplate(resolution.Candidates[0].AbsolutePath) {
 		return protocol.NewLspError("A historical diff is only available for Shopware core blocks", "block.diff_unavailable"), nil
 	}
 	currentBlock := resolution.Candidates[0]
@@ -236,7 +231,7 @@ func (t *TwigCommandProvider) getBlockContentAtVersion(absolutePath, blockName, 
 		}
 	}
 
-	twigFile, err := ParseTwig(relativePath, []byte(fileContent))
+	twigFile, err := twig.ParseTwig(relativePath, []byte(fileContent))
 	if err != nil {
 		return "", fmt.Errorf("failed to parse block %s at version %s: %w", blockName, version, err)
 	}

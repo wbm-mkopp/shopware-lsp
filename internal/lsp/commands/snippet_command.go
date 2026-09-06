@@ -1,32 +1,27 @@
-package snippet
+package commands
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/fs"
-	"os"
+	"github.com/shopware/shopware-lsp/internal/snippet"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/shopware/shopware-lsp/internal/lsp"
+	"github.com/shopware/shopware-lsp/internal/rewrite"
 	"github.com/shopware/shopware-lsp/internal/uriutil"
 	"github.com/tidwall/pretty"
 	"github.com/tidwall/sjson"
 )
 
 type SnippetCommandProvider struct {
-	snippetIndexer *SnippetIndexer
-	host           CommandHost
+	snippetIndexer *snippet.SnippetIndexer
+	host           EditHost
 }
 
-type CommandHost interface {
-	IndexFiles(context.Context, []string) error
-	PublishDiagnostics(context.Context, []string)
-}
-
-func NewSnippetCommandProvider(snippetIndexer *SnippetIndexer, host CommandHost) *SnippetCommandProvider {
+func NewSnippetCommandProvider(snippetIndexer *snippet.SnippetIndexer, host EditHost) *SnippetCommandProvider {
 	return &SnippetCommandProvider{snippetIndexer: snippetIndexer, host: host}
 }
 
@@ -173,17 +168,13 @@ func (s *SnippetCommandProvider) getPossibleSnippets(ctx context.Context, args *
 	snippetDir := filepath.Join(dirPath, "snippet")
 
 	// Find possible snippets
-	possibleSnippets := findPossibleSnippets(snippetDir)
+	possibleSnippets, err := s.possibleSnippets(ctx, snippetDir, false)
 
-	// The user didn't created one yet, we create for him one
+	if err != nil {
+		return nil, err
+	}
+	// Suggest a path without creating it.
 	if len(possibleSnippets) == 0 {
-		if err := os.MkdirAll(filepath.Join(snippetDir, "en_GB"), os.ModePerm); err != nil {
-			return nil, err
-		}
-
-		if err := os.WriteFile(filepath.Join(snippetDir, "en_GB", "storefront.en-GB.json"), []byte("{}"), os.ModePerm); err != nil {
-			return nil, err
-		}
 
 		possibleSnippets = []SnippetFile{
 			{
@@ -211,33 +202,34 @@ func (s *SnippetCommandProvider) createSnippet(ctx context.Context, args *json.R
 		return nil, fmt.Errorf("invalid arguments for createSnippet: %w", err)
 	}
 
-	files := make([]string, len(params.Snippets))
+	return s.createSnippets(ctx, params.SnippetKey, params.Snippets)
+}
 
-	for _, snippet := range params.Snippets {
-		fileContent, err := os.ReadFile(snippet.Path)
+func (s *SnippetCommandProvider) createSnippets(ctx context.Context, key string, snippets []SnippetFile) (interface{}, error) {
+	plan := rewrite.WorkspacePlan{}
+	for _, snippet := range snippets {
+		uri := uriutil.FileURI(snippet.Path)
+		snapshot, err := targetSnapshot(ctx, s.host, uri)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read file %s: %w", snippet.Path, err)
+			return nil, err
 		}
-
-		newFile, err := sjson.SetBytes(fileContent, params.SnippetKey, snippet.Value)
+		source := "{}"
+		if snapshot.Document != nil {
+			source = snapshot.Document.SourceString()
+		}
+		content, err := sjson.Set(source, key, snippet.Value)
 		if err != nil {
-			return nil, fmt.Errorf("failed to set snippet %s in file %s: %w", params.SnippetKey, snippet.Path, err)
+			return nil, fmt.Errorf("set snippet %s: %w", key, err)
 		}
-
-		if err := os.WriteFile(snippet.Path, pretty.Pretty(newFile), os.ModePerm); err != nil {
-			return nil, fmt.Errorf("failed to write file %s: %w", snippet.Path, err)
+		if err := addReplacement(&plan, uri, snapshot, string(pretty.Pretty([]byte(content)))); err != nil {
+			return nil, err
 		}
-
-		files = append(files, snippet.Path)
 	}
-
-	if err := s.host.IndexFiles(ctx, files); err != nil {
-		return nil, fmt.Errorf("failed to index files: %w", err)
+	edit, err := s.host.WorkspaceEdit(ctx, plan)
+	if err != nil {
+		return nil, err
 	}
-
-	s.host.PublishDiagnostics(ctx, []string{params.FileURI})
-
-	return nil, nil
+	return EditResponse{Edit: edit}, nil
 }
 
 type SnippetFile struct {
@@ -295,18 +287,14 @@ func (s *SnippetCommandProvider) getPossibleAdminSnippets(ctx context.Context, a
 	administrationSrcDir := filepath.Join(resourcesDir, "app", "administration", "src")
 
 	// Find possible snippets anywhere under administration/src in snippet/ directories
-	possibleSnippets := findPossibleAdminSnippets(administrationSrcDir)
+	possibleSnippets, err := s.possibleSnippets(ctx, administrationSrcDir, true)
 
-	// The user didn't create one yet, we create for him one
+	if err != nil {
+		return nil, err
+	}
+	// Suggest a path without creating it.
 	if len(possibleSnippets) == 0 {
 		snippetDir := filepath.Join(administrationSrcDir, "snippet")
-		if err := os.MkdirAll(snippetDir, os.ModePerm); err != nil {
-			return nil, err
-		}
-
-		if err := os.WriteFile(filepath.Join(snippetDir, "en-GB.json"), []byte("{}"), os.ModePerm); err != nil {
-			return nil, err
-		}
 
 		possibleSnippets = []SnippetFile{
 			{
@@ -334,100 +322,32 @@ func (s *SnippetCommandProvider) createAdminSnippet(ctx context.Context, args *j
 		return nil, fmt.Errorf("invalid arguments for createAdminSnippet: %w", err)
 	}
 
-	files := make([]string, 0, len(params.Snippets))
-
-	for _, snippet := range params.Snippets {
-		fileContent, err := os.ReadFile(snippet.Path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read file %s: %w", snippet.Path, err)
-		}
-
-		newFile, err := sjson.SetBytes(fileContent, params.SnippetKey, snippet.Value)
-		if err != nil {
-			return nil, fmt.Errorf("failed to set snippet %s in file %s: %w", params.SnippetKey, snippet.Path, err)
-		}
-
-		if err := os.WriteFile(snippet.Path, pretty.Pretty(newFile), os.ModePerm); err != nil {
-			return nil, fmt.Errorf("failed to write file %s: %w", snippet.Path, err)
-		}
-
-		files = append(files, snippet.Path)
-	}
-
-	if err := s.host.IndexFiles(ctx, files); err != nil {
-		return nil, fmt.Errorf("failed to index files: %w", err)
-	}
-
-	s.host.PublishDiagnostics(ctx, []string{params.FileURI})
-
-	return nil, nil
+	return s.createSnippets(ctx, params.SnippetKey, params.Snippets)
 }
 
-func findPossibleSnippets(dirPath string) []SnippetFile {
-	var possibleSnippets []SnippetFile
-
-	_ = filepath.WalkDir(dirPath, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if d.IsDir() {
-			return nil
-		}
-
-		if filepath.Ext(path) == ".json" {
-			possibleSnippets = append(possibleSnippets, SnippetFile{
-				Path:  path,
-				Name:  filepath.Base(path),
-				Value: "",
-			})
-		}
-
-		return nil
-	})
-
-	// Sort so that en_GB files come first
-	for i := 0; i < len(possibleSnippets); i++ {
-		if strings.Contains(possibleSnippets[i].Path, "en_GB") {
-			// Move this item to the beginning of the slice
-			possibleSnippets = append([]SnippetFile{possibleSnippets[i]}, append(possibleSnippets[:i], possibleSnippets[i+1:]...)...)
-		}
+func (s *SnippetCommandProvider) possibleSnippets(ctx context.Context, directory string, admin bool) ([]SnippetFile, error) {
+	paths, err := s.host.ResourcePaths(ctx, directory, 10000)
+	if err != nil {
+		return nil, err
 	}
-
-	return possibleSnippets
-}
-
-func findPossibleAdminSnippets(dirPath string) []SnippetFile {
-	var possibleSnippets []SnippetFile
-
-	_ = filepath.WalkDir(dirPath, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+	var result []SnippetFile
+	for _, path := range paths {
+		if filepath.Ext(path) != ".json" || (admin && filepath.Base(filepath.Dir(path)) != "snippet") {
+			continue
 		}
-
-		if d.IsDir() {
-			return nil
-		}
-
-		// Only include JSON files that are inside a "snippet" directory
-		if filepath.Ext(path) == ".json" && filepath.Base(filepath.Dir(path)) == "snippet" {
-			possibleSnippets = append(possibleSnippets, SnippetFile{
-				Path:  path,
-				Name:  filepath.Base(path),
-				Value: "",
-			})
-		}
-
-		return nil
-	})
-
-	// Sort so that en-GB files come first (admin uses hyphen, not underscore)
-	for i := 0; i < len(possibleSnippets); i++ {
-		if strings.Contains(possibleSnippets[i].Name, "en-GB") || possibleSnippets[i].Name == "en.json" {
-			// Move this item to the beginning of the slice
-			possibleSnippets = append([]SnippetFile{possibleSnippets[i]}, append(possibleSnippets[:i], possibleSnippets[i+1:]...)...)
-		}
+		result = append(result, SnippetFile{Path: path, Name: filepath.Base(path)})
 	}
-
-	return possibleSnippets
+	slices.SortFunc(result, func(a, b SnippetFile) int {
+		preferred := func(file SnippetFile) bool {
+			return strings.Contains(file.Path, "en_GB") || strings.Contains(file.Name, "en-GB") || file.Name == "en.json"
+		}
+		if preferred(a) != preferred(b) {
+			if preferred(a) {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a.Path, b.Path)
+	})
+	return result, nil
 }

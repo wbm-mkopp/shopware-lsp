@@ -1,8 +1,9 @@
-package console
+package commands
 
 import (
 	"context"
 	"encoding/json"
+	"github.com/shopware/shopware-lsp/internal/console"
 	"testing"
 
 	"github.com/shopware/shopware-lsp/internal/indexer"
@@ -12,7 +13,7 @@ import (
 )
 
 func TestConsoleCatalogProvidesCommandsAliasesAndInputs(t *testing.T) {
-	index, err := NewIndex(t.TempDir())
+	index, err := console.NewIndex(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, index.Close()) })
 	path := "/project/src/Command/CreateUserCommand.php"
@@ -38,7 +39,7 @@ final class CreateUserCommand
 `),
 	)))
 
-	provider := NewCatalogProvider(index, "/project")
+	provider := NewConsoleCatalogProvider(index, "/project")
 	entries, err := provider.Catalog(context.Background(), "")
 	require.NoError(t, err)
 	require.Len(t, entries, 2)
@@ -53,11 +54,11 @@ final class CreateUserCommand
 		"src/Command/CreateUserCommand.php",
 		entries[1].FilePath,
 	)
-	assert.Equal(t, []CatalogInput{{
+	assert.Equal(t, []console.CatalogInput{{
 		Name:        "userId",
 		Description: "User ID",
 	}}, entries[1].Arguments)
-	assert.Equal(t, []CatalogInput{{
+	assert.Equal(t, []console.CatalogInput{{
 		Name:     "force",
 		Shortcut: "f",
 		Default:  "false",
@@ -65,7 +66,7 @@ final class CreateUserCommand
 }
 
 func TestConsoleCatalogCommandFiltersCaseInsensitively(t *testing.T) {
-	index, err := NewIndex(t.TempDir())
+	index, err := console.NewIndex(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, index.Close()) })
 	require.NoError(t, index.Index(indexer.NewParsedFile(
@@ -78,16 +79,16 @@ final class CreateUser {}
 final class WarmCache {}
 `),
 	)))
-	provider := NewCatalogProvider(index, "/project")
-	raw, err := json.Marshal(CatalogRequest{
+	provider := NewConsoleCatalogProvider(index, "/project")
+	raw, err := json.Marshal(console.CatalogRequest{
 		Query:    "USER",
 		FileGlob: "src/**/Commands.php",
 	})
 	require.NoError(t, err)
 	message := json.RawMessage(raw)
-	value, err := provider.GetCommands(context.Background())[ListCatalogCommand](context.Background(), &message)
+	value, err := provider.GetCommands(context.Background())[console.ListCatalogCommand](context.Background(), &message)
 	require.NoError(t, err)
-	assert.Equal(t, []CatalogEntry{{
+	assert.Equal(t, []console.CatalogEntry{{
 		Name:      "app:user:create",
 		Canonical: "app:user:create",
 		Class:     "App\\Command\\CreateUser",
@@ -97,7 +98,7 @@ final class WarmCache {}
 
 	entries, err := provider.CatalogWithRequest(
 		context.Background(),
-		CatalogRequest{FileGlob: "tests/**"},
+		console.CatalogRequest{FileGlob: "tests/**"},
 	)
 	require.NoError(t, err)
 	assert.Empty(t, entries)

@@ -34,26 +34,24 @@ object codec and connects it to a handler:
 // internal/lsp/server.go
 stream := jsonrpc2.NewBufferedStream(rwc{in, out}, jsonrpc2.VSCodeObjectCodec{})
 ordered := jsonrpc2.HandlerWithError(s.handle)
-conn := jsonrpc2.NewConn(context.Background(), stream, &cliDiagnosticHandler{
-    server: s, ordered: ordered,
-})
+dispatcher := newRequestDispatcher(ordered)
+dispatcher.server = s
+conn := jsonrpc2.NewConn(context.Background(), stream, dispatcher)
 s.setConnection(conn)
 <-conn.DisconnectNotify()
+dispatcher.close()
 return s.CloseAll()
 ```
 
-**Requests are handled sequentially.** `jsonrpc2.HandlerWithError` processes one
-request at a time, in arrival order. This is a deliberate simplification — it
-removes a large class of ordering bugs around document versions — but it has a
-direct consequence for anyone writing a provider: **a slow provider blocks the
-next request.** Providers must return fast and must honor `ctx` cancellation.
+**Normal requests and document notifications execute in order.** A bounded
+queue separates the transport reader from the single handler worker. The reader
+handles `$/cancelRequest` directly, so a long-running provider can observe its
+context cancellation while later document notifications remain ordered. Cancelled
+requests return LSP error `-32800`; disconnect cancels the dispatcher before
+workspace teardown.
 
-The single exception is `cliDiagnosticHandler`, which moves
-`textDocument/diagnostic` to a background goroutine **in CLI mode only**, so
-`shopware-lsp check` can analyze several files concurrently. Ordinary LSP
-ordering is untouched: each `didOpen` is still handled synchronously before its
-diagnostic request, and the CLI sends `didClose` only after that request
-completes.
+CLI pull diagnostics may execute in lifecycle-managed background jobs. Their
+request contexts remain registered until completion, and shutdown cancels them.
 
 ### The dispatch chain
 

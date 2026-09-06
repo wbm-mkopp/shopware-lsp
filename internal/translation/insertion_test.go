@@ -1,8 +1,10 @@
 package translation
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/shopware/shopware-lsp/internal/indexer"
@@ -90,4 +92,60 @@ func TestTranslationXLIFFInsertions(t *testing.T) {
 			assert.Contains(t, extracted[0].NewText, "Welcome &lt;friend&gt;")
 		})
 	}
+}
+
+func TestInsertionTargetsNeedOnlyIndexedMetadata(t *testing.T) {
+	idx := newTestIndex(t)
+	path := filepath.Join(t.TempDir(), "translations", "messages.en.yaml")
+	require.NoError(t, idx.Index(indexer.NewParsedFile(path, []byte("known: Known\n"))))
+	targets, err := idx.InsertionTargets("messages")
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	require.Equal(t, path, targets[0].File)
+	require.Equal(t, "en", targets[0].Locale)
+	require.Empty(t, targets[0].NewText)
+	require.NoFileExists(t, path)
+}
+
+func TestInsertionRejectsDuplicateKeysInCurrentSnapshot(t *testing.T) {
+	for _, source := range []string{"new.key: Unsaved\n", "new:\n  key: Unsaved\n"} {
+		_, ok := InsertionForSource("messages.en.yaml", source, "new.key", "Replacement")
+		require.False(t, ok)
+	}
+	_, ok := InsertionForSource("messages.en.xlf", `<xliff version="1.2"><file><body><trans-unit id="1" resname="new.key"><source>new.key</source></trans-unit></body></file></xliff>`, "new.key", "Replacement")
+	require.False(t, ok)
+}
+
+func BenchmarkTranslationFixTargetDiscovery(b *testing.B) {
+	idx, err := NewIndex(b.TempDir())
+	require.NoError(b, err)
+	b.Cleanup(func() { require.NoError(b, idx.Close()) })
+	root := b.TempDir()
+	var source strings.Builder
+	for i := 0; i < 500; i++ {
+		fmt.Fprintf(&source, "key%d: Value %d\n", i, i)
+	}
+	for _, locale := range []string{"en", "de", "fr", "es"} {
+		path := filepath.Join(root, "messages."+locale+".yaml")
+		require.NoError(b, os.WriteFile(path, []byte(source.String()), 0o644))
+		require.NoError(b, idx.Index(indexer.NewParsedFile(path, []byte(source.String()))))
+	}
+	b.Run("indexed_metadata", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_, err := idx.InsertionTargets("messages")
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("eager_resource_edits", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_, err := idx.Insertions("messages", "missing")
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 }

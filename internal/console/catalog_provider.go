@@ -2,13 +2,11 @@ package console
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
 
-	"github.com/shopware/shopware-lsp/internal/lsp"
 	"github.com/shopware/shopware-lsp/internal/pathmatch"
 	"github.com/shopware/shopware-lsp/internal/uriutil"
 )
@@ -53,30 +51,6 @@ type CatalogEntry struct {
 	FilePath    string         `json:"filePath,omitempty"`
 	Arguments   []CatalogInput `json:"arguments,omitempty"`
 	Options     []CatalogInput `json:"options,omitempty"`
-}
-
-func (p *CatalogProvider) GetCommands(
-	_ context.Context,
-) map[string]lsp.CommandFunc {
-	return map[string]lsp.CommandFunc{
-		ListCatalogCommand: p.list,
-	}
-}
-
-func (p *CatalogProvider) list(
-	ctx context.Context,
-	raw *json.RawMessage,
-) (interface{}, error) {
-	if p == nil || p.index == nil {
-		return nil, fmt.Errorf("symfony console catalog is unavailable")
-	}
-	var request CatalogRequest
-	if raw != nil && len(*raw) != 0 && string(*raw) != "null" {
-		if err := json.Unmarshal(*raw, &request); err != nil {
-			return nil, fmt.Errorf("invalid console catalog request: %w", err)
-		}
-	}
-	return p.CatalogWithRequest(ctx, request)
 }
 
 func (p *CatalogProvider) Catalog(
@@ -222,5 +196,3 @@ func catalogEntryScore(entry CatalogEntry) int {
 	}
 	return score
 }
-
-var _ lsp.CommandProvider = (*CatalogProvider)(nil)

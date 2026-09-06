@@ -24,7 +24,7 @@ type ServiceIndex struct {
 	serviceIndex     *indexer.DataIndexer[Service]
 	parameterIndex   *indexer.DataIndexer[Parameter]
 	prototypeIndex   *indexer.DataIndexer[ServicePrototype]
-	containerWatcher *ContainerWatcher
+	containerWatcher *ContainerCatalog
 	phpIndex         *php.PHPIndex
 
 	prototypeRevision atomic.Uint64
@@ -106,7 +106,7 @@ func NewServiceIndex(projectRoot string, configDir string, stores ...*indexer.St
 	}
 
 	// Initialize the container watcher after the index is created
-	containerWatcher, err := NewContainerWatcher(projectRoot)
+	containerWatcher, err := NewContainerCatalog(projectRoot)
 	if err != nil {
 		log.Printf("Failed to initialize container watcher: %v", err)
 		// Continue without the container watcher
@@ -164,10 +164,7 @@ func (idx *ServiceIndex) ReloadCompiledContainer() error {
 	if idx == nil || idx.containerWatcher == nil {
 		return nil
 	}
-	_, exists := idx.containerWatcher.containerState()
-	if exists {
-		return idx.containerWatcher.loadContainer()
-	}
+
 	return idx.containerWatcher.findAndLoadContainer()
 }
 

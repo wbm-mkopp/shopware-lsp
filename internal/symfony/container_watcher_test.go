@@ -35,6 +35,7 @@ func TestServiceIndexIncludesCompiledContainerParameters(t *testing.T) {
 	idx, err := NewServiceIndex(root, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, idx.Close()) })
+	require.NoError(t, idx.ReloadCompiledContainer())
 
 	parameters, err := idx.GetAllParameters()
 	require.NoError(t, err)

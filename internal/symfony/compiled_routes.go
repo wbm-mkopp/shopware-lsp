@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/shopware/shopware-lsp/internal/parser/cst"
 	phpparser "github.com/shopware/shopware-lsp/internal/parser/php"
 	phpquery "github.com/shopware/shopware-lsp/internal/parser/php/query"
 	phpsyntax "github.com/shopware/shopware-lsp/internal/parser/php/syntax"
@@ -20,7 +21,11 @@ var legacyAsseticRoutePattern = regexp.MustCompile(
 // order, so this restores their source path. Modern canonical aliases and
 // legacy I18nRoutingBundle names are normalized to the public route names.
 func ParseCompiledRoutes(filePath string, content []byte) []Route {
-	tree := phpparser.Parse(string(content)).Tree
+	return ParseCompiledRoutesTree(filePath, phpparser.Parse(string(content)).Tree)
+}
+
+// ParseCompiledRoutesTree reuses the scanner-owned immutable syntax snapshot.
+func ParseCompiledRoutesTree(filePath string, tree *cst.Tree) []Route {
 	if tree == nil || tree.Root == nil {
 		return nil
 	}

@@ -1,15 +1,13 @@
 package app
 
 import (
-	"github.com/shopware/shopware-lsp/internal/analytics"
-	"github.com/shopware/shopware-lsp/internal/console"
-	"github.com/shopware/shopware-lsp/internal/extension"
 	"github.com/shopware/shopware-lsp/internal/lsp"
+	"github.com/shopware/shopware-lsp/internal/lsp/analytics"
 	"github.com/shopware/shopware-lsp/internal/lsp/codeaction"
+	"github.com/shopware/shopware-lsp/internal/lsp/commands"
 	lspintegration "github.com/shopware/shopware-lsp/internal/lsp/integration"
 	"github.com/shopware/shopware-lsp/internal/lsp/scaffold"
 	"github.com/shopware/shopware-lsp/internal/shopware/entityschema"
-	"github.com/shopware/shopware-lsp/internal/snippet"
 	"github.com/shopware/shopware-lsp/internal/twig"
 )
 
@@ -23,6 +21,7 @@ func registerActionAndCommandProviders(server *lsp.Server, root string, versioni
 		adminTwigOverride = codeaction.NewAdminTwigOverrideProvider(
 			services.admin,
 			services.extensions,
+			server,
 		)
 		server.RegisterActionProvider(adminTwigOverride)
 	}
@@ -89,13 +88,14 @@ func registerActionAndCommandProviders(server *lsp.Server, root string, versioni
 	)
 	twigTranslationExtractor := codeaction.NewTwigTranslationExtractProvider(
 		services.translations,
+		server,
 	)
 	server.RegisterActionProvider(twigTranslationExtractor)
 
-	server.RegisterCommandProvider(snippet.NewSnippetCommandProvider(services.snippets, server))
+	server.RegisterCommandProvider(commands.NewSnippetCommandProvider(services.snippets, server))
 	server.RegisterCommandProvider(lspintegration.NewProvider())
-	server.RegisterCommandProvider(extension.NewExtensionCommandProvider(services.extensions))
-	server.RegisterCommandProvider(twig.NewTwigCommandProvider(root, services.extensions, versioning))
+	server.RegisterCommandProvider(commands.NewExtensionCommandProvider(services.extensions))
+	server.RegisterCommandProvider(commands.NewTwigCommandProvider(root, services.extensions, versioning, server))
 	server.RegisterCommandProvider(symfonyGenerators)
 	server.RegisterCommandProvider(formFieldGenerator)
 	server.RegisterCommandProvider(twigFormFieldGenerator)
@@ -104,7 +104,7 @@ func registerActionAndCommandProviders(server *lsp.Server, root string, versioni
 	if adminTwigOverride != nil {
 		server.RegisterCommandProvider(adminTwigOverride)
 	}
-	server.RegisterCommandProvider(console.NewCatalogProvider(
+	server.RegisterCommandProvider(commands.NewConsoleCatalogProvider(
 		services.console,
 		root,
 	))

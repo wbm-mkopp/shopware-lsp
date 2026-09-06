@@ -142,7 +142,7 @@ func registerCompletionProviders(server *lsp.Server, root string, phpFeatures *p
 	)
 	server.RegisterCompletionProvider(completion.NewRouteCompletionProvider(services.routes))
 	server.RegisterCompletionProvider(
-		completion.NewBundleResourceCompletionProvider(services.php),
+		completion.NewBundleResourceCompletionProvider(services.php, services.paths),
 	)
 	server.RegisterCompletionProvider(completion.NewSnippetCompletionProvider(services.snippets))
 	server.RegisterCompletionProvider(completion.NewFeatureCompletionProvider(services.features))

@@ -550,6 +550,7 @@ func TestIndexUsesCompiledContainerTwigComponents(t *testing.T) {
 	serviceIndex, err := symfony.NewServiceIndex(root, cache)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, serviceIndex.Close()) })
+	require.NoError(t, serviceIndex.ReloadCompiledContainer())
 	componentIndex, err := NewIndex(cache)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, componentIndex.Close()) })
