@@ -3,6 +3,7 @@ package diagnostics
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/shopware/shopware-lsp/internal/lsp"
@@ -53,18 +54,54 @@ func (p *TwigComponentAnalyzer) Analyze(
 		available[name] = struct{}{}
 	}
 	path, _ := uriutil.Path(document.URI)
-	var result []lsp.Problem
+	run := twigComponentDiagnosticRun{
+		ctx: ctx, index: p.index, document: document, path: path,
+		names: names, available: available,
+	}
+	run.collectMissingComponents()
+	if ctx.Err() != nil {
+		return nil, nil
+	}
+	if err := run.collectMissingBlocks(); err != nil {
+		return nil, err
+	}
+	if ctx.Err() != nil {
+		return nil, nil
+	}
+	if err := run.collectLiveDiagnostics(); err != nil {
+		return nil, err
+	}
+	if ctx.Err() != nil {
+		return nil, nil
+	}
+	run.problems = append(run.problems, mixedComponentSyntaxDiagnostics(document)...)
+	run.problems = append(run.problems, componentSelfImportDiagnostics(document)...)
+	return run.problems, nil
+}
+
+// Each run keeps catalog state and ordered results local to one document snapshot.
+type twigComponentDiagnosticRun struct {
+	ctx       context.Context
+	index     *twigcomponent.Index
+	document  *lsp.TextDocument
+	path      string
+	names     []string
+	available map[string]struct{}
+	problems  []lsp.Problem
+}
+
+func (r *twigComponentDiagnosticRun) collectMissingComponents() {
 	for _, usage := range twigcomponent.UsagesInTwig(
-		path,
-		document.SyntaxTree.Root,
+		r.path,
+		r.document.SyntaxTree.Root,
 	) {
-		if ctx.Err() != nil {
-			return nil, nil
+		if r.ctx.Err() != nil {
+			return
 		}
-		if _, found := available[usage.Name]; found {
+		if _, found := r.available[usage.Name]; found {
 			continue
 		}
-		result = append(result, lsp.Problem{
+		r.problems = append(r.problems, lsp.Problem{
 			Range: usage.Range,
 			Message: fmt.Sprintf(
 				"Twig component '%s' not found",
@@ -76,33 +113,42 @@ func (p *TwigComponentAnalyzer) Analyze(
 			Payload: map[string]any{
 				"suggestions": suggestion.Similar(
 					usage.Name,
-					names,
+					r.names,
 				),
 			},
 		})
 	}
+}
+
+func (r *twigComponentDiagnosticRun) collectMissingBlocks() error {
+	// Repeated uses of a component share a catalog lookup within this analysis.
+	// Keep the cache local so the next run observes template/index updates.
+	blockNames := make(map[string][]string)
 	for _, usage := range twigcomponent.BlockUsagesInTwig(
-		document.SyntaxTree.Root,
+		r.document.SyntaxTree.Root,
 	) {
-		if _, componentFound := available[usage.Component]; !componentFound {
+		if r.ctx.Err() != nil {
+			return nil
+		}
+		if _, componentFound := r.available[usage.Component]; !componentFound {
 			continue
 		}
-		blocks, blockErr := p.index.Blocks(usage.Component)
-		if blockErr != nil {
-			return nil, blockErr
-		}
-		var candidates []string
-		found := false
-		for _, block := range blocks {
-			candidates = append(candidates, block.Name)
-			if block.Name == usage.Name {
-				found = true
+		candidates, cached := blockNames[usage.Component]
+		if !cached {
+			blocks, blockErr := r.index.Blocks(usage.Component)
+			if blockErr != nil {
+				return blockErr
 			}
+			for _, block := range blocks {
+				candidates = append(candidates, block.Name)
+			}
+			candidates = uniqueComponentBlockNames(candidates)
+			blockNames[usage.Component] = candidates
 		}
-		if found {
+		if slices.Contains(candidates, usage.Name) {
 			continue
 		}
-		result = append(result, lsp.Problem{
+		r.problems = append(r.problems, lsp.Problem{
 			Range: usage.Range,
 			Message: fmt.Sprintf(
 				"Block '%s' not found in Twig component '%s'",
@@ -115,111 +161,12 @@ func (p *TwigComponentAnalyzer) Analyze(
 			Payload: map[string]any{
 				"suggestions": suggestion.Similar(
 					usage.Name,
-					uniqueComponentBlockNames(candidates),
+					candidates,
 				),
 			},
 		})
 	}
-	components, componentErr := p.index.ComponentsForTemplate(path)
-	if componentErr != nil {
-		return nil, componentErr
-	}
-	live := false
-	for _, component := range components {
-		if component.Live {
-			live = true
-			break
-		}
-	}
-	if live {
-		actions, actionErr := p.index.LiveActionsForTemplate(path)
-		if actionErr != nil {
-			return nil, actionErr
-		}
-		actionNames := make([]string, 0, len(actions))
-		for _, action := range actions {
-			actionNames = append(actionNames, action.Name)
-		}
-		for _, reference := range twigcomponent.LiveActionReferencesInTwig(
-			path,
-			document.SyntaxTree.Root,
-		) {
-			if reference.Name == "" ||
-				containsFold(actionNames, reference.Name) {
-				continue
-			}
-			result = append(result, lsp.Problem{
-				Range: reference.Range,
-				Message: fmt.Sprintf(
-					"Live Action '%s' not found on this component",
-					reference.Name,
-				),
-				Severity: protocol.DiagnosticSeverityWarning,
-				Source:   "twig",
-				ID:       missingLiveActionCode,
-				Payload: map[string]any{
-					"suggestions": suggestion.Similar(
-						reference.Name,
-						actionNames,
-					),
-				},
-			})
-		}
-		for _, reference := range twigcomponent.LiveActionArgumentReferencesInTwig(
-			path,
-			document.SyntaxTree.Root,
-		) {
-			var parameters []twigcomponent.LiveActionParameter
-			for _, action := range actions {
-				if strings.EqualFold(action.Name, reference.Action) {
-					parameters = append(parameters, action.Parameters...)
-				}
-			}
-			if len(parameters) == 0 {
-				continue
-			}
-			names := make([]string, 0, len(parameters))
-			found := false
-			for _, parameter := range parameters {
-				names = append(names, parameter.Name)
-				if strings.EqualFold(parameter.Name, reference.Name) {
-					found = true
-				}
-			}
-			if found {
-				continue
-			}
-			suggestions := suggestion.Similar(reference.Name, names)
-			for index := range suggestions {
-				suggestions[index] = liveArgumentAttributeSegment(
-					suggestions[index],
-				)
-			}
-			result = append(result, lsp.Problem{
-				Range: reference.Range,
-				Message: fmt.Sprintf(
-					"Live Action '%s' has no argument named '%s'",
-					reference.Action,
-					reference.Name,
-				),
-				Severity: protocol.DiagnosticSeverityWarning,
-				Source:   "twig",
-				ID:       missingLiveArgumentCode,
-				Payload: map[string]any{
-					"suggestions": suggestions,
-				},
-			})
-		}
-	}
-	result = append(
-		result,
-		mixedComponentSyntaxDiagnostics(document)...,
-	)
-	result = append(
-		result,
-		componentSelfImportDiagnostics(document)...,
-	)
-	return result, nil
+	return nil
 }
 
 func containsFold(values []string, value string) bool {

@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/shopware/shopware-lsp/internal/admin"
-	"github.com/shopware/shopware-lsp/internal/asset"
 	"github.com/shopware/shopware-lsp/internal/console"
 	"github.com/shopware/shopware-lsp/internal/doctrine"
 	"github.com/shopware/shopware-lsp/internal/httpclient"
@@ -7195,76 +7194,21 @@ return static function (ContainerConfigurator $container): void {
 		invalidPHPServiceArgumentTypes[0].Message,
 		"KernelPluginLoader",
 	)
-	assetNames, err := workspaceAssetIndex(t, workspace).Names()
-	require.NoError(t, err)
-	require.Greater(t, len(assetNames), 1_000)
-	encoreEntries, err := workspaceAssetIndex(t, workspace).EntryNames()
-	require.NoError(t, err)
-	importmapEntries, err := workspaceAssetIndex(
-		t,
-		workspace,
-	).ImportmapEntryNames()
-	require.NoError(t, err)
-	require.NotContains(t, importmapEntries, "twig.runtime.importmap")
-	viteEntries, err := workspaceAssetIndex(t, workspace).ViteEntryNames()
-	require.NoError(t, err)
-	require.Contains(t, viteEntries, "app")
-	viteUsages, err := workspaceAssetIndex(t, workspace).Usages(
-		"app",
-		asset.ViteEntryReference,
-	)
-	require.NoError(t, err)
-	require.Len(t, viteUsages, 1)
-	viteAdministrationUsages, err := workspaceAssetIndex(t, workspace).Usages(
-		"administration",
-		asset.ViteEntryReference,
-	)
-	require.NoError(t, err)
-	require.Len(t, viteAdministrationUsages, 1)
-	assetPackageNames, err := workspaceAssetIndex(
-		t,
-		workspace,
-	).PackageNames()
-	require.NoError(t, err)
-	require.Contains(t, assetPackageNames, "@Administration")
-	require.Contains(t, assetPackageNames, "asset")
-	require.Contains(t, assetPackageNames, "theme")
-	administrationAssets, err := workspaceAssetIndex(
-		t,
-		workspace,
-	).FindAssetsForPackage(
-		"administration/static/img/favicon/favicon-16x16.png",
-		"@Administration",
-	)
-	require.NoError(t, err)
-	require.NotEmpty(t, administrationAssets)
-	themeAssets, err := workspaceAssetIndex(
-		t,
-		workspace,
-	).FindAssetsForPackage(
-		"assets/illustration/404_error.svg",
-		"theme",
-	)
-	require.NoError(t, err)
-	require.NotEmpty(t, themeAssets)
-	administrationPackageUsages, err := workspaceAssetIndex(
-		t,
-		workspace,
-	).Usages(
-		"@Administration",
-		asset.AssetPackageReference,
-	)
-	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(administrationPackageUsages), 5)
-	htmlAssetUsages, err := workspaceAssetIndex(
-		t,
-		workspace,
-	).Usages(
-		"_webpack_hot_proxy_/storefront/hot-reloading.js",
-		asset.AssetReference,
-	)
-	require.NoError(t, err)
-	require.NotEmpty(t, htmlAssetUsages)
+	assets := captureWorkspaceAssets(t, workspace)
+	assetsPassed := t.Run("assets/indexed", func(t *testing.T) {
+		require.Greater(t, len(assets.names), 1000)
+		require.NotContains(t, assets.importmap, "twig.runtime.importmap")
+		require.Contains(t, assets.vite, "app")
+		require.Len(t, assets.viteUsages, 1)
+		require.Len(t, assets.viteAdministrationUsages, 1)
+		require.Contains(t, assets.packages, "@Administration")
+		require.Contains(t, assets.packages, "asset")
+		require.Contains(t, assets.packages, "theme")
+		require.NotEmpty(t, assets.administration)
+		require.NotEmpty(t, assets.theme)
+		require.GreaterOrEqual(t, len(assets.administrationUsages), 5)
+		require.NotEmpty(t, assets.htmlUsages)
+	})
 	twigMacros, err := workspaceTwigIndex(t, workspace).GetAllMacros()
 	require.NoError(t, err)
 	require.NotEmpty(t, twigMacros)
@@ -7762,14 +7706,14 @@ return static function (ContainerConfigurator $container): void {
 		len(appEnv.References),
 		deprecatedServiceCount,
 		len(doctrineModels),
-		len(assetNames),
-		len(assetPackageNames),
-		len(administrationPackageUsages),
-		len(htmlAssetUsages),
-		len(encoreEntries),
-		len(importmapEntries),
-		len(viteEntries),
-		len(viteUsages)+len(viteAdministrationUsages),
+		len(assets.names),
+		len(assets.packages),
+		len(assets.administrationUsages),
+		len(assets.htmlUsages),
+		len(assets.encore),
+		len(assets.importmap),
+		len(assets.vite),
+		len(assets.viteUsages)+len(assets.viteAdministrationUsages),
 		len(twigMacros),
 		len(twigTests),
 		len(twigOperators),
@@ -9489,89 +9433,12 @@ function real_world_translation_assistant(string $key, string $domain): void {}
 		routeComparisonDefinition,
 		restoredRouteComparisonDefinition,
 	)
-	restoredAssetNames, err := workspaceAssetIndex(t, reopened).Names()
-	require.NoError(t, err)
-	require.Equal(t, assetNames, restoredAssetNames)
-	restoredAssetPackageNames, err := workspaceAssetIndex(
-		t,
-		reopened,
-	).PackageNames()
-	require.NoError(t, err)
-	require.Equal(t, assetPackageNames, restoredAssetPackageNames)
-	restoredAdministrationAssets, err := workspaceAssetIndex(
-		t,
-		reopened,
-	).FindAssetsForPackage(
-		"administration/static/img/favicon/favicon-16x16.png",
-		"@Administration",
-	)
-	require.NoError(t, err)
-	require.Equal(t, administrationAssets, restoredAdministrationAssets)
-	restoredThemeAssets, err := workspaceAssetIndex(
-		t,
-		reopened,
-	).FindAssetsForPackage(
-		"assets/illustration/404_error.svg",
-		"theme",
-	)
-	require.NoError(t, err)
-	require.Equal(t, themeAssets, restoredThemeAssets)
-	restoredAdministrationPackageUsages, err := workspaceAssetIndex(
-		t,
-		reopened,
-	).Usages(
-		"@Administration",
-		asset.AssetPackageReference,
-	)
-	require.NoError(t, err)
-	require.Equal(
-		t,
-		administrationPackageUsages,
-		restoredAdministrationPackageUsages,
-	)
-	restoredHTMLAssetUsages, err := workspaceAssetIndex(
-		t,
-		reopened,
-	).Usages(
-		"_webpack_hot_proxy_/storefront/hot-reloading.js",
-		asset.AssetReference,
-	)
-	require.NoError(t, err)
-	require.Equal(t, htmlAssetUsages, restoredHTMLAssetUsages)
-	restoredEncoreEntries, err := workspaceAssetIndex(
-		t,
-		reopened,
-	).EntryNames()
-	require.NoError(t, err)
-	require.Equal(t, encoreEntries, restoredEncoreEntries)
-	restoredImportmapEntries, err := workspaceAssetIndex(
-		t,
-		reopened,
-	).ImportmapEntryNames()
-	require.NoError(t, err)
-	require.Equal(t, importmapEntries, restoredImportmapEntries)
-	restoredViteEntries, err := workspaceAssetIndex(
-		t,
-		reopened,
-	).ViteEntryNames()
-	require.NoError(t, err)
-	require.Equal(t, viteEntries, restoredViteEntries)
-	restoredViteUsages, err := workspaceAssetIndex(t, reopened).Usages(
-		"app",
-		asset.ViteEntryReference,
-	)
-	require.NoError(t, err)
-	require.Equal(t, viteUsages, restoredViteUsages)
-	restoredViteAdministrationUsages, err := workspaceAssetIndex(
-		t,
-		reopened,
-	).Usages("administration", asset.ViteEntryReference)
-	require.NoError(t, err)
-	require.Equal(
-		t,
-		viteAdministrationUsages,
-		restoredViteAdministrationUsages,
-	)
+	t.Run("assets/restored", func(t *testing.T) {
+		if !assetsPassed {
+			t.Skip("indexed asset checks failed")
+		}
+		require.Equal(t, assets, captureWorkspaceAssets(t, reopened))
+	})
 	restoredTwigMacros, err := workspaceTwigIndex(t, reopened).GetAllMacros()
 	require.NoError(t, err)
 	require.Equal(t, twigMacros, restoredTwigMacros)

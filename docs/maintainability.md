@@ -1,7 +1,7 @@
 # Maintainability Baseline
 
-This document records the August 2026 maintainability review. It is a risk
-ranking, not a mandate to optimize code for a metric. Parser dispatch and
+This document records the August 2026 baseline and the September 2026 follow-up.
+It is a risk ranking, not a mandate to optimize code for a metric. Parser dispatch and
 type-relation code can be inherently branch-heavy; refactor it only with
 correctness fixtures and performance measurements in place.
 
@@ -16,8 +16,8 @@ correctness fixtures and performance measurements in place.
 
 ## Measured hotspots
 
-The repository contains roughly 403,000 lines of Go including generated,
-fixture, and test code. The largest production files are currently:
+The August snapshot contained roughly 403,000 lines of Go including generated,
+fixture, and test code. Its largest production files included:
 
 | File | Approximate lines | Main risk |
 | --- | ---: | --- |
@@ -32,27 +32,99 @@ The first exploratory production-only run found functions with cognitive
 complexity as high as 301. After decomposing the indexing coordinator,
 protocol dispatch, cross-language Administration providers, PHP relations,
 flow analysis, validation, profiling, diagnostics, schema generation, and
-serialization, the maximum is 65. There are still 268 findings at
-`gocognit`'s strict default threshold of 30, so that threshold would remain a
+serialization, the maximum was 65. At that point, 268 findings remained at
+`gocognit`'s strict default threshold of 30, so that threshold remained a
 noisy legacy gate. CI now enforces a ceiling of 65 while the existing
 mid-complexity backlog can be reduced deliberately.
 
-The next production-only review band is 61–65. The most useful targets are:
+The September production-only scan now has a maximum of 64. Useful remaining
+61–65 complexity targets include:
 
-1. `hover.(*AdminHoverProvider).buildHoverContent` — move presentation for
-   component contracts, inheritance, and metadata into focused renderers.
-2. `admin.JavaScriptSymbolAt` — separate registry, literal-call, and property
-   recognition while preserving precedence.
-3. `scaffold.(*Provider).prepareEntitySchema` — continue separating output
-   rendering and snapshot publication from the now-extracted history workflow.
-4. `completion.(*AdminCompletionProvider).twigVueMemberCompletionsAt` — split
+1. `entityschema.(*specValidator).validateIdentity` — separate identifier,
+   class ownership, and relation identity validation with boundary-case fixtures.
+2. `scaffold.(*Provider).entitySchemaLoad` — separate document acquisition,
+   import, and response assembly while preserving session/history ownership.
+3. `completion.(*AdminCompletionProvider).twigVueMemberCompletionsAt` — split
    receiver discovery from member filtering and LSP item rendering.
-5. `diagnostics.(*TwigComponentAnalyzer).Analyze` — separate component
-   resolution, prop validation, and diagnostic presentation.
 
 `phpdoc.Parse`, `doctrine.lexDQL`, and large lexer/parser switches are lower
 priority. Their complexity is mostly grammar dispatch and changes can affect
 recovery behavior or hot-path latency.
+
+## September 2026 follow-up
+
+A fresh production-only scan with golangci-lint 2.13.0 found 298 findings at
+threshold 30 before these passes, and 294 afterward. The configured ceiling remains
+65; this pass does not weaken or tighten the repository-wide gate.
+
+| Entry point | Complexity before | After | Largest new helper |
+| --- | ---: | ---: | ---: |
+| `hover.(*AdminHoverProvider).buildHoverContent` | 65 | 3 | 10 |
+| `admin.JavaScriptSymbolAt` | 63 | 17 | 8 |
+| `diagnostics.(*TwigComponentAnalyzer).Analyze` | 61 | 9 | 19 |
+| `entityschema.importFields` | 65 | 3 | 6 |
+
+Administration hover now assembles focused prop, event, member, slot, and source
+location sections. Characterization tests preserve the complete Markdown output,
+component order, deprecation details, and definition-path precedence.
+
+JavaScript symbol recognition keeps its ordered semantic checks and delegates
+literal registrations to argument and property recognizers. Tests cover both
+arguments of `Component.extend`, registration versus reference context, service
+registration, unrelated strings, and incomplete input. Registry precedence and
+persisted symbol meaning are unchanged.
+
+Twig component diagnostics use one per-document run with separate component,
+block, Live Action, and argument checks. The run retains diagnostic ordering,
+exact ranges, suggestion payloads, and the existing catalog APIs. Cancellation is
+checked between passes as well as in the reference loops. Tests cover diagnostic
+ordering, case-insensitive Live Action arguments, unknown actions, and cancellation.
+
+Three 300 ms samples on Linux/AMD EPYC measured JavaScript symbol recognition at
+2.19–2.39 µs before and 2.01–2.31 µs afterward, with four allocations in both
+versions. The 20-problem Twig fixture measured 129–137 µs before and 116–138 µs
+afterward; allocations increased from 401 to 403 (about 256 additional bytes).
+These small fixtures show comparable request costs, not a workspace-wide speedup.
+
+Entity-schema importing now separates extension, translation, flag, field,
+hierarchy, and association responsibilities. The main import file shrank from
+2,456 to 906 lines. One ordered field importer owns foreign-key pairing and
+hierarchy assembly; to-one constructors share flag and modifier assembly while
+retaining their different argument order and autoload defaults. Public APIs and
+persisted data are unchanged.
+
+Alternating baseline/current benchmark runs for 20 associations measured
+878–919 µs before and 891–938 µs afterward, with about 1.1 KB and two additional
+allocations per import. The small overhead is recorded rather than claiming a
+performance improvement from the structural change.
+
+These figures describe the maintainability refactors before the follow-up
+[performance review](performance-review.md), which profiles five tasks and
+measures targeted diagnostic and importer optimizations separately.
+
+The new import tests cover column/association flag separation, optional local
+columns, round trips, deterministic unpaired-column ordering, preserved unknown
+expressions, and rejection of partially dynamic field arrays. The entity-schema
+suite currently covers 81.8% of statements; the association and hierarchy
+assembly helpers have 100% statement coverage. This is coverage of the tested
+paths, not proof that all PHP constructs are supported.
+
+Asset probes in the real-world scenario now use a shared typed snapshot for
+indexed/restored subtests. A portable production-workspace test runs the same
+probes with temporary fixtures, verifies restore without rescanning, applies
+source edits and deletions through the scanner, and verifies another restart.
+The external Shopware checkout was absent for this pass, so real-world validation
+is limited to compilation; the large scenario still needs further domain splits.
+
+Repeatable request benchmarks live alongside these tests:
+
+```bash
+go test ./internal/admin ./internal/lsp/diagnostics -run '^$' \
+  -bench '^(BenchmarkJavaScriptSymbolRecognition|BenchmarkTwigComponentDiagnostics)$' \
+  -benchtime=300ms -count=3
+go test ./internal/shopware/entityschema -run '^$' \
+  -bench '^BenchmarkImportDefinitionAssociations$' -benchtime=300ms -count=3
+```
 
 ## Improvements completed in this review
 
@@ -120,7 +192,7 @@ recovery behavior or hot-path latency.
 
 ## Recommended sequence
 
-1. Extract the remaining 9,800-line real-world scenario body into
+1. Continue extracting the roughly 9,600-line real-world scenario body into
    feature-focused checks backed by the new shared workspace fixture. Keep one
    cold index and one restored workspace per run.
 2. Refactor the remaining 61–65 complexity band only when a cohesive domain

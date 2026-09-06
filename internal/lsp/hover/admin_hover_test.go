@@ -2248,3 +2248,34 @@ func TestAdminDynamicComponentSelectorAndPropHover(t *testing.T) {
 	assert.Contains(t, hover.Contents.Value, "Component: `sw-card`")
 	assert.Contains(t, hover.Contents.Value, "Component: `sw-panel`")
 }
+
+func TestAdminHoverPreservesSectionOrderAndLocationPrecedence(t *testing.T) {
+	root := t.TempDir()
+	provider := &AdminHoverProvider{projectRoot: root}
+	content := provider.buildHoverContent([]admin.VueComponent{
+		{
+			Name: "sw-card", Deprecated: "Use another card.", ExtendsComponent: "sw-base",
+			Props:   []admin.VueComponentProp{{Name: "title", Type: "String", Required: true, Deprecated: "Use label.", Default: "Untitled"}},
+			Events:  []admin.VueComponentEvent{{Name: "save", Type: "(id: string) => void"}},
+			Methods: []string{"save"}, Computed: []string{"label"}, Data: []string{"open"}, Injected: []string{"repositoryFactory"},
+			Slots:          []admin.VueComponentSlot{{Name: "default"}},
+			DefinitionPath: filepath.Join(root, "definition.js"), FilePath: filepath.Join(root, "registration.js"),
+		},
+		{Name: "sw-other", FilePath: filepath.Join(root, "other.js")},
+	})
+	expected := "## `sw-card`\n\n" +
+		"**Deprecated:** Use another card.\n\n" +
+		"**Extends**: `sw-base`\n\n" +
+		"### Props\n\n- `title`: **String** *(required)* *(deprecated)* = `Untitled`\n\n" +
+		"### Events\n\n- `save`: `(id: string) => void`\n\n" +
+		"### Methods\n\n- `save()`\n\n" +
+		"### Computed\n\n- `label`\n\n" +
+		"### Data\n\n- `open`\n\n" +
+		"### Injected services\n\n- `repositoryFactory`\n\n" +
+		"### Slots\n\n- `default`\n\n" +
+		"*Defined in*: `definition.js`\n\n---\n\n" +
+		"## `sw-other`\n\n*Registered in*: `other.js`\n"
+	require.Equal(t, expected, content)
+	require.Empty(t, provider.buildHoverContent(nil))
+	require.Equal(t, "## `empty`\n\n", provider.buildHoverContent([]admin.VueComponent{{Name: "empty"}}))
+}

@@ -24,10 +24,7 @@ type Set struct {
 // plus JetBrains' noinspection form. Ordinary ignore/noinspection comments
 // apply to their inline statement or the next non-comment source line.
 func Parse(source string) Set {
-	if source == "" ||
-		(!containsFoldASCII(source, "@phpstan-ignore") &&
-			!containsFoldASCII(source, "@noinspection") &&
-			!containsFoldASCII(source, "noinspection")) {
+	if !containsSuppressionMarker(source) {
 		return Set{}
 	}
 	textLines, starts := sourceLines(source)
@@ -264,12 +261,21 @@ func identifierMatches(identifier, code string) bool {
 	return false
 }
 
-func containsFoldASCII(source, needle string) bool {
-	if needle == "" {
-		return true
-	}
-	for index := 0; index+len(needle) <= len(source); index++ {
-		if strings.EqualFold(source[index:index+len(needle)], needle) {
+func containsSuppressionMarker(source string) bool {
+	// Both markers start with ASCII characters without additional Unicode
+	// case-fold equivalents. Only compare a full marker at a possible start.
+	for index := 0; index < len(source); index++ {
+		var marker string
+		switch source[index] {
+		case '@':
+			marker = "@phpstan-ignore"
+		case 'n', 'N':
+			marker = "noinspection"
+		default:
+			continue
+		}
+		if len(source)-index >= len(marker) &&
+			strings.EqualFold(source[index:index+len(marker)], marker) {
 			return true
 		}
 	}

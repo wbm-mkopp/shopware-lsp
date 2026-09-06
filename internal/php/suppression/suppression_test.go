@@ -82,3 +82,37 @@ readonly class Subject {}
 	require.True(t, set.Suppresses(offset, "php.version"))
 	require.False(t, set.Suppresses(offset, "php.undefined"))
 }
+
+func TestSuppressionMarkersRemainCaseInsensitive(t *testing.T) {
+	for _, marker := range []string{
+		"@phpstan-ignore", "@PHPSTAN-IGNORE", "@PhpStan-Ignore",
+		"@phpstan-ignore-next-line", "@PHPSTAN-IGNORE-NEXT-LINE",
+		"@noinspection", "@NOINSPECTION", "NoInspection",
+	} {
+		t.Run(marker, func(t *testing.T) {
+			source := "<?php\n// " + marker + "\nmissing();\n"
+			set := Parse(source)
+			require.True(t, set.Suppresses(uint32(strings.Index(source, "missing")), "php.undefined"))
+		})
+	}
+}
+
+// Compare the optimized prefilter against the original byte-window search.
+// The actual directive parser still decides whether a candidate suppresses anything.
+func FuzzSuppressionMarkerPrefilter(f *testing.F) {
+	for _, source := range []string{"", "<?php function nothing() {}", "@PHPSTAN-IGNORE", "@noinspection", "NOINSPECTION", "@phpſtan-ignore", "noinſpection", "😀 @phpstan-ignore", "@phpstan-ignor", "\xffnoinspection"} {
+		f.Add(source)
+	}
+	f.Fuzz(func(t *testing.T, source string) {
+		want := false
+		for _, marker := range []string{"@phpstan-ignore", "@noinspection", "noinspection"} {
+			for offset := 0; offset+len(marker) <= len(source); offset++ {
+				if strings.EqualFold(source[offset:offset+len(marker)], marker) {
+					want = true
+					break
+				}
+			}
+		}
+		require.Equal(t, want, containsSuppressionMarker(source))
+	})
+}

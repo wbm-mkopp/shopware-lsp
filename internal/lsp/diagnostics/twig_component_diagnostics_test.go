@@ -3,6 +3,7 @@ package diagnostics
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -169,4 +170,95 @@ final class Cart {
 		values[1].Payload.(map[string]any)["suggestions"],
 		"item-id",
 	)
+}
+
+func TestTwigComponentDiagnosticsStopsForCanceledDocument(t *testing.T) {
+	index, err := twigcomponent.NewIndex(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, index.Close()) })
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	document := diagnosticsDocument("file:///project/template.twig", []byte(`<twig:Missing>{% from _self import render %}</twig:Missing>`))
+	problems, err := NewTwigComponentAnalyzer(index).Analyze(ctx, document)
+	require.NoError(t, err)
+	require.Empty(t, problems)
+}
+
+func TestTwigComponentLiveArgumentsPreserveCaseAndUnknownActionBehavior(t *testing.T) {
+	document := diagnosticsDocument("file:///project/template.twig", []byte(`
+<button data-live-action-param="SAVE" data-live-item-id-param="1">Valid</button>
+<button data-live-action-param="save" data-live-itme-id-param="1">Typo</button>
+<button data-live-action-param="unknown" data-live-itme-id-param="1">Unknown action</button>
+<button data-live-action-param="empty" data-live-itme-id-param="1">No parameters</button>`))
+	run := twigComponentDiagnosticRun{ctx: context.Background(), document: document, path: "/project/template.twig"}
+	actions := []twigcomponent.LiveAction{
+		{Name: "save", Parameters: []twigcomponent.LiveActionParameter{{Name: "itemId"}}},
+		{Name: "empty"},
+	}
+	run.collectMissingLiveActions(actions)
+	run.collectMissingLiveArguments(actions)
+	require.Len(t, run.problems, 2)
+	require.Equal(t, missingLiveActionCode, run.problems[0].ID)
+	require.Equal(t, "unknown", problemRangeText(document, run.problems[0].Range))
+	require.Equal(t, missingLiveArgumentCode, run.problems[1].ID)
+	require.Equal(t, "itme-id", problemRangeText(document, run.problems[1].Range))
+	require.Contains(t, run.problems[1].Payload.(map[string]any)["suggestions"], "item-id")
+}
+
+func BenchmarkTwigComponentDiagnostics(b *testing.B) {
+	root := b.TempDir()
+	twigIndex, err := twig.NewTwigIndexer(filepath.Join(root, "cache"))
+	require.NoError(b, err)
+	b.Cleanup(func() { require.NoError(b, twigIndex.Close()) })
+	componentIndex, err := twigcomponent.NewIndex(filepath.Join(root, "cache"))
+	require.NoError(b, err)
+	b.Cleanup(func() { require.NoError(b, componentIndex.Close()) })
+	componentIndex.SetDependencies(nil, nil, twigIndex)
+	require.NoError(b, twigIndex.Index(indexer.NewParsedFile(filepath.Join(root, "templates/components/Alert.html.twig"), []byte(`{% block content %}{% endblock %}`))))
+	source := strings.Repeat(`<twig:Alret/><twig:Alert><twig:block name="contnt">Text</twig:block></twig:Alert>`+"\n", 10)
+	document := diagnosticsDocument("file:///project/templates/page.twig", []byte(source))
+	analyzer := NewTwigComponentAnalyzer(componentIndex)
+	b.ReportAllocs()
+	for b.Loop() {
+		problems, err := analyzer.Analyze(context.Background(), document)
+		if err != nil || len(problems) != 20 {
+			b.Fatalf("unexpected diagnostics: %d, %v", len(problems), err)
+		}
+	}
+}
+
+func TestTwigComponentBlockLookupsRefreshBetweenAnalyses(t *testing.T) {
+	root := t.TempDir()
+	twigIndex, err := twig.NewTwigIndexer(filepath.Join(root, "cache"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, twigIndex.Close()) })
+	componentIndex, err := twigcomponent.NewIndex(filepath.Join(root, "cache"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, componentIndex.Close()) })
+	componentIndex.SetDependencies(nil, nil, twigIndex)
+	require.NoError(t, twigIndex.Index(indexer.NewParsedFile(
+		filepath.Join(root, "templates/components/Notice.html.twig"),
+		[]byte("{% block content %}{% endblock %}"),
+	)))
+	path := filepath.Join(root, "templates/components/Alert.html.twig")
+	source := `<twig:Alert><twig:block name="content"/></twig:Alert>` +
+		`<twig:Alert><twig:block name="content"/></twig:Alert>` +
+		`<twig:Notice><twig:block name="content"/></twig:Notice>`
+	document := diagnosticsDocument("file:///project/page.twig", []byte(source))
+	analyzer := NewTwigComponentAnalyzer(componentIndex)
+	for _, template := range []string{"no blocks", "{% block content %}{% endblock %}", "{% block footer %}{% endblock %}"} {
+		require.NoError(t, twigIndex.Index(indexer.NewParsedFile(path, []byte(template))))
+		problems, err := analyzer.Analyze(context.Background(), document)
+		require.NoError(t, err)
+		if strings.Contains(template, "block content") {
+			require.Empty(t, problems)
+			continue
+		}
+		require.Len(t, problems, 2)
+		for _, problem := range problems {
+			require.Equal(t, missingComponentBlockCode, problem.ID)
+			require.Equal(t, "content", problemRangeText(document, problem.Range))
+		}
+		require.NotEqual(t, problems[0].Range, problems[1].Range)
+	}
 }

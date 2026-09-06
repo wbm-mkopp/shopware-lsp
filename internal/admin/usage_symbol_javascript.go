@@ -1,8 +1,6 @@
 package admin
 
 import (
-	"strings"
-
 	jsquery "github.com/shopware/shopware-lsp/internal/parser/javascript/query"
 	jssyntax "github.com/shopware/shopware-lsp/internal/parser/javascript/syntax"
 )
@@ -65,66 +63,8 @@ func JavaScriptSymbolAt(node *jssyntax.Node) (AdminSymbolTarget, bool) {
 	) {
 		return stringTarget(AdminSymbolFilter, node)
 	}
-	if literal := jsquery.StringAt(node); literal != nil {
-		call := jsquery.CallAt(literal)
-		name := jsquery.CallName(literal)
-		argument := jsquery.StringArgumentIndex(literal)
-		switch name {
-		case "Component.register", "Shopware.Component.register":
-			if argument == 0 {
-				return stringTarget(AdminSymbolComponent, literal)
-			}
-		case "Component.extend", "Shopware.Component.extend":
-			if argument == 0 || argument == 1 {
-				return stringTarget(AdminSymbolComponent, literal)
-			}
-		case "Component.override", "Shopware.Component.override":
-			if argument == 0 {
-				return stringTarget(AdminSymbolComponent, literal)
-			}
-		case "Mixin.register", "Shopware.Mixin.register":
-			if argument == 0 {
-				return stringTarget(AdminSymbolMixin, literal)
-			}
-		case "Directive.register", "Shopware.Directive.register":
-			if argument == 0 {
-				return stringTarget(AdminSymbolDirective, literal)
-			}
-		case "Filter.register", "Shopware.Filter.register":
-			if argument == 0 {
-				return stringTarget(AdminSymbolFilter, literal)
-			}
-		case "Module.register", "Shopware.Module.register":
-			if argument == 0 {
-				return stringTarget(AdminSymbolModule, literal)
-			}
-		case "Shopware.Store.register", "Store.register":
-			if argument == 0 {
-				return stringTarget(AdminSymbolStore, literal)
-			}
-		}
-		if call != nil && jsquery.CallMethodName(call) == "addServiceProvider" && argument == 0 {
-			return stringTarget(AdminSymbolService, literal)
-		}
-		if call != nil && jsquery.CallMethodName(call) == "register" &&
-			strings.Contains(call.Text(), "Service()") && argument == 0 {
-			return stringTarget(AdminSymbolService, literal)
-		}
-		property := jsquery.PropertyAt(literal)
-		switch jsquery.PropertyName(property) {
-		case "id":
-			if call != nil && (jsquery.CallName(call) == "Shopware.Store.register" ||
-				jsquery.CallName(call) == "Store.register") {
-				return stringTarget(AdminSymbolStore, literal)
-			}
-		case "component":
-			if call != nil && (jsquery.CallName(call) == "Module.register" ||
-				jsquery.CallName(call) == "Shopware.Module.register") {
-				return stringTarget(AdminSymbolComponent, literal)
-			}
-		}
-	}
-	return AdminSymbolTarget{}, false
+	// Context-specific lookups above take precedence over literal registrations.
+	return javaScriptLiteralSymbolAt(jsquery.StringAt(node))
 }
 
 // JavaScriptCMSComponentReferenceAt recognizes the concrete Vue component
