@@ -12,7 +12,7 @@ on:
       - '.golangci.yml'
       - '.github/workflows/tests.yml'
   pull_request:
-    branches: [ main ]
+    branches: [ main, feat/next-gen ]
     paths:
       - '**.go'
       - 'go.mod'
