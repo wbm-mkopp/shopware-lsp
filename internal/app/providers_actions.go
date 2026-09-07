@@ -12,6 +12,11 @@ import (
 )
 
 func registerActionAndCommandProviders(server *lsp.Server, root string, versioning *twig.VersioningService, services workspaceServices) {
+	if !server.FrameworkPresentation() && server.DomainEnabled("php") {
+		server.RegisterActionProvider(codeaction.NewPHPImportsProvider(services.php))
+		server.RegisterActionProvider(codeaction.NewPHPExtractVariableProvider(services.php))
+		server.RegisterActionProvider(codeaction.NewPHPExtractMethodProvider(services.php))
+	}
 	server.RegisterActionProvider(codeaction.NewSnippetCodeActionProvider(services.snippets))
 	server.RegisterActionProvider(codeaction.NewSnippetCopyCodeActionProvider())
 	server.RegisterActionProvider(codeaction.NewTwigCodeActionProvider(versioning))

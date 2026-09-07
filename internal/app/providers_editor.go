@@ -2,10 +2,12 @@ package app
 
 import (
 	"github.com/shopware/shopware-lsp/internal/lsp"
+	"github.com/shopware/shopware-lsp/internal/lsp/folding"
 	lspformatting "github.com/shopware/shopware-lsp/internal/lsp/formatting"
 	"github.com/shopware/shopware-lsp/internal/lsp/inlay"
 	"github.com/shopware/shopware-lsp/internal/lsp/phpsemantic"
 	"github.com/shopware/shopware-lsp/internal/lsp/refactor"
+	"github.com/shopware/shopware-lsp/internal/lsp/selection"
 	lspsemantic "github.com/shopware/shopware-lsp/internal/lsp/semantic"
 	"github.com/shopware/shopware-lsp/internal/lsp/signature"
 )
@@ -21,6 +23,10 @@ func registerEditorProviders(server *lsp.Server, phpFeatures *phpsemantic.Provid
 		)
 	}
 	if !server.FrameworkPresentation() {
+		server.RegisterDocumentSymbolProvider(phpFeatures)
+		server.RegisterDocumentHighlightProvider(phpFeatures)
+		server.RegisterFoldingRangeProvider(folding.NewPHPFoldingProvider())
+		server.RegisterSelectionRangeProvider(selection.NewPHPSelectionRangeProvider())
 		server.RegisterSignatureHelpProvider(phpFeatures)
 		server.RegisterRenameProvider(refactor.NewPHPTwigRenameProvider(
 			phpFeatures,

@@ -269,18 +269,22 @@ type positionInput struct {
 }
 
 type codeActionsInput struct {
-	Path   string `json:"path" jsonschema:"workspace-relative or absolute file path"`
-	Line   int    `json:"line" jsonschema:"one-based line number"`
-	Column int    `json:"column,omitempty" jsonschema:"one-based UTF-16 column number; defaults to 1"`
-	Kind   string `json:"kind,omitempty" jsonschema:"optional hierarchical code-action kind such as quickfix or source.fixAll"`
+	EndLine   int    `json:"endLine,omitempty" jsonschema:"one-based exclusive selection end line; defaults to the start line when endColumn is provided"`
+	EndColumn int    `json:"endColumn,omitempty" jsonschema:"one-based UTF-16 exclusive selection end column; defaults to 1 when endLine is provided"`
+	Path      string `json:"path" jsonschema:"workspace-relative or absolute file path"`
+	Line      int    `json:"line" jsonschema:"one-based line number"`
+	Column    int    `json:"column,omitempty" jsonschema:"one-based UTF-16 column number; defaults to 1"`
+	Kind      string `json:"kind,omitempty" jsonschema:"optional hierarchical code-action kind such as quickfix or source.fixAll"`
 }
 
 type applyCodeActionInput struct {
-	Path   string `json:"path" jsonschema:"workspace-relative or absolute file path"`
-	Line   int    `json:"line" jsonschema:"one-based line number"`
-	Column int    `json:"column,omitempty" jsonschema:"one-based UTF-16 column number; defaults to 1"`
-	Title  string `json:"title" jsonschema:"exact title returned by shopware_code_actions"`
-	Kind   string `json:"kind,omitempty" jsonschema:"optional hierarchical code-action kind used to disambiguate the title"`
+	EndLine   int    `json:"endLine,omitempty" jsonschema:"one-based exclusive selection end line; defaults to the start line when endColumn is provided"`
+	EndColumn int    `json:"endColumn,omitempty" jsonschema:"one-based UTF-16 exclusive selection end column; defaults to 1 when endLine is provided"`
+	Path      string `json:"path" jsonschema:"workspace-relative or absolute file path"`
+	Line      int    `json:"line" jsonschema:"one-based line number"`
+	Column    int    `json:"column,omitempty" jsonschema:"one-based UTF-16 column number; defaults to 1"`
+	Title     string `json:"title" jsonschema:"exact title returned by shopware_code_actions"`
+	Kind      string `json:"kind,omitempty" jsonschema:"optional hierarchical code-action kind used to disambiguate the title"`
 }
 
 type workspaceSymbolsInput struct {
@@ -449,8 +453,12 @@ func (runtime *mcpRuntime) codeActions(
 	if err != nil {
 		return nil, codeActionsOutput{}, err
 	}
+	selection, err := codeActionSelection(position, input.EndLine, input.EndColumn)
+	if err != nil {
+		return nil, codeActionsOutput{}, err
+	}
 	output, err := withMCPSession(ctx, runtime, func(session *cliSession) (codeActionsOutput, error) {
-		return withMCPCodeActions(ctx, session, path, position, input.Kind, func(
+		return withMCPCodeActions(ctx, session, path, selection, input.Kind, func(
 			_ *cliDocument,
 			actions []protocol.CodeAction,
 		) (codeActionsOutput, error) {
@@ -490,8 +498,12 @@ func (runtime *mcpRuntime) applyCodeAction(
 	if err != nil {
 		return nil, applyCodeActionOutput{}, err
 	}
+	selection, err := codeActionSelection(position, input.EndLine, input.EndColumn)
+	if err != nil {
+		return nil, applyCodeActionOutput{}, err
+	}
 	output, err := withMCPSession(ctx, runtime, func(session *cliSession) (applyCodeActionOutput, error) {
-		return withMCPCodeActions(ctx, session, path, position, input.Kind, func(
+		return withMCPCodeActions(ctx, session, path, selection, input.Kind, func(
 			_ *cliDocument,
 			actions []protocol.CodeAction,
 		) (applyCodeActionOutput, error) {
@@ -763,7 +775,7 @@ func withMCPCodeActions[T any](
 	ctx context.Context,
 	session *cliSession,
 	path string,
-	position protocol.Position,
+	selection protocol.Range,
 	kind string,
 	operation func(*cliDocument, []protocol.CodeAction) (T, error),
 ) (T, error) {
@@ -775,8 +787,8 @@ func withMCPCodeActions[T any](
 		); err != nil {
 			return zero, err
 		}
-		params := positionParams(document.URI, position)
-		params["range"] = protocol.Range{Start: position, End: position}
+		params := positionParams(document.URI, selection.Start)
+		params["range"] = selection
 		contextParams := map[string]any{"diagnostics": diagnostics.Items}
 		if kind != "" {
 			contextParams["only"] = []string{kind}

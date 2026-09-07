@@ -32,6 +32,7 @@ shopware-lsp -root /path/to/project references src/Controller.php:24:18
 shopware-lsp -root /path/to/project workspace-symbol customer.detail
 shopware-lsp -root /path/to/project workspace-symbol --fresh customer.detail
 shopware-lsp -root /path/to/project codeaction -kind quickfix src/Controller.php:24:18
+shopware-lsp -root /path/to/project codeaction -kind refactor.extract -end-line 30 -end-column 1 src/Controller.php:24:1
 shopware-lsp -root /path/to/project rename -d src/Controller.php:24:18 NewName
 shopware-lsp -root /path/to/project mcp
 ```
@@ -431,6 +432,79 @@ exact public names shown by MCP `tools/list`; unknown names are rejected.
   editor and through the CLI `check` command
 
 ### PHP Semantic Intelligence
+
+**Extract Method / Function** (`refactor.extract`) moves selected consecutive
+statements into a private class method or a function in the same namespace.
+A caret selects its containing statement, including statements inside nested
+blocks. The action derives input parameters, preserves writable inputs through
+reference parameters, and restores multiple outputs with destructuring.
+Conditionals, loops, switch statements and early returns are supported when
+their control-flow targets remain valid after extraction. Static methods use a
+private static helper and a `self::` call. Generated parameters remain untyped
+to avoid introducing additional coercions.
+
+Existing source, inherited methods, trait methods and namespace functions
+participate in name collision checks. Unknown ancestors withhold the action.
+Simple string interpolation supplies variable inputs, and multiline string
+contents are preserved exactly during reindentation. Locals that may retain
+objects are kept in the caller so their lifetime is not shortened.
+
+**Extract Variable** replaces a selected expression with a fresh `$extracted`
+local. An empty selection chooses the smallest supported expression at the
+caret. When a preceding assignment is safe, it is inserted before the statement.
+In arguments, conditional branches, loop headers and other order-sensitive
+positions, the assignment stays at the original evaluation point as
+`($extracted = expression)`. This preserves short-circuiting and evaluation
+frequency. Calls used directly as arguments require a resolved non-reference
+return; unresolved or reference-returning calls remain unavailable there.
+
+A separate **Extract variable '$extracted' (all N occurrences)** action shares
+pure expressions across consecutive statements or within one argument list.
+It stops at writes to an input, calls, control-flow boundaries or other
+uncertain effects. Comments in later occurrences prevent their replacement.
+
+Both actions add numeric suffixes to avoid name collisions; use ordinary
+rename afterward to choose another name. Edits preserve comments, indentation,
+literal contents, line endings and the current document version. LSP, CLI and
+MCP share the same analysis and validated rewrite plans. CLI `codeaction`
+accepts `-end-line` and `-end-column`; MCP code-action tools accept `endLine`
+and `endColumn`. Endpoints are exclusive, one-based UTF-16 positions; omitted
+endpoints retain caret behavior. List actions first and use their exact titles
+when applying through MCP.
+
+Cases requiring unsupported scope or reference analysis still withhold the
+action: dynamic symbol-table operations, generators, moving closures or
+anonymous classes, executable string interpolation, reference returns,
+exception-handling regions, and jumps targeting an outer loop outside the
+selection. Extract Method does not extract trait or anonymous-class methods.
+A newly introduced variable that would be undefined on a continuing path
+cannot be exported. Early-return selections that create locals potentially
+holding objects are withheld when their lifetime cannot be preserved.
+Disabling the PHP domain or selecting the framework
+presentation profile disables both PHP refactorings.
+
+Unused namespace imports produce `php.unusedImport` hints with an unnecessary
+tag and a lazy **Remove unused import** quick fix. The `php.imports`
+inspection accounts for aliases, separate class/function/constant namespaces,
+PHPDoc types, and legacy annotations. It uses the current unsaved snapshot and
+skips documents with syntax errors.
+
+**Organize Imports** (`source.organizeImports`) removes unused imports and
+sorts contiguous import blocks by class, function, and constant, then name.
+Comment-free groups expand to one import per line; comments remain in place
+and form sorting boundaries. Suppressed imports are retained. The action is
+available through LSP and the production CLI/MCP code-action tools, including
+when the diagnostic rule is disabled. Disabling the PHP domain or using the
+framework presentation profile disables both features.
+
+Configure the hint with `diagnostics.rules.php.unusedImport` (for example
+`warning` or `off`), or disable the inspection with
+`diagnostics.inspections.php.imports: false`. Inline
+`@noinspection php.unusedImport`, `PhpUnusedAliasInspection`, and
+`PhpUnusedImportInspection` suppressions are also recognized. MCP diagnostics
+use the project severity threshold by default; request `severity: hint` to
+include these hints.
+
 - Native lossless PHP 8.x CST, including PHP 8.4 asymmetric visibility and
   property hooks, heredoc/nowdoc, attributes, enums, traits, closures, match,
   and alternative control-flow syntax
@@ -445,6 +519,14 @@ exact public names shown by MCP `tools/list`; unknown names are rejected.
   return checking, override compatibility, and abstract-method validation
 - PHP completion, hover, go-to-definition, references, signature help, rename,
   and diagnostics
+- PHP document outlines group namespaces, classes, interfaces, traits, enums,
+  functions, methods, properties (including constructor promotion), and constants
+- Same-document PHP occurrence highlighting uses resolved symbol identities and
+  distinguishes reads from syntactic writes
+- PHP folding covers bodies, arrays, multiline comments/strings, import groups,
+  and alternative control syntax; selection expansion follows the lossless CST
+- These editor features use unsaved documents, respect their existing feature
+  toggles, and defer to the host IDE in the framework-only presentation profile
 - PHPDoc `#Class`, `#Interface`, and `#ClassInterface` parameter contracts
   provide kind-filtered, exact-edit class-name completion and declaration
   navigation plus kind-aware missing-reference diagnostics and typo fixes at

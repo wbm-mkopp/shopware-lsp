@@ -16,6 +16,8 @@ import (
 func (r *Runner) runCodeAction(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("codeaction", flag.ContinueOnError)
 	flags.SetOutput(r.errOut)
+	endLine := flags.Int("end-line", 0, "one-based exclusive selection end line")
+	endColumn := flags.Int("end-column", 0, "one-based UTF-16 exclusive selection end column")
 	kind := flags.String("kind", "", "filter by hierarchical code-action kind")
 	titlePattern := flags.String("title", "", "regular expression matched against action titles")
 	execute := flags.Bool("exec", false, "execute the first matching action")
@@ -39,6 +41,10 @@ func (r *Runner) runCodeAction(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	selection, err := codeActionSelection(target.Position, *endLine, *endColumn)
+	if err != nil {
+		return err
+	}
 	session, err := r.connect(ctx)
 	if err != nil {
 		return err
@@ -55,7 +61,7 @@ func (r *Runner) runCodeAction(ctx context.Context, args []string) error {
 		return err
 	}
 	params := positionParams(document.URI, target.Position)
-	params["range"] = protocol.Range{Start: target.Position, End: target.Position}
+	params["range"] = selection
 	contextParams := map[string]interface{}{"diagnostics": diagnostics.Items}
 	if *kind != "" {
 		contextParams["only"] = []string{*kind}

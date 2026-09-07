@@ -82,6 +82,14 @@ editing.
 
 ### PHP and Twig semantics
 
+- Unused PHP import hints, individual removal fixes, and Organize Imports
+  for class, function, and constant imports, including aliases and groups.
+
+- Extract Variable for PHP expressions and Extract Method/Function for selected
+  statements, with nested control flow, multiple outputs, collision-free names,
+  and versioned edits.
+- PHP document outlines, semantic occurrence highlights, folding, and expanding
+  selections that follow unsaved source edits.
 - Native, lossless PHP and Twig parsers designed for incomplete editor input.
 - Native Twig/HTML document formatting with separate Shopware Administration
   and Storefront block-indentation behavior and editor-provided tab settings.

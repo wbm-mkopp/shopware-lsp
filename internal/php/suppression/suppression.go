@@ -221,6 +221,8 @@ func identifierMatches(identifier, code string) bool {
 		return true
 	}
 	switch code {
+	case "php.unusedimport":
+		return identifier == "phpunusedaliasinspection" || identifier == "phpunusedimportinspection"
 	case "php.returntype":
 		return strings.HasPrefix(identifier, "return.") ||
 			identifier == "cast.string" || identifier == "vartag.type" ||

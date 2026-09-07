@@ -80,7 +80,7 @@ func (s *Server) inspectionPresentedToClient(id string) bool {
 		return true
 	}
 	switch id {
-	case "php.semantic", "symfony.embedded_language":
+	case "php.semantic", "php.imports", "symfony.embedded_language":
 		return false
 	default:
 		return true

@@ -737,7 +737,7 @@ func isConfigurationMethod(method string) bool {
 
 func inspectionDomain(id string) string {
 	switch {
-	case id == "php.semantic":
+	case id == "php.semantic" || id == "php.imports":
 		return "php"
 	case id == "shopware.admin":
 		return "administration"

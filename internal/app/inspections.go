@@ -39,6 +39,7 @@ func registerDiagnosticInspections(
 		"php.version",
 		"php.visibility",
 	}, phpFeatures)
+	server.RegisterInspection(inspections.NewPHPImports(services.php))
 	server.RegisterInspection(inspections.NewShopwarePHPLocal())
 	server.RegisterInspection(inspections.NewShopwarePHPSemantic(services.php))
 	server.RegisterInspection(inspections.NewShopwareMigration(

@@ -146,7 +146,9 @@ profile; the adapter must not assume a fixed capability set.
 The `framework` profile keeps internal PHP semantic snapshots but suppresses
 their generic presentation. PhpStorm therefore remains responsible for plain
 PHP completion, definitions, implementation and type hierarchy, references,
-hover, signature help, core PHP diagnostics, embedded-language validation,
+hover, signature help, unused-import hints and cleanup, Organize Imports, Extract Variable, Extract Method,
+PHP document outlines, occurrence highlights, folding,
+selection expansion, core PHP diagnostics, embedded-language validation,
 PHP-origin rename, built-in Twig test/operator completion, and SCSS color
 previews. Shopware LSP still provides indexed and type-aware
 Shopware/Symfony/Twig/Administration/DAL results returned by its remaining
