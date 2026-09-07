@@ -215,6 +215,12 @@ func TestInitializeAdvertisesTwigFileRenameEdits(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, protocol.SemanticTokenTypes, legend.TokenTypes)
 	require.Empty(t, legend.TokenModifiers)
+	// require.Empty passes for a nil slice too, so assert the wire format.
+	// A nil slice marshals to null, and clients that decode the legend into a
+	// required string[] reject the entire initialize response.
+	encodedLegend, err := json.Marshal(legend)
+	require.NoError(t, err)
+	require.Contains(t, string(encodedLegend), `"tokenModifiers":[]`)
 	require.Equal(t, true, semanticTokens["full"])
 	require.Equal(t, false, semanticTokens["range"])
 }

@@ -50,11 +50,14 @@ func (s *Server) serverCapabilities() map[string]interface{} {
 	}
 	if len(s.semanticTokensProviders) > 0 && s.featureEnabled("semanticTokens") {
 		capabilities["semanticTokensProvider"] = map[string]interface{}{
+			// The legend slices must marshal to JSON arrays even when empty.
+			// appending onto []string(nil) keeps a nil slice when the source
+			// list is empty, and nil marshals to null, which strictly typed
+			// clients reject: SemanticTokensLegend.tokenModifiers is a
+			// required string[] in the specification.
 			"legend": protocol.SemanticTokensLegend{
-				TokenTypes: append([]string(nil), protocol.SemanticTokenTypes...),
-				TokenModifiers: append(
-					[]string(nil), protocol.SemanticTokenModifiers...,
-				),
+				TokenTypes:     append([]string{}, protocol.SemanticTokenTypes...),
+				TokenModifiers: append([]string{}, protocol.SemanticTokenModifiers...),
 			},
 			"full":  true,
 			"range": false,
