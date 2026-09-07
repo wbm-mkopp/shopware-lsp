@@ -583,11 +583,37 @@ func phpNamespace(name string) string {
 	return ""
 }
 
+// samePHPNamespacePackage reports whether two namespaces belong to the same
+// Composer package.
+//
+// A prefix comparison alone is not enough. Shopware\Core\Checkout\Cart\Hook and
+// Shopware\Core\Framework\Script\Execution are both shopware/core, yet neither
+// is a prefix of the other, so sibling subtrees of one package looked like
+// separate packages and every first-party use of an @internal class was
+// reported. Compare the Vendor\Package root as well, which is the PSR-4 layout
+// Composer packages follow.
 func samePHPNamespacePackage(left, right string) bool {
 	left = trimPHPName(left)
 	right = trimPHPName(right)
-	return left == right || left != "" && right != "" &&
-		(strings.HasPrefix(left, right+"\\") || strings.HasPrefix(right, left+"\\"))
+	if left == "" || right == "" {
+		return left == right
+	}
+	if left == right ||
+		strings.HasPrefix(left, right+"\\") ||
+		strings.HasPrefix(right, left+"\\") {
+		return true
+	}
+	return phpPackageRoot(left) == phpPackageRoot(right)
+}
+
+// phpPackageRoot returns the Vendor\Package prefix of a namespace, or the whole
+// namespace when it has fewer than two segments.
+func phpPackageRoot(namespace string) string {
+	parts := strings.SplitN(namespace, "\\", 3)
+	if len(parts) < 2 {
+		return namespace
+	}
+	return parts[0] + "\\" + parts[1]
 }
 
 func insidePHPLoop(node *phpsyntax.Node) bool {
