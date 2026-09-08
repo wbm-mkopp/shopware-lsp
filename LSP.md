@@ -61,8 +61,8 @@ document snapshot; no custom request is required.
     "snippets": [ { "path": string, "name": string, "value": string } ]
   }
   ```
-* **Action:** Adds the provided snippet value to the given JSON files, reindexes them and publishes diagnostics for the original document.
-* **Returns:** `null`
+* **Action:** Builds the edit that adds the provided snippet value to the given JSON files. The server writes nothing itself; the client must apply the returned edit.
+* **Returns:** `{ "edit": WorkspaceEdit }`
 
 ### `shopware/snippet/storefront/all`
 * **Parameters:** none
@@ -83,8 +83,8 @@ document snapshot; no custom request is required.
     "snippets": [ { "path": string, "name": string, "value": string } ]
   }
   ```
-* **Action:** Adds the provided snippet value to the given admin JSON files, reindexes them and publishes diagnostics for the original document.
-* **Returns:** `null`
+* **Action:** Builds the edit that adds the provided snippet value to the given admin JSON files. The server writes nothing itself; the client must apply the returned edit.
+* **Returns:** `{ "edit": WorkspaceEdit }`
 
 ### `shopware/snippet/admin/all`
 * **Parameters:** none
@@ -96,8 +96,8 @@ document snapshot; no custom request is required.
   ```json
   { "textUri": string, "blockName": string, "extension": string }
   ```
-* **Action:** Creates or updates a Twig template in the selected extension so that it extends the given block. A new file is created if necessary and the block is inserted.
-* **Returns:** on success `{ "uri": string, "line": number }`; otherwise an error object with `code` and `message`.
+* **Action:** Builds the edit that creates or updates a Twig template in the selected extension so that it extends the given block, creating the file if necessary. The server writes nothing itself; the client must apply the returned edit.
+* **Returns:** on success `{ "uri": string, "line": number, "edit": WorkspaceEdit }`, where `uri` and `line` locate the block once the edit has been applied; otherwise an error object with `code` and `message`.
 
 ## Notifications
 
