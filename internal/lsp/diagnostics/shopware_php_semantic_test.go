@@ -235,3 +235,33 @@ class Core extends AbstractCore { public function getDecorated(): AbstractCore {
 	}
 	return phpIndex
 }
+
+func TestSamePHPNamespacePackageAcceptsSiblingSubtrees(t *testing.T) {
+	// Both namespaces are shopware/core. Neither is a prefix of the other,
+	// which is why prefix matching alone reported first-party use of @internal
+	// classes throughout the platform.
+	require.True(t, samePHPNamespacePackage(
+		`Shopware\Core\Checkout\Cart\Hook`,
+		`Shopware\Core\Framework\Script\Execution`,
+	))
+
+	// Prefix relationships keep working.
+	require.True(t, samePHPNamespacePackage(
+		`Shopware\Core\Framework`,
+		`Shopware\Core\Framework\Script`,
+	))
+	require.True(t, samePHPNamespacePackage(`Shopware\Core`, `Shopware\Core`))
+
+	// Separate packages stay separate, so the rule still protects plugins and
+	// still reports across the platform's own packages.
+	require.False(t, samePHPNamespacePackage(
+		`Swag\MyPlugin\Service`,
+		`Shopware\Core\Framework\Script\Execution`,
+	))
+	require.False(t, samePHPNamespacePackage(
+		`Shopware\Storefront\Framework`,
+		`Shopware\Core\Framework`,
+	))
+	require.False(t, samePHPNamespacePackage(`Shopware`, `Swag`))
+	require.False(t, samePHPNamespacePackage("", `Shopware\Core`))
+}
