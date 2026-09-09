@@ -13,15 +13,15 @@ func (s *Server) documentColors(
 	params *protocol.DocumentColorParams,
 ) ([]protocol.ColorInformation, error) {
 	if params == nil {
-		return nil, nil
+		return []protocol.ColorInformation{}, nil
 	}
 	document, ok := s.documentManager.GetDocument(params.TextDocument.URI)
 	if !ok {
-		return nil, nil
+		return []protocol.ColorInformation{}, nil
 	}
 	request := &DocumentColorRequest{DocumentColorParams: params, Document: document}
 	seen := make(map[protocol.Range]struct{})
-	var result []protocol.ColorInformation
+	result := []protocol.ColorInformation{}
 	for _, provider := range s.documentColorProviders {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -52,18 +52,18 @@ func (s *Server) colorPresentations(
 	params *protocol.ColorPresentationParams,
 ) ([]protocol.ColorPresentation, error) {
 	if params == nil {
-		return nil, nil
+		return []protocol.ColorPresentation{}, nil
 	}
 	document, ok := s.documentManager.GetDocument(params.TextDocument.URI)
 	if !ok {
-		return nil, nil
+		return []protocol.ColorPresentation{}, nil
 	}
 	request := &ColorPresentationRequest{
 		ColorPresentationParams: params,
 		Document:                document,
 	}
 	seen := make(map[string]struct{})
-	var result []protocol.ColorPresentation
+	result := []protocol.ColorPresentation{}
 	for _, provider := range s.documentColorProviders {
 		if err := ctx.Err(); err != nil {
 			return nil, err
