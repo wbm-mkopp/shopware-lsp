@@ -224,8 +224,7 @@ func (p *TwigTemplateUsageCatalogProvider) catalogEntry(
 		case twig.TemplateFormThemeReference:
 			entry.FormThemes = append(entry.FormThemes, location)
 		case twig.TemplateRenderReference,
-			twig.TemplateAttributeReference,
-			twig.TemplateAnnotationReference:
+			twig.TemplateAttributeReference:
 			controller, found := p.controllerUsage(reference, routes, lines)
 			if found {
 				entry.Controllers = append(entry.Controllers, controller)

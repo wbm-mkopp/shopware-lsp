@@ -129,7 +129,6 @@ function page() {}
 		"named.html.twig",
 		"ignored.html.twig",
 		"attribute.html.twig",
-		"annotation.html.twig",
 	}, names)
 	assert.False(t, slices.Contains(names, "nested.html.twig"))
 }

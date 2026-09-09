@@ -159,17 +159,32 @@ class ArticleController {
 	)
 	result, err := provider.Analyze(context.Background(), document)
 	require.NoError(t, err)
-	require.Len(t, result, 2)
+	require.Len(t, result, 1)
 	assert.Equal(
 		t,
 		"attribute-missing.html.twig",
 		problemRangeText(document, result[0].Range),
 	)
-	assert.Equal(
-		t,
-		"annotation-missing.html.twig",
-		problemRangeText(document, result[1].Range),
-	)
+}
+
+func TestTemplateDiagnosticsIgnoreGenericTemplateTags(t *testing.T) {
+	provider := templateDiagnosticsFixture(t)
+	document := lsp.NewTextDocument("file:///project/src/Collection.php", `<?php
+/** @template TElement */
+class Collection {
+    /**
+     * @template T
+     * @param callable(TElement): T $callback
+     * @return array<T>
+     */
+    public function map(callable $callback): array { return []; }
+
+    /** @template-covariant T */
+    public function values(): array { return []; }
+}`, 1)
+	result, err := provider.Analyze(context.Background(), document)
+	require.NoError(t, err)
+	assert.Empty(t, result)
 }
 
 func TestTemplateDiagnosticsGuessEmptyControllerDeclarations(
@@ -200,18 +215,12 @@ class ProductController {
 	)
 	result, err := provider.Analyze(context.Background(), document)
 	require.NoError(t, err)
-	require.Len(t, result, 2)
+	require.Len(t, result, 1)
 	assert.Equal(t, "Template", problemRangeText(document, result[0].Range))
 	assert.Equal(
 		t,
 		"admin/product/list.html.twig",
 		result[0].Payload.(map[string]any)["templateName"],
-	)
-	assert.Equal(t, "Template", problemRangeText(document, result[1].Range))
-	assert.Equal(
-		t,
-		"admin/product/edit.html.twig",
-		result[1].Payload.(map[string]any)["templateName"],
 	)
 }
 

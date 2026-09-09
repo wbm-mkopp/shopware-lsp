@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"unicode"
@@ -20,15 +19,10 @@ import (
 
 const maxTwigContextDepth = 2
 
-var (
-	templateAnnotationPattern = regexp.MustCompile(
-		`(?i)@Template\s*\(\s*(?:template\s*=\s*)?["']([^"']+\.twig)["']`,
-	)
-	twigContextCandidateMatcher = textutil.NewFoldASCIIMatcher(
-		"render",
-		"template",
-		"stream",
-	)
+var twigContextCandidateMatcher = textutil.NewFoldASCIIMatcher(
+	"render",
+	"template",
+	"stream",
 )
 
 // TwigTemplateVariable describes one PHP value exposed to a Twig template.
@@ -207,7 +201,6 @@ func methodTemplateNames(
 	method *phpsyntax.Node,
 ) []string {
 	var templates []string
-	explicitAttribute := false
 	for _, attribute := range phpquery.Attributes(method) {
 		name := phpquery.NameValue(
 			phpquery.DirectChild(attribute, phpsyntax.PhpName),
@@ -215,27 +208,10 @@ func methodTemplateNames(
 		if !strings.EqualFold(filepath.Base(strings.ReplaceAll(name, `\`, "/")), "Template") {
 			continue
 		}
-		explicitAttribute = true
 		templateNode := argumentExpression(attribute, []string{"template"}, 0)
 		if templateNode != nil && templateNode.Kind() == phpsyntax.PhpString {
 			templates = append(templates, phpquery.StringValue(templateNode))
 		} else if guessed := GuessedControllerTemplate(root, method); guessed != "" {
-			templates = append(templates, guessed)
-		}
-	}
-
-	methodText := method.Text()
-	annotationMatches := templateAnnotationPattern.FindAllStringSubmatch(
-		methodText,
-		-1,
-	)
-	for _, match := range annotationMatches {
-		templates = append(templates, match[1])
-	}
-	if !explicitAttribute &&
-		len(annotationMatches) == 0 &&
-		containsFoldASCIIString(methodText, "@template") {
-		if guessed := GuessedControllerTemplate(root, method); guessed != "" {
 			templates = append(templates, guessed)
 		}
 	}
@@ -256,55 +232,8 @@ func methodTemplateNames(
 	return result
 }
 
-func containsFoldASCIIString(source, needle string) bool {
-	if needle == "" {
-		return true
-	}
-	if len(source) < len(needle) {
-		return false
-	}
-	maxStart := len(source) - len(needle)
-	for offset := 0; offset <= maxStart; {
-		index := indexFoldASCIIStringByte(
-			source[offset:maxStart+1],
-			lowerASCIIByte(needle[0]),
-		)
-		if index < 0 {
-			return false
-		}
-		start := offset + index
-		if strings.EqualFold(source[start:start+len(needle)], needle) {
-			return true
-		}
-		offset = start + 1
-	}
-	return false
-}
-
-func indexFoldASCIIStringByte(source string, lower byte) int {
-	lowerIndex := strings.IndexByte(source, lower)
-	if lower < 'a' || lower > 'z' {
-		return lowerIndex
-	}
-	upperIndex := strings.IndexByte(source, lower-'a'+'A')
-	if lowerIndex < 0 {
-		return upperIndex
-	}
-	if upperIndex >= 0 && upperIndex < lowerIndex {
-		return upperIndex
-	}
-	return lowerIndex
-}
-
-func lowerASCIIByte(value byte) byte {
-	if value >= 'A' && value <= 'Z' {
-		return value + ('a' - 'A')
-	}
-	return value
-}
-
 // GuessedControllerTemplate returns Symfony's conventional template name for
-// a controller method with an empty #[Template] / @Template declaration.
+// a controller method with an empty #[Template] attribute.
 func GuessedControllerTemplate(
 	root,
 	method *phpsyntax.Node,

@@ -211,8 +211,9 @@ class ProductLoader
 	assertTwigVariableType(t, variables, "page", "App\\Product")
 }
 
-func TestPHPIndexCollectsTemplateAnnotationAndGuessedAttributeContext(t *testing.T) {
-	index, err := NewPHPIndex(t.TempDir())
+func TestPHPIndexIgnoresTemplateAnnotationsAndCollectsAttributeContext(t *testing.T) {
+	cache := t.TempDir()
+	index, err := NewPHPIndex(cache)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, index.Close()) })
 
@@ -223,6 +224,12 @@ class Product {}
 
 class ProductController
 {
+    /** @template T */
+    public function map(Product $product): array
+    {
+        return ['generic' => $product];
+    }
+
     /**
      * @Template("product/legacy.html.twig")
      */
@@ -244,12 +251,19 @@ class ProductController
 
 	legacy, err := index.TwigTemplateVariables("product/legacy.html.twig")
 	require.NoError(t, err)
-	assertTwigVariableType(
-		t,
-		legacy,
-		"legacy",
-		"App\\Controller\\Admin\\Product",
-	)
+	assert.Empty(t, legacy)
+	generic, err := index.TwigTemplateVariables("admin/product/map.html.twig")
+	require.NoError(t, err)
+	assert.Empty(t, generic)
+
+	require.NoError(t, index.Close())
+	index, err = NewPHPIndex(cache)
+	require.NoError(t, err)
+	for _, name := range []string{"product/legacy.html.twig", "admin/product/map.html.twig"} {
+		variables, lookupErr := index.TwigTemplateVariables(name)
+		require.NoError(t, lookupErr)
+		assert.Empty(t, variables)
+	}
 
 	guessed, err := index.TwigTemplateVariables("admin/product/show.html.twig")
 	require.NoError(t, err)
@@ -336,4 +350,51 @@ func assertTwigVariableFormTypes(
 		}
 	}
 	t.Fatalf("Twig variable %q not found in %#v", name, variables)
+}
+
+func containsFoldASCIIString(source, needle string) bool {
+	if needle == "" {
+		return true
+	}
+	if len(source) < len(needle) {
+		return false
+	}
+	maxStart := len(source) - len(needle)
+	for offset := 0; offset <= maxStart; {
+		index := indexFoldASCIIStringByte(
+			source[offset:maxStart+1],
+			lowerASCIIByte(needle[0]),
+		)
+		if index < 0 {
+			return false
+		}
+		start := offset + index
+		if strings.EqualFold(source[start:start+len(needle)], needle) {
+			return true
+		}
+		offset = start + 1
+	}
+	return false
+}
+
+func indexFoldASCIIStringByte(source string, lower byte) int {
+	lowerIndex := strings.IndexByte(source, lower)
+	if lower < 'a' || lower > 'z' {
+		return lowerIndex
+	}
+	upperIndex := strings.IndexByte(source, lower-'a'+'A')
+	if lowerIndex < 0 {
+		return upperIndex
+	}
+	if upperIndex >= 0 && upperIndex < lowerIndex {
+		return upperIndex
+	}
+	return lowerIndex
+}
+
+func lowerASCIIByte(value byte) byte {
+	if value >= 'A' && value <= 'Z' {
+		return value + ('a' - 'A')
+	}
+	return value
 }

@@ -167,8 +167,7 @@ func (p *RelatedNavigationCodeLensProvider) twigCodeLenses(
 		}
 		switch reference.Kind {
 		case twig.TemplateRenderReference,
-			twig.TemplateAttributeReference,
-			twig.TemplateAnnotationReference:
+			twig.TemplateAttributeReference:
 		default:
 			continue
 		}

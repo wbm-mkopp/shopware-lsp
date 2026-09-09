@@ -2,7 +2,6 @@ package twig
 
 import (
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -37,24 +36,19 @@ var phpTemplateCallNames = []string{
 	"textTemplate",
 }
 
-var templateAnnotationReferencePattern = regexp.MustCompile(
-	`(?i)@Template\s*\(\s*(?:template\s*(?:=|:)\s*)?["']([^"']+\.twig)["']`,
-)
-
 type TemplateReferenceKind string
 
 const (
-	TemplateExtendsReference    TemplateReferenceKind = "extends"
-	TemplateIncludeReference    TemplateReferenceKind = "include"
-	TemplateEmbedReference      TemplateReferenceKind = "embed"
-	TemplateImportReference     TemplateReferenceKind = "import"
-	TemplateUseReference        TemplateReferenceKind = "use"
-	TemplateFormThemeReference  TemplateReferenceKind = "form_theme"
-	TemplateSourceReference     TemplateReferenceKind = "source"
-	TemplateBlockReference      TemplateReferenceKind = "block"
-	TemplateRenderReference     TemplateReferenceKind = "render"
-	TemplateAttributeReference  TemplateReferenceKind = "attribute"
-	TemplateAnnotationReference TemplateReferenceKind = "annotation"
+	TemplateExtendsReference   TemplateReferenceKind = "extends"
+	TemplateIncludeReference   TemplateReferenceKind = "include"
+	TemplateEmbedReference     TemplateReferenceKind = "embed"
+	TemplateImportReference    TemplateReferenceKind = "import"
+	TemplateUseReference       TemplateReferenceKind = "use"
+	TemplateFormThemeReference TemplateReferenceKind = "form_theme"
+	TemplateSourceReference    TemplateReferenceKind = "source"
+	TemplateBlockReference     TemplateReferenceKind = "block"
+	TemplateRenderReference    TemplateReferenceKind = "render"
+	TemplateAttributeReference TemplateReferenceKind = "attribute"
 )
 
 // TemplateReference is one statically known use of a Twig template. Range
@@ -692,26 +686,6 @@ func PHPTemplateReferences(
 		return true
 	}, phpsyntax.PhpString)
 
-	source := root.Text()
-	base := root.Range().Start
-	for _, match := range templateAnnotationReferencePattern.FindAllStringSubmatchIndex(
-		source,
-		-1,
-	) {
-		if len(match) < 4 || match[2] < 0 {
-			continue
-		}
-		template := source[match[2]:match[3]]
-		result = append(result, TemplateReference{
-			Template: normalizeTemplateReference(template),
-			FilePath: path,
-			Range: cst.TextRange{
-				Start: base + uint32(match[2]),
-				End:   base + uint32(match[3]),
-			},
-			Kind: TemplateAnnotationReference,
-		})
-	}
 	return uniqueTemplateReferences(result)
 }
 

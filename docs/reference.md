@@ -594,10 +594,12 @@ include these hints.
   completion, multi-target definition navigation, missing-reference
   diagnostics, and typo fixes at matching call arguments
 - Missing-template diagnostics for typed PHP render calls and explicit or
-  convention-guessed `#[Template]` / `@Template` declarations, with typo
+  convention-guessed `#[Template]` declarations, with typo
   replacements and safe standard `templates/` file-creation quick fixes
 - Find References across static Twig tags/functions, PHP render calls, and
-  explicit `#[Template]`/`@Template` mappings
+  explicit `#[Template]` mappings
+- PHPDoc `@Template` annotations are ignored for Twig templates; generic
+  `@template` tags remain available to PHP type inference
 - Structured template-usage analytics correlate logical/physical template
   names with PHP controller actions and routes, include/embed/extends/import/
   use/form-theme edges, and Twig component composition; partial-name,

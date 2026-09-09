@@ -286,12 +286,6 @@ func implicitPHPTemplateCandidates(
 					range_: nameNode.RangeTrimmedTrivia(),
 				})
 			}
-			for _, rng := range emptyTemplateAnnotationRanges(method) {
-				result = append(result, templateDiagnosticCandidate{
-					name:   name,
-					range_: rng,
-				})
-			}
 		}
 	}
 	return result
@@ -303,65 +297,6 @@ func isTemplateAttribute(attribute *phpsyntax.Node) bool {
 		name = name[index+1:]
 	}
 	return strings.EqualFold(name, "Template")
-}
-
-func emptyTemplateAnnotationRanges(
-	method *phpsyntax.Node,
-) []cst.TextRange {
-	if method == nil {
-		return nil
-	}
-	text := method.Text()
-	if body := phpquery.DirectChild(
-		method,
-		phpsyntax.PhpBlock,
-	); body != nil && body.Range().Start >= method.Range().Start {
-		prefixLength := int(body.Range().Start - method.Range().Start)
-		if prefixLength >= 0 && prefixLength <= len(text) {
-			text = text[:prefixLength]
-		}
-	}
-	lower := strings.ToLower(text)
-	const annotation = "@template"
-	var result []cst.TextRange
-	for search := 0; search < len(lower); {
-		relative := strings.Index(lower[search:], annotation)
-		if relative < 0 {
-			break
-		}
-		start := search + relative
-		afterName := start + len(annotation)
-		search = afterName
-		if afterName < len(lower) &&
-			isTemplateAnnotationIdentifierByte(lower[afterName]) {
-			continue
-		}
-		cursor := afterName
-		for cursor < len(text) &&
-			(text[cursor] == ' ' || text[cursor] == '\t') {
-			cursor++
-		}
-		if cursor < len(text) && text[cursor] == '(' {
-			closeOffset := strings.IndexByte(text[cursor+1:], ')')
-			if closeOffset < 0 ||
-				strings.TrimSpace(
-					text[cursor+1:cursor+1+closeOffset],
-				) != "" {
-				continue
-			}
-		}
-		result = append(result, cst.TextRange{
-			Start: method.Range().Start + uint32(start+1),
-			End:   method.Range().Start + uint32(afterName),
-		})
-	}
-	return result
-}
-
-func isTemplateAnnotationIdentifierByte(value byte) bool {
-	return value == '_' ||
-		value >= 'a' && value <= 'z' ||
-		value >= '0' && value <= '9'
 }
 
 func (p *TemplateAnalyzer) isSupportedPHPCall(

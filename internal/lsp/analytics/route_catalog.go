@@ -300,8 +300,7 @@ func (r *routeTemplateResolver) load(path string) error {
 	for _, reference := range references {
 		switch reference.Kind {
 		case twig.TemplateRenderReference,
-			twig.TemplateAttributeReference,
-			twig.TemplateAnnotationReference:
+			twig.TemplateAttributeReference:
 		default:
 			continue
 		}

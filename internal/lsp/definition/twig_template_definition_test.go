@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestTwigTemplateDefinitionSupportsTemplateAnnotation(t *testing.T) {
+func TestTwigTemplateDefinitionIgnoresTemplateAnnotation(t *testing.T) {
 	root := t.TempDir()
 	targetPath := filepath.Join(root, "templates", "page.html.twig")
 	require.NoError(t, os.MkdirAll(filepath.Dir(targetPath), 0o755))
@@ -58,8 +58,7 @@ final class PageController {}
 			},
 		},
 	)
-	require.Len(t, locations, 1)
-	require.Equal(t, uriutil.FileURI(targetPath), locations[0].URI)
+	require.Empty(t, locations)
 }
 
 func TestPHPDocTemplateAssistantTagDefinition(t *testing.T) {
