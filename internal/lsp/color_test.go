@@ -2,9 +2,11 @@ package lsp
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -100,4 +102,59 @@ func TestColorPresentationsUseLiveDocumentAndDeduplicate(t *testing.T) {
 	require.NotNil(t, received)
 	require.Same(t, params, received.ColorPresentationParams)
 	require.Equal(t, 9, received.Document.Version)
+}
+
+// documentColor and colorPresentation are specified as arrays, with no null
+// permitted, unlike most requests. A nil slice marshals to null, which strict
+// clients reject outright: Zed logs "invalid type: null, expected a sequence"
+// and drops the response.
+func TestColorResponsesMarshalEmptyResultsAsArrays(t *testing.T) {
+	server := NewServer(nil, "", "test")
+	t.Cleanup(func() { require.NoError(t, server.CloseAll()) })
+	uri := "file:///workspace/component.scss"
+	server.documentManager.OpenDocument(uri, "$a: #000;", 1)
+	absent := protocol.TextDocumentIdentifier{URI: "file:///workspace/absent.scss"}
+	open := protocol.TextDocumentIdentifier{URI: uri}
+
+	requireEmptyJSONArray := func(t *testing.T, result any, err error) {
+		t.Helper()
+		require.NoError(t, err)
+		payload, marshalErr := json.Marshal(result)
+		require.NoError(t, marshalErr)
+		assert.Equal(t, "[]", string(payload))
+	}
+
+	t.Run("colors with no provider registered", func(t *testing.T) {
+		result, err := server.documentColors(context.Background(),
+			&protocol.DocumentColorParams{TextDocument: open})
+		requireEmptyJSONArray(t, result, err)
+	})
+
+	t.Run("colors for a document that is not open", func(t *testing.T) {
+		result, err := server.documentColors(context.Background(),
+			&protocol.DocumentColorParams{TextDocument: absent})
+		requireEmptyJSONArray(t, result, err)
+	})
+
+	t.Run("colors without params", func(t *testing.T) {
+		result, err := server.documentColors(context.Background(), nil)
+		requireEmptyJSONArray(t, result, err)
+	})
+
+	t.Run("presentations with no provider registered", func(t *testing.T) {
+		result, err := server.colorPresentations(context.Background(),
+			&protocol.ColorPresentationParams{TextDocument: open})
+		requireEmptyJSONArray(t, result, err)
+	})
+
+	t.Run("presentations for a document that is not open", func(t *testing.T) {
+		result, err := server.colorPresentations(context.Background(),
+			&protocol.ColorPresentationParams{TextDocument: absent})
+		requireEmptyJSONArray(t, result, err)
+	})
+
+	t.Run("presentations without params", func(t *testing.T) {
+		result, err := server.colorPresentations(context.Background(), nil)
+		requireEmptyJSONArray(t, result, err)
+	})
 }

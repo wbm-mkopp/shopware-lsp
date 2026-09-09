@@ -149,7 +149,7 @@ type CompletionItem struct {
 	Documentation struct {
 		Kind  string `json:"kind"`
 		Value string `json:"value"`
-	} `json:"documentation,omitempty"`
+	} `json:"documentation,omitzero"`
 
 	// Indicates if this item is deprecated
 	Deprecated bool `json:"deprecated,omitempty"`
