@@ -261,6 +261,61 @@ func TestFileScannerUpdatesFileStatesInBatches(t *testing.T) {
 	}
 }
 
+func TestFileScanner_KeepsProgressWhenIndexingIsInterrupted(t *testing.T) {
+	tempDir := t.TempDir()
+	const fileCount = 120
+	for index := range fileCount {
+		require.NoError(t, os.WriteFile(
+			filepath.Join(tempDir, fmt.Sprintf("source%03d.php", index)),
+			[]byte("<?php\n"),
+			0o644,
+		))
+	}
+
+	store, err := NewStore(filepath.Join(tempDir, "indexes.db"))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, store.Close()) }()
+
+	scanner, err := NewFileScanner(
+		tempDir,
+		filepath.Join(tempDir, "scanner.db"),
+		store,
+	)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, scanner.Close()) }()
+	scanner.SetWorkerCount(1)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	indexer := &cancellingIndexer{after: 60, cancel: cancel}
+	scanner.AddIndexer(indexer)
+
+	require.Error(t, scanner.IndexAll(ctx))
+
+	interrupted, err := scanner.Stats(context.Background())
+	require.NoError(t, err)
+	require.Positive(
+		t,
+		interrupted.TrackedFiles,
+		"batches whose index mutation committed must stay tracked",
+	)
+	require.Less(t, interrupted.TrackedFiles, fileCount)
+
+	indexer.after = 0
+	before := indexer.count()
+	require.NoError(t, scanner.IndexAll(context.Background()))
+
+	completed, err := scanner.Stats(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, fileCount, completed.TrackedFiles)
+	require.Equal(
+		t,
+		fileCount-interrupted.TrackedFiles,
+		indexer.count()-before,
+		"the resuming run must only index what the interrupted one did not",
+	)
+}
+
 func TestFileScanner_RollsBackWorkspaceRepositoriesTogether(t *testing.T) {
 	tempDir := t.TempDir()
 	filePath := filepath.Join(tempDir, "atomic.php")
@@ -1190,6 +1245,38 @@ func (i *supplementalMockIndexer) Index(file *ParsedFile) error {
 	}
 	return i.mockIndexer.Index(file)
 }
+
+// cancellingIndexer interrupts a run once it has seen a given number of files,
+// standing in for an editor shutdown or a killed process.
+type cancellingIndexer struct {
+	mu      sync.Mutex
+	indexed int
+	after   int
+	cancel  context.CancelFunc
+}
+
+func (i *cancellingIndexer) Index(*ParsedFile) error {
+	i.mu.Lock()
+	i.indexed++
+	reached := i.after > 0 && i.indexed == i.after
+	i.mu.Unlock()
+	if reached {
+		i.cancel()
+	}
+	return nil
+}
+
+func (i *cancellingIndexer) count() int {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.indexed
+}
+
+func (i *cancellingIndexer) RemovedFiles([]string) error { return nil }
+func (i *cancellingIndexer) Name() string                { return "cancellingIndexer" }
+func (i *cancellingIndexer) ID() string                  { return "cancelling" }
+func (i *cancellingIndexer) Close() error                { return nil }
+func (i *cancellingIndexer) Clear() error                { return nil }
 
 type controlledIndexer struct {
 	err       error

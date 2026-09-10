@@ -29,11 +29,16 @@ type fileIndexRun struct {
 	files        []string
 	storedStates []storedFileState
 
-	resultMu      sync.Mutex
-	resultErrors  []error
-	updatedStates []fileState
-	skippedFiles  []skippedFileWork
-	batchIndexers []BatchIndexer
+	resultMu       sync.Mutex
+	resultErrors   []error
+	pendingStates  []fileState
+	publishedFiles int
+	skippedFiles   []skippedFileWork
+	batchIndexers  []BatchIndexer
+
+	// publishMu serialises the tracked-state writes, which go to a different
+	// database than the index mutations and therefore cannot join them.
+	publishMu sync.Mutex
 }
 
 func (fs *FileScanner) indexFiles(
@@ -63,10 +68,10 @@ func (fs *FileScanner) indexFiles(
 		ctx:          ctx,
 		files:        files,
 		storedStates: storedStates,
-		updatedStates: make(
+		pendingStates: make(
 			[]fileState,
 			0,
-			len(files),
+			min(len(files), fileStatePublishThreshold),
 		),
 	}
 	run.beginIndexerBatches()
@@ -83,11 +88,16 @@ func (fs *FileScanner) indexFiles(
 	if err := run.loadStoredStates(); err != nil {
 		return err
 	}
-	if !run.runWorkers() {
-		return errors.Join(run.resultErrors...)
+	cancelled := !run.runWorkers()
+	if !cancelled {
+		run.commitSkippedFiles()
 	}
-	run.commitSkippedFiles()
-	notifyUpdate = run.commitFileStates()
+	// Publishing also on the cancelled path is deliberate. Every state held
+	// here belongs to a batch whose index mutation already committed, so
+	// withholding it does not protect anything; it only tells the next run to
+	// redo work that is already durable.
+	run.publishFileStates()
+	notifyUpdate = run.publishedFiles > 0
 	return errors.Join(run.resultErrors...)
 }
 
@@ -124,7 +134,7 @@ func (run *fileIndexRun) finishIndexerBatches() error {
 	parsekit.ReleaseTransientBuffers()
 	clearMessagePackBuffers()
 	const largeBatchReclaimThreshold = 8192
-	if len(run.updatedStates) >= largeBatchReclaimThreshold {
+	if run.publishedFiles >= largeBatchReclaimThreshold {
 		// Cold workspace indexing leaves large parser, binder, and persistence
 		// slabs dead at the batch lifecycle boundary.
 		debug.FreeOSMemory()
@@ -299,8 +309,12 @@ func (run *fileIndexRun) processBatch(items []fileWork) {
 		return
 	}
 	run.resultMu.Lock()
-	run.updatedStates = append(run.updatedStates, successful...)
+	run.pendingStates = append(run.pendingStates, successful...)
+	due := len(run.pendingStates) >= fileStatePublishThreshold
 	run.resultMu.Unlock()
+	if due {
+		run.publishFileStates()
+	}
 }
 
 func (run *fileIndexRun) prepareBatch(items []fileWork) []preparedFileWork {
@@ -511,13 +525,42 @@ func preparedFileState(item preparedFileWork) fileState {
 	return fileState{path: item.file.Path, info: item.info}
 }
 
-func (run *fileIndexRun) commitFileStates() bool {
-	if len(run.updatedStates) == 0 {
-		return false
+// Tracked states are published in chunks rather than once per batch so the
+// extra transaction stays negligible against the indexing it records, while an
+// interrupted run loses at most this many files of progress.
+const fileStatePublishThreshold = 512
+
+// publishFileStates records the files whose index mutations already committed.
+// Index contents and tracked hashes live in two databases, so they cannot share
+// a transaction; publishing the hashes only after the whole run means an
+// interrupted index keeps every symbol it produced and forgets that it produced
+// them. The next run then rediscovers the entire workspace against a graph that
+// is already warm, which is both wasted work and a materially more expensive
+// shape of work than a cold index.
+func (run *fileIndexRun) publishFileStates() {
+	run.publishMu.Lock()
+	defer run.publishMu.Unlock()
+
+	run.resultMu.Lock()
+	pending := run.pendingStates
+	run.pendingStates = nil
+	run.resultMu.Unlock()
+	if len(pending) == 0 {
+		return
 	}
-	if err := run.scanner.updateFileStates(run.ctx, run.updatedStates); err != nil {
+
+	// The write is small, bounded, and describes work that is already durable.
+	// Letting a cancelled context abort it would discard exactly the progress
+	// this function exists to keep.
+	if err := run.scanner.updateFileStates(
+		context.WithoutCancel(run.ctx),
+		pending,
+	); err != nil {
 		run.recordError(fmt.Errorf("commit file state: %w", err))
-		return false
+		return
 	}
-	return true
+
+	run.resultMu.Lock()
+	run.publishedFiles += len(pending)
+	run.resultMu.Unlock()
 }
