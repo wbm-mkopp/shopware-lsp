@@ -2,6 +2,7 @@ package parser
 
 import (
 	"testing"
+	"time"
 
 	phpquery "github.com/shopware/shopware-lsp/internal/parser/php/query"
 	"github.com/shopware/shopware-lsp/internal/parser/php/syntax"
@@ -545,5 +546,30 @@ func requireNodeCount(t *testing.T, root *syntax.Node, kind syntax.Kind, expecte
 	nodes := phpquery.Nodes(root, kind)
 	if len(nodes) != expected {
 		t.Fatalf("%s nodes = %d, want %d\n%s", kind, len(nodes), expected, syntax.DebugTree(root))
+	}
+}
+
+// Symfony MakerBundle templates interrupt an attribute with inline PHP tags.
+// Without a progress guard the attribute loop consumed nothing and appended
+// parse events until the process ran out of memory.
+func TestParseAttributeInterruptedByInlineTagTerminates(t *testing.T) {
+	source := `<?php
+final class Listener
+{
+    #[AsEventListener<?php if (!$class_event): ?>(event: <?= $event ?>)<?php endif ?>]
+    public function onEvent($event): void
+    {
+    }
+}
+`
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		Parse(source)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("parser did not terminate on an interrupted attribute")
 	}
 }

@@ -1408,6 +1408,7 @@ func parseAttributeGroups(parser *parsekit.Parser) {
 				parser.Bump()
 				continue
 			}
+			position := parser.GetPos()
 			attribute := parser.Start()
 			if isNameStart(parser) {
 				parseName(parser)
@@ -1417,6 +1418,9 @@ func parseAttributeGroups(parser *parsekit.Parser) {
 			}
 			parser.Complete(attribute, syntax.PhpAttribute)
 			if parser.At(syntax.TkComma) {
+				parser.Bump()
+			}
+			if parser.GetPos() == position {
 				parser.Bump()
 			}
 		}
