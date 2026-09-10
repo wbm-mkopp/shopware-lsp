@@ -112,6 +112,7 @@ func (p *RouteAnalyzer) missingRoutes(
 ) ([]lsp.Problem, error) {
 	var result []lsp.Problem
 	var candidateNames []string
+	resolvedNames := map[string]struct{}{}
 	candidatesLoaded := false
 	for _, literal := range literals {
 		if err := ctx.Err(); err != nil {
@@ -150,6 +151,11 @@ func (p *RouteAnalyzer) missingRoutes(
 			if queryErr != nil {
 				return nil, fmt.Errorf("query Symfony routes: %w", queryErr)
 			}
+			// Routes named by a class constant reach the index without a
+			// literal name, because the constant lives in another file.
+			// Resolve them here, where the PHP index is available, before
+			// deciding anything is missing.
+			allRoutes = symfony.ResolveConstantRouteNames(allRoutes, p.phpIndex)
 			seen := make(map[string]struct{}, len(allRoutes))
 			for _, route := range allRoutes {
 				if _, exists := seen[route.Name]; route.Name == "" || exists {
@@ -157,8 +163,12 @@ func (p *RouteAnalyzer) missingRoutes(
 				}
 				seen[route.Name] = struct{}{}
 				candidateNames = append(candidateNames, route.Name)
+				resolvedNames[route.Name] = struct{}{}
 			}
 			candidatesLoaded = true
+		}
+		if _, exists := resolvedNames[name]; exists {
+			continue
 		}
 		result = append(result, lsp.Problem{
 			Range:    valueNodeTextRange(literal, name),

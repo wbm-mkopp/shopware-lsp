@@ -204,3 +204,34 @@ func parsePHPFile(filePath string) (*phpsyntax.Node, []byte) {
 
 	return phpparser.ParseBytes(content).Tree.Root, content
 }
+
+func TestExtractRouteNamedByClassConstant(t *testing.T) {
+	// Symfony accepts a constant expression for `name`, and Shopware core
+	// names most routes that way. The value lives in another file, so the
+	// parser records the reference with the class resolved through the file's
+	// imports; ResolveConstantRouteName turns it into a name later.
+	filePath := "testdata/controller_constant_name.php"
+	node, content := parsePHPFile(filePath)
+
+	routes := parsePHPRoutes(filePath, node, content)
+	require.Len(t, routes, 1)
+
+	assert.Equal(t, "", routes[0].Name)
+	assert.Equal(
+		t,
+		"App\\Seo\\ProductPageSeoUrlRoute::ROUTE_NAME",
+		routes[0].NameConstant,
+	)
+	assert.Equal(t, "/detail/{productId}", routes[0].Path)
+}
+
+func TestExtractRouteIgnoresClassConstantForControllerNames(t *testing.T) {
+	// `Foo::class` names a controller, not a route, and must not be mistaken
+	// for a route name reference.
+	filePath := "testdata/controller.php"
+	node, content := parsePHPFile(filePath)
+
+	for _, route := range parsePHPRoutes(filePath, node, content) {
+		assert.Equal(t, "", route.NameConstant, route.Name)
+	}
+}

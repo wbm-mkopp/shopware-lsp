@@ -13,12 +13,18 @@ import (
 
 // Route represents a Symfony route from YAML, PHP, or other sources
 type Route struct {
-	Name       string
-	Path       string
-	Controller string
-	Methods    []string
-	FilePath   string
-	Line       int
+	Name string
+	// NameConstant holds a `Fully\Qualified\Class::CONSTANT` reference when
+	// the route name is a class constant rather than a literal. Resolving it
+	// needs another file's symbols, which the indexer does not have, so
+	// consumers holding the PHP index resolve it at query time via
+	// ResolveConstantRouteName.
+	NameConstant string
+	Path         string
+	Controller   string
+	Methods      []string
+	FilePath     string
+	Line         int
 }
 
 // Parameters returns path placeholders in source order. Symfony's inline
@@ -613,13 +619,19 @@ func (idx *RouteIndexer) indexPhp(file *indexer.ParsedFile) error {
 
 	batchSave := map[string]map[string]Route{file.Path: {}}
 	for _, route := range parsedRoutes {
-		if route.Name == "" {
+		// A constant-named route has no literal name yet; key it by the
+		// reference so it survives indexing and can be resolved later.
+		key := route.Name
+		if key == "" {
+			key = route.NameConstant
+		}
+		if key == "" {
 			continue
 		}
 		if _, ok := batchSave[route.FilePath]; !ok {
 			batchSave[route.FilePath] = make(map[string]Route)
 		}
-		batchSave[route.FilePath][route.Name] = route
+		batchSave[route.FilePath][key] = route
 	}
 	addRouteWorkspaceSymbols(file, parsedRoutes)
 
