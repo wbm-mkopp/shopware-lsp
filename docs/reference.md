@@ -1547,16 +1547,21 @@ Pass `--pre-release` through mise to mark every VSIX as a VSCode pre-release:
 mise run release -- --pre-release
 ```
 
-Pushing a semver pre-release tag (for example `0.3.0-rc.1`) runs the
-`Pre-release` GitHub Actions workflow. The workflow runs the test suite,
-builds all platform-specific pre-release packages through the shared
-`build-vsix` workflow, verifies their `SHA256SUMS`, and attaches every VSIX
-to a GitHub pre-release. A separate publish job, gated by the `preview`
-deployment environment, then publishes the verified packages to the VSCode
-Marketplace and Open VSX pre-release channels. Stable tags (for example
-`0.3.0`) run the `Release` workflow, which reuses the same build and
-verification steps, attaches the packages to the stable GitHub release, and
-publishes through the `release` deployment environment.
+The VSCode Marketplace and Open VSX only accept numeric `major.minor.patch`
+extension versions; semver pre-release identifiers such as `0.3.0-rc.1` are
+rejected at publish time. The repository therefore follows the VS Code
+versioning convention: odd minors are pre-releases, even minors are stable.
+
+Pushing an odd-minor tag (for example `0.3.0`) runs the `Pre-release` GitHub
+Actions workflow. The workflow runs the test suite, builds all
+platform-specific pre-release packages through the shared `build-vsix`
+workflow, verifies their `SHA256SUMS`, and attaches every VSIX to a GitHub
+pre-release. A separate publish job, gated by the `preview` deployment
+environment, then publishes the verified packages to the VSCode Marketplace
+and Open VSX pre-release channels. Even-minor tags (for example `0.4.0`) run
+the `Release` workflow, which reuses the same build and verification steps,
+attaches the packages to the stable GitHub release, and publishes through the
+`release` deployment environment.
 
 ### Building
 

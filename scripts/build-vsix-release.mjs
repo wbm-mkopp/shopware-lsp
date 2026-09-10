@@ -24,7 +24,9 @@ const goreleaserDirectory = path.join(repositoryRoot, 'dist');
 const crossImage = process.env.GORELEASER_CROSS_IMAGE ||
   'ghcr.io/shyim/goreleaser-cross:v1.27.0';
 
-const versionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+// The VSCode Marketplace and Open VSX only accept numeric major.minor.patch
+// versions; semver pre-release identifiers are rejected at publish time.
+const versionPattern = /^\d+\.\d+\.\d+$/;
 
 const options = new Set(process.argv.slice(2));
 if (options.has('--help')) {

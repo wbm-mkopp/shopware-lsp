@@ -3,14 +3,30 @@ name: Pre-release
 on:
   push:
     tags:
-      # Semver pre-release tags, e.g. 0.3.0-rc.1
-      - '[0-9]+.[0-9]+.[0-9]+-*'
+      # Semver tags; only odd minors (pre-release channel) run this pipeline
+      - '[0-9]+.[0-9]+.[0-9]+'
 
 permissions:
   contents: write
 
 jobs:
+  route:
+    name: Check pre-release tag
+    runs-on: ubuntu-latest
+    outputs:
+      pre-release: ${{ steps.parity.outputs.pre-release }}
+    steps:
+      - name: Compute minor parity
+        id: parity
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          minor="$(echo "$TAG" | cut -d. -f2)"
+          echo "pre-release=$((minor % 2))" >> "$GITHUB_OUTPUT"
+
   validate:
+    needs: route
+    if: needs.route.outputs.pre-release == '1'
     uses: ./.github/workflows/tests.yml
 
   build:

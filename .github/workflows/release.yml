@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      # Stable semver tags, e.g. 0.3.0 (pre-release tags are handled by pre-release.yml)
+      # Semver tags; only even minors (stable channel) run this pipeline
       - '[0-9]+.[0-9]+.[0-9]+'
 
 permissions:
@@ -11,8 +11,24 @@ permissions:
   contents: write
 
 jobs:
+  route:
+    name: Check stable tag
+    runs-on: ubuntu-latest
+    outputs:
+      pre-release: ${{ steps.parity.outputs.pre-release }}
+    steps:
+      - name: Compute minor parity
+        id: parity
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          minor="$(echo "$TAG" | cut -d. -f2)"
+          echo "pre-release=$((minor % 2))" >> "$GITHUB_OUTPUT"
+
   release-lsp:
     name: Release LSP
+    needs: route
+    if: needs.route.outputs.pre-release == '0'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

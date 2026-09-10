@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       version:
-        description: Extension version to package (e.g. 0.3.0 or 0.3.0-rc.1)
+        description: Extension version to package (numeric major.minor.patch only; the marketplaces reject semver pre-release identifiers)
         required: true
         type: string
       pre-release:
