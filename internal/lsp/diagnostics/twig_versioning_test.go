@@ -2,281 +2,310 @@ package diagnostics
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/shopware/shopware-lsp/internal/indexer"
 	"github.com/shopware/shopware-lsp/internal/lsp"
-	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
-	tree_sitter_twig "github.com/shopware/shopware-lsp/internal/tree_sitter_grammars/twig/bindings/go"
 	"github.com/shopware/shopware-lsp/internal/twig"
+	"github.com/shopware/shopware-lsp/internal/uriutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
-func TestTwigVersioningDiagnosticsProvider_originalNotFoundMessage(t *testing.T) {
+func TestTwigVersioningAnalyzer_originalNotFoundMessage(t *testing.T) {
 	ctx := context.Background()
 	tempDir := t.TempDir()
 
-	fileScanner, err := indexer.NewFileScanner(tempDir, filepath.Join(tempDir, "scanner.db"))
-	require.NoError(t, err)
-
-	server := lsp.NewServer(fileScanner, tempDir, "test")
 	twigIndexer, err := twig.NewTwigIndexer(tempDir)
 	require.NoError(t, err)
-	server.RegisterIndexer(twigIndexer, nil)
+	defer func() { _ = twigIndexer.Close() }()
 
-	provider := NewTwigVersioningDiagnosticsProvider(server)
+	provider := NewTwigVersioningAnalyzer(twig.NewVersioningService("/tmp", twigIndexer, ""))
 
 	uri := "file:///tmp/myext/Resources/views/storefront/page/checkout/foo.html.twig"
 	content := []byte(`{% sw_extends '@Storefront/storefront/page/checkout/foo' %}{# shopware-block: abc123def456@6.4.15.0 #}{% block content %}test{% endblock %}`)
 
-	parser := tree_sitter.NewParser()
-	lang := tree_sitter.NewLanguage(tree_sitter_twig.Language())
-	require.NoError(t, parser.SetLanguage(lang))
-	tree := parser.Parse(content, nil)
-	defer tree.Close()
-
-	diagnostics, err := provider.GetDiagnostics(ctx, uri, tree.RootNode(), content)
+	diagnostics, err := provider.Analyze(ctx, diagnosticsDocument(uri, content))
 	require.NoError(t, err)
 
-	require.Len(t, diagnostics, 1)
-	assert.Contains(t, diagnostics[0].Message, "Original block not found in Storefront for block 'content'")
-	assert.Equal(t, protocol.DiagnosticSeverityWarning, diagnostics[0].Severity)
-	assert.Equal(t, "shopware-lsp", diagnostics[0].Source)
+	assert.Empty(t, diagnostics)
 }
 
-func TestTwigVersioningDiagnosticsProvider_nilIndexerNoPanic(t *testing.T) {
+func TestTwigVersioningAnalyzer_nilIndexerNoPanic(t *testing.T) {
 	ctx := context.Background()
-	tempDir := t.TempDir()
-
-	fileScanner, err := indexer.NewFileScanner(tempDir, filepath.Join(tempDir, "scanner.db"))
-	require.NoError(t, err)
-
-	server := lsp.NewServer(fileScanner, tempDir, "test")
-
-	provider := NewTwigVersioningDiagnosticsProvider(server)
+	provider := NewTwigVersioningAnalyzer(nil)
 	require.NotNil(t, provider)
 
 	content := []byte(`{% block foo %}{% endblock %}`)
 	uri := "file:///tmp/ext/Resources/views/storefront/page/bar.html.twig"
-	parser := tree_sitter.NewParser()
-	lang := tree_sitter.NewLanguage(tree_sitter_twig.Language())
-	require.NoError(t, parser.SetLanguage(lang))
-	tree := parser.Parse(content, nil)
-	defer tree.Close()
-
-	diagnostics, err := provider.GetDiagnostics(ctx, uri, tree.RootNode(), content)
+	diagnostics, err := provider.Analyze(ctx, diagnosticsDocument(uri, content))
 	require.NoError(t, err)
 	assert.Empty(t, diagnostics)
 }
 
-func TestTwigVersioningDiagnosticsProvider_PriceUnitParentBlockFoundViaFallback(t *testing.T) {
-	ctx := context.Background()
-	tempDir := t.TempDir()
-
-	fileScanner, err := indexer.NewFileScanner(tempDir, filepath.Join(tempDir, "scanner.db"))
+func TestTwigVersioningAnalyzerReportsDeprecatedUpstreamBlock(t *testing.T) {
+	index, err := twig.NewTwigIndexer(t.TempDir())
 	require.NoError(t, err)
-
-	server := lsp.NewServer(fileScanner, tempDir, "test")
-	twigIndexer, err := twig.NewTwigIndexer(tempDir)
+	t.Cleanup(func() { require.NoError(t, index.Close()) })
+	storefrontPath := "/project/src/Storefront/Resources/views/storefront/page/example.html.twig"
+	require.NoError(t, index.Index(indexer.NewParsedFile(
+		storefrontPath,
+		[]byte("{# @deprecated tag:v6.7.0 - use page_new #}\n{% block page_old %}old{% endblock %}"),
+	)))
+	extensionPath := "/project/custom/plugins/Example/src/Resources/views/storefront/page/example.html.twig"
+	source := "{% sw_extends '@Storefront/storefront/page/example.html.twig' %}\n{% block page_old %}custom{% endblock %}"
+	problems, err := NewTwigVersioningAnalyzer(twig.NewVersioningService("/project", index, "")).Analyze(
+		context.Background(),
+		lsp.NewTextDocument("file://"+extensionPath, source, 1),
+	)
 	require.NoError(t, err)
-	server.RegisterIndexer(twigIndexer, nil)
+	var found bool
+	for _, problem := range problems {
+		if problem.ID == "twig.block.deprecated" {
+			found = true
+			assert.Contains(t, problem.Message, "tag:v6.7.0")
+			assert.Contains(t, problem.Message, "page_new")
+		}
+	}
+	require.True(t, found)
+}
 
-	provider := NewTwigVersioningDiagnosticsProvider(server)
-
-	parser := tree_sitter.NewParser()
-	lang := tree_sitter.NewLanguage(tree_sitter_twig.Language())
-	require.NoError(t, parser.SetLanguage(lang))
-	defer parser.Close()
-
-	// Vendor storefront template based on the reported real-world case:
-	// component_product_box_price_unit may not be indexed via regular hash lookup.
-	vendorPath := "/tmp/project/vendor/shopware/storefront/Resources/views/storefront/component/product/card/price-unit.html.twig"
-	vendorContent := []byte(`{% block component_product_box_price_info %}
-    <div class="product-price-info">
-        {% block component_product_box_price_unit %}
-            <p class="product-price-unit">
-                {% block component_product_box_price_purchase_unit %}
-                    {% if referencePrice and referencePrice.unitName %}
-                        <span class="product-unit-label"></span>
-                    {% endif %}
-                {% endblock %}
-            </p>
-        {% endblock %}
-    </div>
-{% endblock %}`)
-	vendorTree := parser.Parse(vendorContent, nil)
-	defer vendorTree.Close()
-	require.NoError(t, twigIndexer.Index(vendorPath, vendorTree.RootNode(), vendorContent))
-
-	// Extension override modeled after Aida's price-unit override.
-	overridePath := "/tmp/project/src/WbmAidaCore/Resources/views/storefront/component/product/card/price-unit.html.twig"
-	overrideURI := fmt.Sprintf(lsp.FileURIFormat, overridePath)
-	overrideContent := []byte(`{% sw_extends '@Storefront/storefront/component/product/card/price-unit.html.twig' %}
-
-{% block component_product_box_price_info %}
-    <div class="product-price-info">
-        {{ block('component_product_box_price') }}
-        {{ block('component_product_box_price_unit') }}
-    </div>
-{% endblock %}
-
-{% block component_product_box_price_unit %}
-    {% if referencePrice and referencePrice.unitName %}
-        {{ parent() }}
-    {% endif %}
-{% endblock %}`)
-	overrideTree := parser.Parse(overrideContent, nil)
-	defer overrideTree.Close()
-
-	diagnostics, err := provider.GetDiagnostics(ctx, overrideURI, overrideTree.RootNode(), overrideContent)
+func TestTwigVersioningAnalyzerAcceptsAnyChainCandidateAndReportsChanges(t *testing.T) {
+	root := t.TempDir()
+	index, err := twig.NewTwigIndexer(filepath.Join(root, "cache"))
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, index.Close()) })
+	corePath := filepath.Join(
+		root, "src", "Storefront", "Resources", "views",
+		"storefront", "page", "base.html.twig",
+	)
+	themePath := filepath.Join(
+		root, "custom", "plugins", "Theme", "src", "Resources", "views",
+		"storefront", "theme", "base.html.twig",
+	)
+	require.NoError(t, index.Index(indexer.NewParsedFile(
+		corePath,
+		[]byte(`{% block content %}core{% endblock %}`),
+	)))
+	require.NoError(t, index.Index(indexer.NewParsedFile(
+		themePath,
+		[]byte(`{% sw_extends '@Storefront/storefront/page/base.html.twig' %}
+{% block content %}theme{% endblock %}`),
+	)))
+	hashes, err := index.GetTwigBlockHashes("content")
+	require.NoError(t, err)
+	var coreHash string
+	for _, hash := range hashes {
+		if hash.AbsolutePath == corePath {
+			coreHash = hash.Hash
+		}
+	}
+	require.NotEmpty(t, coreHash)
+	pluginPath := filepath.Join(
+		root, "custom", "plugins", "Plugin", "src", "Resources", "views",
+		"storefront", "custom", "page.html.twig",
+	)
+	analyzer := NewTwigVersioningAnalyzer(twig.NewVersioningService(root, index, "6.7.2"))
+	matching := `{% sw_extends '@Theme/storefront/theme/base.html.twig' %}
+{# shopware-block: ` + coreHash + `@6.7.2.0 #}
+{% block content %}local{% endblock %}`
+	problems, err := analyzer.Analyze(
+		context.Background(),
+		lsp.NewTextDocument("file://"+pluginPath, matching, 1),
+	)
+	require.NoError(t, err)
+	for _, problem := range problems {
+		assert.NotEqual(t, TwigVersioningOutdatedCode, problem.ID)
+	}
 
-	for _, diag := range diagnostics {
-		assert.False(
-			t,
-			strings.Contains(diag.Message, "Original block not found in Storefront for block 'component_product_box_price_unit'"),
-			"price-unit parent block should be resolvable, got diagnostic: %s",
-			diag.Message,
+	outdated := `{% sw_extends '@Theme/storefront/theme/base.html.twig' %}
+{# shopware-block: deadbeef@6.6.0.0 #}
+{% block content %}local{% endblock %}`
+	problems, err = analyzer.Analyze(
+		context.Background(),
+		lsp.NewTextDocument("file://"+pluginPath, outdated, 2),
+	)
+	require.NoError(t, err)
+	require.True(t, containsTwigVersioningProblem(problems, TwigVersioningOutdatedCode))
+}
+
+func TestTwigVersioningAnalyzerReportsRemovalOnlyForResolvableParent(t *testing.T) {
+	root := t.TempDir()
+	index, err := twig.NewTwigIndexer(filepath.Join(root, "cache"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, index.Close()) })
+	corePath := filepath.Join(
+		root, "src", "Storefront", "Resources", "views",
+		"storefront", "page", "base.html.twig",
+	)
+	require.NoError(t, index.Index(indexer.NewParsedFile(
+		corePath,
+		[]byte(`{% block other %}core{% endblock %}`),
+	)))
+	analyzer := NewTwigVersioningAnalyzer(twig.NewVersioningService(root, index, ""))
+	pluginPath := filepath.Join(root, "custom", "plugin.html.twig")
+	tracked := `{% sw_extends '@Storefront/storefront/page/base.html.twig' %}
+{# shopware-block: deadbeef@6.6.0.0 #}
+{% block removed %}local{% endblock %}`
+	problems, err := analyzer.Analyze(
+		context.Background(),
+		lsp.NewTextDocument("file://"+pluginPath, tracked, 1),
+	)
+	require.NoError(t, err)
+	require.True(t, containsTwigVersioningProblem(problems, TwigVersioningOriginalMissingCode))
+
+	standalone := strings.Replace(
+		tracked,
+		"@Storefront/storefront/page/base.html.twig",
+		"@Missing/storefront/page/base.html.twig",
+		1,
+	)
+	problems, err = analyzer.Analyze(
+		context.Background(),
+		lsp.NewTextDocument("file://"+pluginPath, standalone, 2),
+	)
+	require.NoError(t, err)
+	assert.False(t, containsTwigVersioningProblem(problems, TwigVersioningOriginalMissingCode))
+}
+
+func TestTwigVersioningAnalyzerTreatsMalformedCommentAsMissing(t *testing.T) {
+	root := t.TempDir()
+	index, err := twig.NewTwigIndexer(filepath.Join(root, "cache"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, index.Close()) })
+	corePath := filepath.Join(
+		root, "src", "Storefront", "Resources", "views",
+		"storefront", "page", "base.html.twig",
+	)
+	require.NoError(t, index.Index(indexer.NewParsedFile(
+		corePath,
+		[]byte(`{% block content %}core{% endblock %}`),
+	)))
+	pluginPath := filepath.Join(root, "custom", "plugin.html.twig")
+	source := `{% sw_extends '@Storefront/storefront/page/base.html.twig' %}
+{# shopware-block: invalid-value@6.6.0.0 #}
+{% block content %}local{% endblock %}`
+	problems, err := NewTwigVersioningAnalyzer(
+		twig.NewVersioningService(root, index, ""),
+	).Analyze(
+		context.Background(),
+		lsp.NewTextDocument("file://"+pluginPath, source, 1),
+	)
+	require.NoError(t, err)
+	require.True(t, containsTwigVersioningProblem(problems, TwigVersioningCommentMissingCode))
+}
+
+func TestTwigVersioningAnalyzerReportsExactResolvedParentCopy(t *testing.T) {
+	root := t.TempDir()
+	index, err := twig.NewTwigIndexer(filepath.Join(root, "cache"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, index.Close()) })
+	upstreamPath := filepath.Join(
+		root, "src", "Storefront", "Resources", "views",
+		"storefront", "page", "example.html.twig",
+	)
+	block := "{% block content %}\n    <div>same</div>\n{% endblock %}"
+	require.NoError(t, index.Index(indexer.NewParsedFile(upstreamPath, []byte(block))))
+	pluginPath := filepath.Join(
+		root, "custom", "plugins", "Example", "src", "Resources", "views",
+		"storefront", "page", "example.html.twig",
+	)
+	source := "{% sw_extends '@Storefront/storefront/page/example.html.twig' %}\n" + block
+	problems, err := NewTwigVersioningAnalyzer(
+		twig.NewVersioningService(root, index, ""),
+	).Analyze(
+		context.Background(),
+		lsp.NewTextDocument(uriutil.FileURI(pluginPath), source, 1),
+	)
+	require.NoError(t, err)
+	require.Len(t, problems, 1)
+	assert.Equal(t, TwigBlockRedundantOverrideCode, problems[0].ID)
+	assert.Contains(t, problems[0].Message, "parent()")
+	require.Len(t, problems[0].RelatedInformation, 1)
+	assert.Equal(
+		t,
+		uriutil.FileURI(upstreamPath),
+		problems[0].RelatedInformation[0].Location.URI,
+	)
+}
+
+func TestTwigVersioningAnalyzerDoesNotReportDifferentOrFallbackBlock(t *testing.T) {
+	root := t.TempDir()
+	index, err := twig.NewTwigIndexer(filepath.Join(root, "cache"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, index.Close()) })
+	upstreamPath := filepath.Join(
+		root, "src", "Storefront", "Resources", "views",
+		"storefront", "page", "example.html.twig",
+	)
+	require.NoError(t, index.Index(indexer.NewParsedFile(
+		upstreamPath,
+		[]byte(`{% block other %}parent{% endblock %}`),
+	)))
+	fallbackPath := filepath.Join(
+		root, "custom", "plugins", "Other", "src", "Resources", "views",
+		"storefront", "page", "example.html.twig",
+	)
+	block := `{% block content %}same{% endblock %}`
+	require.NoError(t, index.Index(indexer.NewParsedFile(fallbackPath, []byte(block))))
+	pluginPath := filepath.Join(
+		root, "custom", "plugins", "Example", "src", "Resources", "views",
+		"storefront", "page", "example.html.twig",
+	)
+	analyzer := NewTwigVersioningAnalyzer(twig.NewVersioningService(root, index, ""))
+	for _, source := range []string{
+		"{% sw_extends '@Storefront/storefront/page/example.html.twig' %}\n" + block,
+		"{% sw_extends '@Storefront/storefront/page/example.html.twig' %}\n" +
+			`{% block other %}different{% endblock %}`,
+	} {
+		problems, analyzeErr := analyzer.Analyze(
+			context.Background(),
+			lsp.NewTextDocument(uriutil.FileURI(pluginPath), source, 1),
 		)
+		require.NoError(t, analyzeErr)
+		assert.False(t, containsTwigVersioningProblem(problems, TwigBlockRedundantOverrideCode))
 	}
 }
 
-func TestTwigVersioningDiagnosticsProvider_storePluginMissingVersionComment(t *testing.T) {
-	ctx := context.Background()
-	tempDir := t.TempDir()
-
-	fileScanner, err := indexer.NewFileScanner(tempDir, filepath.Join(tempDir, "scanner.db"))
+func TestTwigVersioningAnalyzerIgnoresParentDelegation(t *testing.T) {
+	root := t.TempDir()
+	index, err := twig.NewTwigIndexer(filepath.Join(root, "cache"))
 	require.NoError(t, err)
-
-	server := lsp.NewServer(fileScanner, tempDir, "test")
-	twigIndexer, err := twig.NewTwigIndexer(tempDir)
+	t.Cleanup(func() { require.NoError(t, index.Close()) })
+	upstreamPath := filepath.Join(
+		root, "src", "Storefront", "Resources", "views",
+		"storefront", "page", "example.html.twig",
+	)
+	require.NoError(t, index.Index(indexer.NewParsedFile(
+		upstreamPath,
+		[]byte(`{% block content %}parent{% endblock %}`),
+	)))
+	pluginPath := filepath.Join(root, "custom", "plugin.html.twig")
+	source := `{% sw_extends '@Storefront/storefront/page/example.html.twig' %}
+{% block content %}
+    {{ parent() }}
+{% endblock %}`
+	problems, err := NewTwigVersioningAnalyzer(
+		twig.NewVersioningService(root, index, ""),
+	).Analyze(
+		context.Background(),
+		lsp.NewTextDocument(uriutil.FileURI(pluginPath), source, 1),
+	)
 	require.NoError(t, err)
-	server.RegisterIndexer(twigIndexer, nil)
-
-	provider := NewTwigVersioningDiagnosticsProvider(server)
-
-	parser := tree_sitter.NewParser()
-	lang := tree_sitter.NewLanguage(tree_sitter_twig.Language())
-	require.NoError(t, parser.SetLanguage(lang))
-	defer parser.Close()
-
-	pluginRoot := filepath.Join(tempDir, "vendor/store.shopware.com/MyPlugin")
-	pluginPath := filepath.Join(pluginRoot, "src/Resources/views/storefront/page/foo.html.twig")
-	require.NoError(t, os.MkdirAll(filepath.Dir(pluginPath), 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(pluginRoot, "composer.json"), []byte(`{
-		"extra": {
-			"shopware-plugin-class": "MyPlugin\\MyPlugin"
-		}
-	}`), 0644))
-	pluginContent := []byte(`{% block content %}plugin content{% endblock %}`)
-	require.NoError(t, os.WriteFile(pluginPath, pluginContent, 0644))
-	pluginTree := parser.Parse(pluginContent, nil)
-	defer pluginTree.Close()
-	require.NoError(t, twigIndexer.Index(pluginPath, pluginTree.RootNode(), pluginContent))
-
-	overridePath := filepath.Join(tempDir, "custom/plugins/MyOverride/src/Resources/views/storefront/page/foo.html.twig")
-	overrideURI := fmt.Sprintf(lsp.FileURIFormat, overridePath)
-	overrideContent := []byte(`{% sw_extends '@MyPlugin/storefront/page/foo.html.twig' %}
-{% block content %}override content{% endblock %}`)
-	overrideTree := parser.Parse(overrideContent, nil)
-	defer overrideTree.Close()
-
-	diagnostics, err := provider.GetDiagnostics(ctx, overrideURI, overrideTree.RootNode(), overrideContent)
-	require.NoError(t, err)
-
-	require.Len(t, diagnostics, 1)
-	assert.Contains(t, diagnostics[0].Message, "does not have a versioning comment")
-	assert.Equal(t, protocol.DiagnosticSeverityWarning, diagnostics[0].Severity)
-	assert.Equal(t, 1, diagnostics[0].Range.Start.Line)
-	assert.Equal(t, 0, diagnostics[0].Range.Start.Character)
-	assert.Greater(t, diagnostics[0].Range.End.Character, 0)
-
-	originalHash := twig.ResolveOriginalStorefrontHashForBlock(twigIndexer, "content", "@MyPlugin/storefront/page/foo.html.twig")
-	require.NotNil(t, originalHash)
-	assert.Equal(t, pluginPath, originalHash.AbsolutePath)
-	assert.Equal(t, "@MyPlugin/storefront/page/foo.html.twig", originalHash.RelativePath)
+	assert.False(t, containsTwigVersioningProblem(problems, TwigVersioningCommentMissingCode))
+	assert.False(t, containsTwigVersioningProblem(problems, TwigBlockRedundantOverrideCode))
 }
 
-func TestTwigVersioningDiagnosticsProvider_storePluginExtendsStorefrontBlock(t *testing.T) {
-	ctx := context.Background()
-	tempDir := t.TempDir()
-
-	fileScanner, err := indexer.NewFileScanner(tempDir, filepath.Join(tempDir, "scanner.db"))
-	require.NoError(t, err)
-
-	server := lsp.NewServer(fileScanner, tempDir, "test")
-	twigIndexer, err := twig.NewTwigIndexer(tempDir)
-	require.NoError(t, err)
-	server.RegisterIndexer(twigIndexer, nil)
-
-	provider := NewTwigVersioningDiagnosticsProvider(server)
-
-	parser := tree_sitter.NewParser()
-	lang := tree_sitter.NewLanguage(tree_sitter_twig.Language())
-	require.NoError(t, parser.SetLanguage(lang))
-	defer parser.Close()
-
-	storefrontPath := filepath.Join(tempDir, "vendor/shopware/storefront/Resources/views/storefront/component/buy-widget/buy-widget.html.twig")
-	pluginRoot := filepath.Join(tempDir, "vendor/store.shopware.com/swagcustomizedproducts")
-	pluginPath := filepath.Join(pluginRoot, "src/Resources/views/storefront/component/buy-widget/buy-widget.html.twig")
-	overridePath := filepath.Join(tempDir, "src/WbmAidaCore/Resources/views/storefront/component/buy-widget/buy-widget.html.twig")
-
-	require.NoError(t, os.MkdirAll(filepath.Dir(storefrontPath), 0755))
-	require.NoError(t, os.MkdirAll(filepath.Dir(pluginPath), 0755))
-	require.NoError(t, os.MkdirAll(filepath.Dir(overridePath), 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(pluginRoot, "composer.json"), []byte(`{
-		"extra": {
-			"shopware-plugin-class": "Swag\\CustomizedProducts\\SwagCustomizedProducts"
+func containsTwigVersioningProblem(
+	problems []lsp.Problem,
+	id lsp.DiagnosticID,
+) bool {
+	for _, problem := range problems {
+		if problem.ID == id {
+			return true
 		}
-	}`), 0644))
-
-	storefrontContent := []byte(`{% block buy_widget_ordernumber_container %}
-    <div class="ordernumber">storefront</div>
-{% endblock %}`)
-	pluginContent := []byte(`{% sw_extends '@Storefront/storefront/component/buy-widget/buy-widget.html.twig' %}
-
-{% block buy_widget_tax %}
-    plugin tax
-{% endblock %}`)
-	overrideContent := []byte(`{% sw_extends '@SwagCustomizedProducts/storefront/component/buy-widget/buy-widget.html.twig' %}
-
-{% block buy_widget_ordernumber_container %}
-    custom ordernumber
-{% endblock %}`)
-
-	require.NoError(t, os.WriteFile(storefrontPath, storefrontContent, 0644))
-	require.NoError(t, os.WriteFile(pluginPath, pluginContent, 0644))
-
-	storefrontTree := parser.Parse(storefrontContent, nil)
-	defer storefrontTree.Close()
-	require.NoError(t, twigIndexer.Index(storefrontPath, storefrontTree.RootNode(), storefrontContent))
-
-	pluginTree := parser.Parse(pluginContent, nil)
-	defer pluginTree.Close()
-	require.NoError(t, twigIndexer.Index(pluginPath, pluginTree.RootNode(), pluginContent))
-
-	overrideURI := fmt.Sprintf(lsp.FileURIFormat, overridePath)
-	overrideTree := parser.Parse(overrideContent, nil)
-	defer overrideTree.Close()
-
-	diagnostics, err := provider.GetDiagnostics(ctx, overrideURI, overrideTree.RootNode(), overrideContent)
-	require.NoError(t, err)
-
-	for _, diag := range diagnostics {
-		assert.False(
-			t,
-			strings.Contains(diag.Message, "Original block not found in Storefront for block 'buy_widget_ordernumber_container'"),
-			"storefront block reached via plugin extends chain should be resolvable, got: %s",
-			diag.Message,
-		)
 	}
-
-	require.Len(t, diagnostics, 1)
-	assert.Contains(t, diagnostics[0].Message, "does not have a versioning comment")
+	return false
 }

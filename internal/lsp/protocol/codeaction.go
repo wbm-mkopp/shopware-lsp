@@ -1,7 +1,5 @@
 package protocol
 
-import tree_sitter "github.com/tree-sitter/go-tree-sitter"
-
 // CodeActionParams represents the parameters for a textDocument/codeAction request
 type CodeActionParams struct {
 	TextDocument struct {
@@ -9,9 +7,6 @@ type CodeActionParams struct {
 	} `json:"textDocument"`
 	Range   Range             `json:"range"`
 	Context CodeActionContext `json:"context"`
-
-	Node            *tree_sitter.Node `json:"-"`
-	DocumentContent []byte            `json:"-"`
 }
 
 // CodeActionContext represents the context for a code action request
@@ -38,16 +33,24 @@ const (
 	CodeActionSource CodeActionKind = "source"
 	// CodeActionSourceOrganizeImports represents an organize imports action
 	CodeActionSourceOrganizeImports CodeActionKind = "source.organizeImports"
+	// CodeActionSourceFixAll applies all safe fixes in a scope.
+	CodeActionSourceFixAll CodeActionKind = "source.fixAll"
 )
 
 // CodeAction represents a code action
 type CodeAction struct {
-	Title       string         `json:"title"`
-	Kind        CodeActionKind `json:"kind,omitempty"`
-	Diagnostics []Diagnostic   `json:"diagnostics,omitempty"`
-	Edit        *WorkspaceEdit `json:"edit,omitempty"`
-	Command     *CommandAction `json:"command,omitempty"`
-	Data        interface{}    `json:"data,omitempty"`
+	Title       string              `json:"title"`
+	Kind        CodeActionKind      `json:"kind,omitempty"`
+	Diagnostics []Diagnostic        `json:"diagnostics,omitempty"`
+	IsPreferred bool                `json:"isPreferred,omitempty"`
+	Disabled    *CodeActionDisabled `json:"disabled,omitempty"`
+	Edit        *WorkspaceEdit      `json:"edit,omitempty"`
+	Command     *CommandAction      `json:"command,omitempty"`
+	Data        interface{}         `json:"data,omitempty"`
+}
+
+type CodeActionDisabled struct {
+	Reason string `json:"reason"`
 }
 
 // CommandAction represents a command to be executed
@@ -64,51 +67,43 @@ type TextEdit struct {
 	InsertTextFormat InsertTextFormat `json:"insertTextFormat,omitempty"`
 }
 
-// WorkspaceEdit represents a workspace edit operation.
-//
-// DocumentChanges is a heterogeneous list: it may contain DocumentChange
-// (a TextDocumentEdit) entries as well as resource operations such as
-// CreateFile. Entries are applied in order, so a CreateFile must precede the
-// TextDocumentEdit that fills the new file. Use TextDocumentEdits to retrieve
-// only the text edits regardless of position.
+// WorkspaceEdit represents a workspace edit operation
 type WorkspaceEdit struct {
 	Changes           map[string][]TextEdit       `json:"changes,omitempty"`
-	DocumentChanges   []any                       `json:"documentChanges,omitempty"`
+	DocumentChanges   []DocumentChange            `json:"documentChanges,omitempty"`
 	ChangeAnnotations map[string]ChangeAnnotation `json:"changeAnnotations,omitempty"`
 }
 
-// TextDocumentEdits returns the TextDocumentEdit (DocumentChange) entries from
-// DocumentChanges, skipping resource operations like CreateFile.
-func (w *WorkspaceEdit) TextDocumentEdits() []DocumentChange {
-	var edits []DocumentChange
-	for _, change := range w.DocumentChanges {
-		if dc, ok := change.(DocumentChange); ok {
-			edits = append(edits, dc)
-		}
-	}
-	return edits
-}
-
-// DocumentChange represents a TextDocumentEdit within DocumentChanges.
+// DocumentChange represents a change to a document
 type DocumentChange struct {
-	TextDocument OptionalVersionedTextDocumentIdentifier `json:"textDocument"`
-	Edits        []TextEdit                              `json:"edits"`
-	AnnotationID string                                  `json:"annotationId,omitempty"`
+	// Text-document edit fields.
+	TextDocument *OptionalVersionedTextDocumentIdentifier `json:"textDocument,omitempty"`
+	Edits        []TextEdit                               `json:"edits,omitempty"`
+	AnnotationID string                                   `json:"annotationId,omitempty"`
+
+	// Resource-operation fields. LSP models documentChanges as a union; one
+	// compact transport type keeps create operations and text edits ordered.
+	Kind    string                    `json:"kind,omitempty"`
+	URI     string                    `json:"uri,omitempty"`
+	Options *ResourceOperationOptions `json:"options,omitempty"`
 }
 
-// CreateFile represents a create file resource operation within DocumentChanges.
-type CreateFile struct {
-	Kind         string             `json:"kind"` // always "create"
-	URI          string             `json:"uri"`
-	Options      *CreateFileOptions `json:"options,omitempty"`
-	AnnotationID string             `json:"annotationId,omitempty"`
+const (
+	CreateFileOperation = "create"
+	DeleteFileOperation = "delete"
+)
+
+// ResourceOperationOptions is the union of create/delete resource-operation
+// options used by LSP documentChanges.
+type ResourceOperationOptions struct {
+	Overwrite         bool `json:"overwrite,omitempty"`
+	IgnoreIfExists    bool `json:"ignoreIfExists,omitempty"`
+	Recursive         bool `json:"recursive,omitempty"`
+	IgnoreIfNotExists bool `json:"ignoreIfNotExists,omitempty"`
 }
 
-// CreateFileOptions holds options for a CreateFile resource operation.
-type CreateFileOptions struct {
-	Overwrite      bool `json:"overwrite,omitempty"`
-	IgnoreIfExists bool `json:"ignoreIfExists,omitempty"`
-}
+type CreateFileOptions = ResourceOperationOptions
+type DeleteFileOptions = ResourceOperationOptions
 
 // ChangeAnnotation represents an annotation for a change
 type ChangeAnnotation struct {
@@ -119,9 +114,6 @@ type ChangeAnnotation struct {
 
 // OptionalVersionedTextDocumentIdentifier represents a text document identifier with an optional version
 type OptionalVersionedTextDocumentIdentifier struct {
-	URI string `json:"uri"`
-	// Version is required by the LSP spec for a TextDocumentEdit and may be null
-	// (no omitempty): a nil version must serialize as "version": null, otherwise
-	// strict clients reject the whole workspace edit / code-action response.
-	Version *int `json:"version"`
+	URI     string `json:"uri"`
+	Version *int   `json:"version"`
 }

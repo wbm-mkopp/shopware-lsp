@@ -1,14 +1,9 @@
 package twig
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
-	tree_sitter_twig "github.com/shopware/shopware-lsp/internal/tree_sitter_grammars/twig/bindings/go"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 func TestCalculateBlockHash(t *testing.T) {
@@ -53,9 +48,18 @@ func TestParseVersionComment(t *testing.T) {
 			expected: nil,
 		},
 		{
+			name:    "version comment without informational version",
+			comment: "{# shopware-block: abc123 #}",
+			line:    8,
+			expected: &TwigVersionComment{
+				Hash: "abc123",
+				Line: 8,
+			},
+		},
+		{
 			name:     "malformed version comment",
-			comment:  "{# shopware-block: abc123 #}",
-			line:     8,
+			comment:  "{# shopware-block: not-a-hash@6.7.0.0 #}",
+			line:     9,
 			expected: nil,
 		},
 	}
@@ -73,6 +77,19 @@ func TestParseVersionComment(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFormatVersionCommentOmitsUnknownVersion(t *testing.T) {
+	assert.Equal(
+		t,
+		"{# shopware-block: abc123 #}\n",
+		FormatVersionComment("abc123", ""),
+	)
+	assert.Equal(
+		t,
+		"{# shopware-block: abc123@v6.7.2.0 #}\n",
+		FormatVersionComment("abc123", "v6.7.2.0"),
+	)
 }
 
 func TestTwigBlockHashStructure(t *testing.T) {
@@ -123,262 +140,4 @@ func TestHashCompatibilityWithPhpStorm(t *testing.T) {
 			assert.Len(t, hash, 64, "SHA-256 hash should be 64 hex characters")
 		})
 	}
-}
-
-func TestFindBlockHashInTemplateFile_PriceUnitBlockWithHTML(t *testing.T) {
-	tempDir := t.TempDir()
-	filePath := filepath.Join(tempDir, "price-unit.html.twig")
-
-	content := []byte(`{% block component_product_box_price_info %}
-    <div class="product-price-info">
-        {% block component_product_box_price_unit %}
-            <p class="product-price-unit">
-                {% block component_product_box_price_purchase_unit %}
-                    {% if referencePrice and referencePrice.unitName %}
-                        <span class="product-unit-label"></span>
-                    {% endif %}
-                {% endblock %}
-            </p>
-        {% endblock %}
-    </div>
-{% endblock %}`)
-	err := os.WriteFile(filePath, content, 0644)
-	assert.NoError(t, err)
-
-	hash, err := FindBlockHashInTemplateFile(filePath, "component_product_box_price_unit")
-	assert.NoError(t, err)
-	assert.NotNil(t, hash)
-	assert.Equal(t, "component_product_box_price_unit", hash.Name)
-	assert.Equal(t, filePath, hash.AbsolutePath)
-	assert.Equal(t, ConvertToRelativePath(filePath), hash.RelativePath)
-	assert.NotEmpty(t, hash.Hash)
-	assert.Contains(t, hash.Text, "{% block component_product_box_price_unit %}")
-}
-
-func TestFindOriginalStorefrontHashForExtends_storePlugin(t *testing.T) {
-	pluginHash := TwigBlockHash{
-		Name:         "content",
-		RelativePath: "@MyPlugin/storefront/page/foo.html.twig",
-		AbsolutePath: "/project/vendor/store.shopware.com/my-plugin/src/Resources/views/storefront/page/foo.html.twig",
-		Hash:         "pluginhash123",
-	}
-	overrideHash := TwigBlockHash{
-		Name:         "content",
-		RelativePath: "@Storefront/storefront/page/foo.html.twig",
-		AbsolutePath: "/project/custom/plugins/MyOverride/src/Resources/views/storefront/page/foo.html.twig",
-		Hash:         "overridehash456",
-	}
-
-	hashes := []TwigBlockHash{overrideHash, pluginHash}
-
-	t.Run("matches extends path for store plugin", func(t *testing.T) {
-		result := FindOriginalStorefrontHashForExtends(hashes, "@MyPlugin/storefront/page/foo.html.twig")
-		require.NotNil(t, result)
-		assert.Equal(t, "pluginhash123", result.Hash)
-	})
-
-	t.Run("matches extends path case-insensitively", func(t *testing.T) {
-		result := FindOriginalStorefrontHashForExtends(hashes, "@myplugin/storefront/page/foo.html.twig")
-		require.NotNil(t, result)
-		assert.Equal(t, "pluginhash123", result.Hash)
-	})
-
-	t.Run("prefers store plugin over local override when extends is empty", func(t *testing.T) {
-		result := FindOriginalStorefrontHash(hashes)
-		require.NotNil(t, result)
-		assert.Equal(t, "pluginhash123", result.Hash)
-	})
-
-	t.Run("prefers core storefront over store plugin when extends is empty", func(t *testing.T) {
-		coreHash := TwigBlockHash{
-			Name:         "content",
-			RelativePath: "@Storefront/storefront/page/foo.html.twig",
-			AbsolutePath: "/project/vendor/shopware/storefront/Resources/views/storefront/page/foo.html.twig",
-			Hash:         "corehash789",
-		}
-		result := FindOriginalStorefrontHash([]TwigBlockHash{pluginHash, coreHash})
-		require.NotNil(t, result)
-		assert.Equal(t, "corehash789", result.Hash)
-	})
-
-	t.Run("prefers store plugin over core for legacy rel path when extends targets plugin", func(t *testing.T) {
-		coreHash := TwigBlockHash{
-			Name:         "content",
-			RelativePath: "@Storefront/storefront/page/foo.html.twig",
-			AbsolutePath: "/project/vendor/shopware/storefront/Resources/views/storefront/page/foo.html.twig",
-			Hash:         "corehash789",
-		}
-		legacyPluginHash := TwigBlockHash{
-			Name:         "content",
-			RelativePath: "@Storefront/storefront/page/foo.html.twig",
-			AbsolutePath: "/project/vendor/store.shopware.com/MyPlugin/src/Resources/views/storefront/page/foo.html.twig",
-			Hash:         "pluginhash123",
-		}
-
-		result := FindOriginalStorefrontHashForExtends(
-			[]TwigBlockHash{coreHash, legacyPluginHash},
-			"@MyPlugin/storefront/page/foo.html.twig",
-		)
-		require.NotNil(t, result)
-		assert.Equal(t, "pluginhash123", result.Hash)
-	})
-}
-
-func TestIsStorefrontTemplate_includesStorePlugins(t *testing.T) {
-	path := "/project/vendor/store.shopware.com/MyFoo/src/Resources/views/storefront/page/foo.html.twig"
-	assert.True(t, IsStorefrontTemplate(path))
-}
-
-func TestResolveOriginalStorefrontHashForBlock_legacyStorefrontRelPath(t *testing.T) {
-	tempDir := t.TempDir()
-	idx, err := NewTwigIndexer(tempDir)
-	require.NoError(t, err)
-	defer idx.Close()
-
-	pluginRoot := filepath.Join(tempDir, "vendor/store.shopware.com/swagcustomizedproducts")
-	pluginPath := filepath.Join(pluginRoot, "src/Resources/views/storefront/component/buy-widget/buy-widget-form-customized-products.html.twig")
-	require.NoError(t, os.MkdirAll(filepath.Dir(pluginPath), 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(pluginRoot, "composer.json"), []byte(`{
-		"extra": {
-			"shopware-plugin-class": "Swag\\CustomizedProducts\\SwagCustomizedProducts"
-		}
-	}`), 0644))
-	pluginContent := []byte(`{% block swag_customized_products_configuration_share_card %}plugin{% endblock %}`)
-	require.NoError(t, os.WriteFile(pluginPath, pluginContent, 0644))
-
-	// Simulate a stale index that still uses the old @Storefront rel path.
-	require.NoError(t, idx.IndexTwigFile(TwigFile{
-		Path:    pluginPath,
-		RelPath: "@Storefront/storefront/component/buy-widget/buy-widget-form-customized-products.html.twig",
-	}))
-
-	extendsFile := "@SwagCustomizedProducts/storefront/component/buy-widget/buy-widget-form-customized-products.html.twig"
-	result := ResolveOriginalStorefrontHashForBlock(idx, "swag_customized_products_configuration_share_card", extendsFile)
-	require.NotNil(t, result)
-	assert.Equal(t, pluginPath, result.AbsolutePath)
-	assert.NotEmpty(t, result.Hash)
-}
-
-func TestResolveOriginalStorefrontHashForBlock_unrelatedHashesDoNotBlockFallback(t *testing.T) {
-	tempDir := t.TempDir()
-	idx, err := NewTwigIndexer(tempDir)
-	require.NoError(t, err)
-	defer idx.Close()
-
-	pluginRoot := filepath.Join(tempDir, "vendor/store.shopware.com/MyPlugin")
-	pluginPath := filepath.Join(pluginRoot, "src/Resources/views/storefront/page/foo.html.twig")
-	require.NoError(t, os.MkdirAll(filepath.Dir(pluginPath), 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(pluginRoot, "composer.json"), []byte(`{
-		"extra": {
-			"shopware-plugin-class": "MyPlugin\\MyPlugin"
-		}
-	}`), 0644))
-	pluginContent := []byte(`{% block content %}plugin{% endblock %}`)
-	require.NoError(t, os.WriteFile(pluginPath, pluginContent, 0644))
-
-	parser := tree_sitter.NewParser()
-	lang := tree_sitter.NewLanguage(tree_sitter_twig.Language())
-	require.NoError(t, parser.SetLanguage(lang))
-	defer parser.Close()
-
-	pluginTree := parser.Parse(pluginContent, nil)
-	defer pluginTree.Close()
-	require.NoError(t, idx.Index(pluginPath, pluginTree.RootNode(), pluginContent))
-
-	overridePath := filepath.Join(tempDir, "custom/plugins/MyOverride/src/Resources/views/storefront/page/foo.html.twig")
-	overrideContent := []byte(`{% block content %}override{% endblock %}`)
-	require.NoError(t, os.MkdirAll(filepath.Dir(overridePath), 0755))
-	require.NoError(t, os.WriteFile(overridePath, overrideContent, 0644))
-	overrideTree := parser.Parse(overrideContent, nil)
-	defer overrideTree.Close()
-	require.NoError(t, idx.Index(overridePath, overrideTree.RootNode(), overrideContent))
-
-	extendsFile := "@MyPlugin/storefront/page/foo.html.twig"
-	result := ResolveOriginalStorefrontHashForBlock(idx, "content", extendsFile)
-	require.NotNil(t, result)
-	assert.Equal(t, pluginPath, result.AbsolutePath)
-}
-
-func TestResolveOriginalStorefrontHashForBlock_wrongExtendsReturnsNil(t *testing.T) {
-	tempDir := t.TempDir()
-	idx, err := NewTwigIndexer(tempDir)
-	require.NoError(t, err)
-	defer idx.Close()
-
-	overridePath := filepath.Join(tempDir, "custom/plugins/MyOverride/src/Resources/views/storefront/page/foo.html.twig")
-	overrideContent := []byte(`{% block content %}override{% endblock %}`)
-	require.NoError(t, os.MkdirAll(filepath.Dir(overridePath), 0755))
-	require.NoError(t, os.WriteFile(overridePath, overrideContent, 0644))
-
-	parser := tree_sitter.NewParser()
-	lang := tree_sitter.NewLanguage(tree_sitter_twig.Language())
-	require.NoError(t, parser.SetLanguage(lang))
-	defer parser.Close()
-
-	overrideTree := parser.Parse(overrideContent, nil)
-	defer overrideTree.Close()
-	require.NoError(t, idx.Index(overridePath, overrideTree.RootNode(), overrideContent))
-
-	result := ResolveOriginalStorefrontHashForBlock(idx, "content", "@MissingPlugin/storefront/page/foo.html.twig")
-	assert.Nil(t, result)
-}
-
-func TestGetTwigFilesByRelPathViewMatch_rejectsWrongBundle(t *testing.T) {
-	tempDir := t.TempDir()
-	idx, err := NewTwigIndexer(tempDir)
-	require.NoError(t, err)
-	defer idx.Close()
-
-	pluginA := filepath.Join(tempDir, "vendor/store.shopware.com/PluginA/src/Resources/views/storefront/page/foo.html.twig")
-	pluginB := filepath.Join(tempDir, "vendor/store.shopware.com/PluginB/src/Resources/views/storefront/page/foo.html.twig")
-	require.NoError(t, os.MkdirAll(filepath.Dir(pluginA), 0755))
-	require.NoError(t, os.MkdirAll(filepath.Dir(pluginB), 0755))
-
-	require.NoError(t, idx.IndexTwigFile(TwigFile{
-		Path:    pluginA,
-		RelPath: "@PluginA/storefront/page/foo.html.twig",
-	}))
-	require.NoError(t, idx.IndexTwigFile(TwigFile{
-		Path:    pluginB,
-		RelPath: "@PluginB/storefront/page/foo.html.twig",
-	}))
-
-	files, err := idx.GetTwigFilesByRelPathViewMatch("@PluginA/storefront/page/foo.html.twig")
-	require.NoError(t, err)
-	require.Len(t, files, 1)
-	assert.Equal(t, pluginA, files[0].Path)
-
-	files, err = idx.GetTwigFilesByRelPathViewMatch("@WrongPlugin/storefront/page/foo.html.twig")
-	require.NoError(t, err)
-	assert.Empty(t, files)
-}
-
-func TestResolveBlockVersion_storePluginUsesPluginNameAndVersion(t *testing.T) {
-	tempDir := t.TempDir()
-
-	pluginRoot := filepath.Join(tempDir, "vendor/store.shopware.com/swagcustomizedproducts")
-	require.NoError(t, os.MkdirAll(pluginRoot, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(pluginRoot, "composer.json"), []byte(`{
-		"name": "swag/customized-products",
-		"extra": { "shopware-plugin-class": "Swag\\CustomizedProducts\\SwagCustomizedProducts" }
-	}`), 0644))
-	// composer.lock lists store plugins under their store package name
-	// ("store.shopware.com/<dir>"), not the composer.json "name", so the lookup
-	// must match by the vendor path.
-	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "composer.lock"), []byte(`{
-		"packages": [
-			{ "name": "shopware/storefront", "version": "v6.7.10.1" },
-			{ "name": "store.shopware.com/swagcustomizedproducts", "version": "6.1.6" }
-		]
-	}`), 0644))
-
-	pluginTwig := filepath.Join(pluginRoot, "src/Resources/views/storefront/component/buy-widget/buy-widget.html.twig")
-	pluginHash := &TwigBlockHash{AbsolutePath: pluginTwig}
-	assert.Equal(t, "SwagCustomizedProducts-6.1.6", ResolveBlockVersion(tempDir, pluginHash))
-
-	// A core Storefront origin must not get a plugin label; it falls back to the
-	// detected Shopware version. Asserted via storePluginVersionLabel directly to
-	// avoid the package-global DetectShopwareVersion sync.Once cache.
-	coreTwig := filepath.Join(tempDir, "vendor/shopware/storefront/Resources/views/storefront/component/buy-widget/buy-widget.html.twig")
-	assert.Empty(t, storePluginVersionLabel(tempDir, coreTwig))
 }

@@ -1,6 +1,6 @@
 package protocol
 
-import tree_sitter "github.com/tree-sitter/go-tree-sitter"
+import "github.com/shopware/shopware-lsp/internal/projectconfig"
 
 // CompletionList represents a list of completion items
 type CompletionList struct {
@@ -10,9 +10,52 @@ type CompletionList struct {
 
 // InitializeParams represents the parameters for the 'initialize' request
 type InitializeParams struct {
-	RootPath         string            `json:"rootPath,omitempty"`
-	RootURI          string            `json:"rootUri,omitempty"`
-	WorkspaceFolders []WorkspaceFolder `json:"workspaceFolders,omitempty"`
+	RootPath              string                `json:"rootPath,omitempty"`
+	RootURI               string                `json:"rootUri,omitempty"`
+	WorkspaceFolders      []WorkspaceFolder     `json:"workspaceFolders,omitempty"`
+	InitializationOptions InitializationOptions `json:"initializationOptions,omitempty"`
+	Capabilities          ClientCapabilities    `json:"capabilities,omitempty"`
+}
+
+type ClientCapabilities struct {
+	TextDocument TextDocumentClientCapabilities `json:"textDocument,omitempty"`
+	Window       WindowClientCapabilities       `json:"window,omitempty"`
+}
+
+type WindowClientCapabilities struct {
+	WorkDoneProgress bool `json:"workDoneProgress,omitempty"`
+}
+
+type TextDocumentClientCapabilities struct {
+	CodeAction *CodeActionClientCapabilities `json:"codeAction,omitempty"`
+}
+
+type CodeActionClientCapabilities struct {
+	DataSupport    bool                     `json:"dataSupport,omitempty"`
+	ResolveSupport CodeActionResolveSupport `json:"resolveSupport,omitempty"`
+}
+
+type CodeActionResolveSupport struct {
+	Properties []string `json:"properties,omitempty"`
+}
+
+type InitializationOptions struct {
+	PHPExtensions              []string               `json:"phpExtensions,omitempty"`
+	DisabledPHPExtensions      []string               `json:"disabledPhpExtensions,omitempty"`
+	ShopwareTargetVersion      string                 `json:"shopwareTargetVersion,omitempty"`
+	Configuration              *projectconfig.Partial `json:"configuration,omitempty"`
+	AllowUnsupportedProject    bool                   `json:"allowUnsupportedProject,omitempty"`
+	OmitExecuteCommandProvider bool                   `json:"omitExecuteCommandProvider,omitempty"`
+	CLIMode                    bool                   `json:"cliMode,omitempty"`
+	ShopwareClient             *ShopwareClientOptions `json:"shopwareClient,omitempty"`
+}
+
+// ShopwareClientOptions negotiates optional integration behavior without
+// changing the default presentation used by legacy LSP clients.
+type ShopwareClientOptions struct {
+	ProtocolVersion     int      `json:"protocolVersion"`
+	PresentationProfile string   `json:"presentationProfile,omitempty"`
+	SupportedCommands   []string `json:"supportedCommands,omitempty"`
 }
 
 // WorkspaceFolder represents a workspace folder
@@ -43,11 +86,6 @@ type CompletionParams struct {
 	// An optional token that a server can use to report partial results (e.g. streaming) to
 	// the client.
 	PartialResultToken interface{} `json:"partialResultToken,omitempty"`
-
-	// Custom fields for internal use (not part of LSP spec)
-	// These fields are used to pass document content to completion providers
-	DocumentContent []byte            `json:"-"`
-	Node            *tree_sitter.Node `json:"-"`
 }
 
 // CompletionTriggerKind describes how a completion was triggered
@@ -111,7 +149,7 @@ type CompletionItem struct {
 	Documentation struct {
 		Kind  string `json:"kind"`
 		Value string `json:"value"`
-	} `json:"documentation,omitempty"`
+	} `json:"documentation,omitzero"`
 
 	// Indicates if this item is deprecated
 	Deprecated bool `json:"deprecated,omitempty"`

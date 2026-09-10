@@ -1,114 +1,223 @@
 package diagnostics
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"path/filepath"
-	"unicode/utf8"
+	"strings"
 
 	"github.com/shopware/shopware-lsp/internal/lsp"
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
 	"github.com/shopware/shopware-lsp/internal/twig"
-	tree_sitter "github.com/tree-sitter/go-tree-sitter"
+	"github.com/shopware/shopware-lsp/internal/uriutil"
 )
 
-type TwigVersioningDiagnosticsProvider struct {
-	twigIndexer *twig.TwigIndexer
+const (
+	TwigVersioningOriginalMissingCode lsp.DiagnosticID = "twig.versioning.original_missing"
+	TwigVersioningOutdatedCode        lsp.DiagnosticID = "twig.versioning.outdated"
+	TwigVersioningCommentMissingCode  lsp.DiagnosticID = "twig.versioning.comment_missing"
+	TwigBlockDeprecatedCode           lsp.DiagnosticID = "twig.block.deprecated"
+	TwigBlockRedundantOverrideCode    lsp.DiagnosticID = "twig.block.redundant_override"
+)
+
+type TwigVersioningPayload struct {
+	BlockName       string `json:"blockName"`
+	HasComment      bool   `json:"hasComment,omitempty"`
+	CoreDiff        bool   `json:"coreDiff,omitempty"`
+	RecordedVersion string `json:"recordedVersion,omitempty"`
+	UpstreamPath    string `json:"upstreamPath,omitempty"`
 }
 
-func NewTwigVersioningDiagnosticsProvider(lspServer *lsp.Server) *TwigVersioningDiagnosticsProvider {
-	indexer, ok := lspServer.GetIndexer("twig.indexer")
-	if !ok {
-		return &TwigVersioningDiagnosticsProvider{twigIndexer: nil}
-	}
-	twigIndexer, ok := indexer.(*twig.TwigIndexer)
-	if !ok {
-		return &TwigVersioningDiagnosticsProvider{twigIndexer: nil}
-	}
-	return &TwigVersioningDiagnosticsProvider{twigIndexer: twigIndexer}
+type TwigVersioningAnalyzer struct {
+	versioning *twig.VersioningService
 }
 
-func (p *TwigVersioningDiagnosticsProvider) GetDiagnostics(ctx context.Context, uri string, rootNode *tree_sitter.Node, content []byte) ([]protocol.Diagnostic, error) {
-	if filepath.Ext(uri) != ".twig" {
-		return []protocol.Diagnostic{}, nil
-	}
+func NewTwigVersioningAnalyzer(
+	versioning *twig.VersioningService,
+) *TwigVersioningAnalyzer {
+	return &TwigVersioningAnalyzer{versioning: versioning}
+}
 
-	if p.twigIndexer == nil {
-		return []protocol.Diagnostic{}, nil
+func (p *TwigVersioningAnalyzer) Analyze(
+	ctx context.Context,
+	document *lsp.TextDocument,
+) ([]lsp.Problem, error) {
+	if document == nil || filepath.Ext(document.URI) != ".twig" ||
+		p == nil || p.versioning == nil {
+		return []lsp.Problem{}, nil
 	}
-
-	if twig.IsStorefrontTemplate(uri) {
-		return []protocol.Diagnostic{}, nil
+	filePath, err := uriutil.Path(document.URI)
+	if err != nil {
+		filePath = document.URI
 	}
-
-	currentFile, err := twig.ParseTwig(uri, rootNode, content)
+	if twig.IsUpstreamTemplate(filePath) {
+		return []lsp.Problem{}, nil
+	}
+	currentFile, err := twig.ParseTwigTree(
+		filePath,
+		document.SyntaxTree,
+		document.LineIndex,
+	)
 	if err != nil {
 		return nil, err
 	}
+	if currentFile.ExtendsFile == "" {
+		return []lsp.Problem{}, nil
+	}
+	resolutions, err := p.versioning.ResolveBlocks(*currentFile)
+	if err != nil {
+		return nil, err
+	}
+	blockBodies := twig.BlockBodies(document.SyntaxTree.Root, document.SourceString())
 
-	var diagnostics []protocol.Diagnostic
-
+	problems := make([]lsp.Problem, 0, len(currentFile.Blocks))
 	for _, block := range currentFile.Blocks {
-		if block.VersionComment != nil {
-			originalHash := twig.ResolveOriginalStorefrontHashForBlock(p.twigIndexer, block.Name, currentFile.ExtendsFile)
-			if originalHash == nil {
-				lineIdx := block.Line - 1
-				diagnostics = append(diagnostics, protocol.Diagnostic{
-					Range: protocol.Range{
-						Start: protocol.Position{Line: lineIdx, Character: 0},
-						End:   protocol.Position{Line: lineIdx, Character: endCharacterForLine(content, lineIdx)},
-					},
-					Severity: protocol.DiagnosticSeverityWarning,
-					Source:   "shopware-lsp",
-					Message:  fmt.Sprintf("Original block not found in Storefront for block '%s'", block.Name),
-				})
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		resolution := resolutions[block.Name]
+		payload := TwigVersioningPayload{BlockName: block.Name}
+		if len(resolution.Candidates) != 0 {
+			payload.UpstreamPath = resolution.Candidates[0].AbsolutePath
+		}
+
+		for _, candidate := range resolution.Candidates {
+			if candidate.Deprecation == "" {
 				continue
 			}
+			problems = append(problems, lsp.Problem{
+				Range:   block.NameRange,
+				ID:      TwigBlockDeprecatedCode,
+				Message: candidate.Deprecation,
+				Tags:    []protocol.DiagnosticTag{protocol.DiagnosticTagDeprecated},
+				Payload: payload,
+				RelatedInformation: []protocol.DiagnosticRelatedInformation{
+					blockRelatedInformation(candidate, "Deprecated upstream block"),
+				},
+			})
+			break
+		}
 
-			if originalHash.Hash != block.VersionComment.Hash {
-				lineIdx := block.VersionComment.Line - 1
-				diagnostics = append(diagnostics, protocol.Diagnostic{
-					Range: protocol.Range{
-						Start: protocol.Position{Line: lineIdx, Character: 0},
-						End:   protocol.Position{Line: lineIdx, Character: endCharacterForLine(content, lineIdx)},
-					},
-					Severity: protocol.DiagnosticSeverityWarning,
-					Source:   "shopware-lsp",
-					Message:  fmt.Sprintf("The upstream block has been changed, please update the block (expected: %s, got: %s, source: %s)", truncateHash(originalHash.Hash, 12), truncateHash(block.VersionComment.Hash, 12), originalHash.RelativePath),
+		body, hasBody := blockBodies[block.Range]
+		if hasBody && twig.IsParentDelegation(body.Text) {
+			continue
+		}
+		parent, redundant := twig.RedundantBlockOverride(block, resolution)
+		if redundant && hasBody && strings.TrimSpace(body.Text) != "" {
+			payload.UpstreamPath = parent.AbsolutePath
+			problems = append(problems, lsp.Problem{
+				Range: block.NameRange, ID: TwigBlockRedundantOverrideCode,
+				Message: fmt.Sprintf(
+					"The block %q duplicates its resolved parent; delegate to parent() instead",
+					block.Name,
+				),
+				Payload: payload,
+				RelatedInformation: []protocol.DiagnosticRelatedInformation{
+					blockRelatedInformation(parent, "Identical parent block"),
+				},
+			})
+			continue
+		}
+
+		if len(resolution.Candidates) == 0 {
+			if block.HasVersioningComment && resolution.ParentResolved {
+				locations, locationsErr := p.versioning.OtherLocations(block.Name, filePath)
+				if locationsErr != nil {
+					return nil, locationsErr
+				}
+				related := make([]protocol.DiagnosticRelatedInformation, 0, len(locations))
+				for _, location := range locations {
+					related = append(related, blockRelatedInformation(
+						location,
+						"A block with the same name still exists here",
+					))
+				}
+				message := fmt.Sprintf(
+					"The upstream block %q has been removed; check whether this override is still needed",
+					block.Name,
+				)
+				if len(locations) != 0 {
+					message = fmt.Sprintf(
+						"The upstream block %q was removed from this template but still exists elsewhere",
+						block.Name,
+					)
+				}
+				problems = append(problems, lsp.Problem{
+					Range: block.NameRange, ID: TwigVersioningOriginalMissingCode,
+					Message: message, Payload: payload, RelatedInformation: related,
 				})
 			}
-		} else {
-			originalHash := twig.ResolveOriginalStorefrontHashForBlock(p.twigIndexer, block.Name, currentFile.ExtendsFile)
-			if originalHash != nil {
-				lineIdx := block.Line - 1
-				diagnostics = append(diagnostics, protocol.Diagnostic{
-					Range: protocol.Range{
-						Start: protocol.Position{Line: lineIdx, Character: 0},
-						End:   protocol.Position{Line: lineIdx, Character: endCharacterForLine(content, lineIdx)},
-					},
-					Severity: protocol.DiagnosticSeverityWarning,
-					Source:   "shopware-lsp",
-					Message:  fmt.Sprintf("The block '%s' does not have a versioning comment", block.Name),
-				})
+			continue
+		}
+
+		if !block.HasVersioningComment {
+			problems = append(problems, lsp.Problem{
+				Range: block.NameRange, ID: TwigVersioningCommentMissingCode,
+				Message: fmt.Sprintf(
+					"The block %q does not have a versioning comment", block.Name,
+				),
+				Payload: payload,
+			})
+			continue
+		}
+		payload.HasComment = true
+		if block.VersionComment == nil {
+			rng := block.NameRange
+			if block.VersionCommentRange != nil {
+				rng = *block.VersionCommentRange
+			}
+			problems = append(problems, lsp.Problem{
+				Range: rng, ID: TwigVersioningCommentMissingCode,
+				Message: "The Twig block versioning comment is malformed",
+				Payload: payload,
+			})
+			continue
+		}
+		payload.RecordedVersion = block.VersionComment.Version
+		matched := false
+		for _, candidate := range resolution.Candidates {
+			if candidate.Hash == block.VersionComment.Hash {
+				matched = true
+				break
 			}
 		}
+		if matched {
+			continue
+		}
+		selected := resolution.Candidates[0]
+		payload.CoreDiff = twig.IsStorefrontTemplate(selected.AbsolutePath) &&
+			block.VersionComment.Version != ""
+		problems = append(problems, lsp.Problem{
+			Range: block.VersionComment.Range, ID: TwigVersioningOutdatedCode,
+			Message: fmt.Sprintf(
+				"The upstream block has changed; review %s and update the versioning comment",
+				selected.RelativePath,
+			),
+			Payload: payload,
+			RelatedInformation: []protocol.DiagnosticRelatedInformation{
+				blockRelatedInformation(selected, "Current upstream block"),
+			},
+		})
 	}
-
-	return diagnostics, nil
+	return problems, nil
 }
 
-func endCharacterForLine(content []byte, lineIndex int) int {
-	lines := bytes.Split(content, []byte("\n"))
-	if lineIndex < 0 || lineIndex >= len(lines) {
-		return 0
+func blockRelatedInformation(
+	block twig.TwigBlockHash,
+	message string,
+) protocol.DiagnosticRelatedInformation {
+	line := block.Line - 1
+	if line < 0 {
+		line = 0
 	}
-	return utf8.RuneCount(lines[lineIndex])
-}
-
-func truncateHash(hash string, length int) string {
-	if len(hash) <= length {
-		return hash
+	return protocol.DiagnosticRelatedInformation{
+		Location: protocol.Location{
+			URI: uriutil.FileURI(block.AbsolutePath),
+			Range: protocol.Range{
+				Start: protocol.Position{Line: line},
+				End:   protocol.Position{Line: line},
+			},
+		},
+		Message: message,
 	}
-	return hash[:length]
 }

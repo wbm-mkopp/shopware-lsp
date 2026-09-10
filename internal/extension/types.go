@@ -2,14 +2,6 @@ package extension
 
 import (
 	"path/filepath"
-	"strings"
-)
-
-const (
-	customPluginsPath       = "/custom/plugins/"
-	customStaticPluginsPath = "/custom/static-plugins/"
-	vendorPathSegment       = "/vendor/"
-	srcPathSegment          = "/src/"
 )
 
 type ShopwareExtensionType int
@@ -20,29 +12,38 @@ const (
 )
 
 type ShopwareExtension struct {
-	Name string
-	Type ShopwareExtensionType
-	Path string
+	Name        string
+	Type        ShopwareExtensionType
+	Path        string
+	Permissions []AppPermission
+}
+
+type AppPermission struct {
+	Operation string
+	Entity    string
+	Line      int
 }
 
 func (e ShopwareExtension) GetStorefrontViewsPath() string {
-	path := strings.TrimSuffix(e.Path, string(filepath.Separator)+e.Name+".php")
-	return filepath.Join(path, "Resources", "views")
+	return filepath.Join(e.GetRootPath(), "Resources", "views")
 }
 
-// IsLocal reports whether the extension lives in a project-owned path (src,
-// custom/plugins, or custom/static-plugins) rather than vendor.
-func (e ShopwareExtension) IsLocal() bool {
-	return IsLocalExtensionPath(e.Path)
-}
-
-func IsLocalExtensionPath(path string) bool {
-	path = filepath.ToSlash(path)
-	if strings.Contains(path, vendorPathSegment) {
-		return false
+// GetRootPath returns the source root that owns an extension's Resources
+// directory. Bundle paths point at the plugin class while App paths already
+// point at their root directory.
+func (e ShopwareExtension) GetRootPath() string {
+	if e.Type == ShopwareExtensionTypeBundle {
+		return filepath.Dir(e.Path)
 	}
+	return filepath.Clean(e.Path)
+}
 
-	return strings.Contains(path, customPluginsPath) ||
-		strings.Contains(path, customStaticPluginsPath) ||
-		strings.Contains(path, srcPathSegment)
+func (e ShopwareExtension) GetAdministrationSourcePath() string {
+	return filepath.Join(
+		e.GetRootPath(),
+		"Resources",
+		"app",
+		"administration",
+		"src",
+	)
 }

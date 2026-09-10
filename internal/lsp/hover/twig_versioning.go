@@ -7,189 +7,145 @@ import (
 
 	"github.com/shopware/shopware-lsp/internal/lsp"
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
-	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
+	twigquery "github.com/shopware/shopware-lsp/internal/parser/twig/query"
+	twigsyntax "github.com/shopware/shopware-lsp/internal/parser/twig/syntax"
 	"github.com/shopware/shopware-lsp/internal/twig"
-	tree_sitter "github.com/tree-sitter/go-tree-sitter"
+	"github.com/shopware/shopware-lsp/internal/uriutil"
 )
 
 type TwigVersioningHoverProvider struct {
-	twigIndexer *twig.TwigIndexer
+	versioning *twig.VersioningService
 }
 
-func NewTwigVersioningHoverProvider(lspServer *lsp.Server) *TwigVersioningHoverProvider {
-	indexer, ok := lspServer.GetIndexer("twig.indexer")
-	if !ok {
-		return &TwigVersioningHoverProvider{twigIndexer: nil}
-	}
-	twigIndexer, ok := indexer.(*twig.TwigIndexer)
-	if !ok {
-		return &TwigVersioningHoverProvider{twigIndexer: nil}
-	}
-	return &TwigVersioningHoverProvider{twigIndexer: twigIndexer}
+func NewTwigVersioningHoverProvider(
+	versioning *twig.VersioningService,
+) *TwigVersioningHoverProvider {
+	return &TwigVersioningHoverProvider{versioning: versioning}
 }
 
-func (p *TwigVersioningHoverProvider) GetHover(ctx context.Context, params *protocol.HoverParams) (*protocol.Hover, error) {
-	if !strings.HasSuffix(strings.ToLower(params.TextDocument.URI), ".twig") {
+func (p *TwigVersioningHoverProvider) GetHover(
+	ctx context.Context,
+	params *lsp.HoverRequest,
+) (*protocol.Hover, error) {
+	if params == nil || !strings.HasSuffix(strings.ToLower(params.TextDocument.URI), ".twig") ||
+		params.Node == nil || p == nil || p.versioning == nil {
 		return nil, nil
 	}
-
-	if params.Node == nil {
+	path, err := uriutil.Path(params.TextDocument.URI)
+	if err != nil {
 		return nil, nil
 	}
-
-	if p.twigIndexer == nil {
-		return nil, nil
-	}
-
-	if p.isBlockIdentifier(params.Node, string(params.DocumentContent)) {
-		return p.hoverBlockIdentifier(params.Node, string(params.DocumentContent), params.TextDocument.URI)
-	}
-
-	if p.isVersionComment(params.Node, string(params.DocumentContent)) {
-		return p.hoverVersionComment(params.Node, string(params.DocumentContent), params.TextDocument.URI)
-	}
-
-	return nil, nil
-}
-
-func (p *TwigVersioningHoverProvider) isBlockIdentifier(node *tree_sitter.Node, content string) bool {
-	if node.Kind() != "identifier" {
-		return false
-	}
-
-	parent := node.Parent()
-	return parent != nil && parent.Kind() == "block"
-}
-
-func (p *TwigVersioningHoverProvider) isVersionComment(node *tree_sitter.Node, content string) bool {
-	if node.Kind() != "comment" {
-		return false
-	}
-
-	commentText := string(node.Utf8Text([]byte(content)))
-	return strings.Contains(commentText, twig.VersionCommentPrefix)
-}
-
-func (p *TwigVersioningHoverProvider) hoverBlockIdentifier(node *tree_sitter.Node, content string, uri string) (*protocol.Hover, error) {
-	blockName := string(node.Utf8Text([]byte(content)))
-
-	allBlockHashes, err := p.twigIndexer.GetTwigBlockHashes(blockName)
+	file, err := twig.ParseTwigTree(path, params.DocumentTree, params.LineIndex)
 	if err != nil {
 		return nil, err
 	}
-
-	originalHash := twig.FindOriginalStorefrontHash(allBlockHashes)
-	if originalHash == nil && len(allBlockHashes) == 0 {
-		extendsFile := p.findCurrentFileExtends(node, []byte(content), uri)
-		if extendsFile != "" {
-			originalHash = twig.ResolveOriginalStorefrontHashForBlock(p.twigIndexer, blockName, extendsFile)
-		}
+	if block := p.blockAtIdentifier(params.Node, params.Token); block != nil {
+		return p.hoverBlock(*file, twigquery.BlockName(block))
 	}
-
-	var hoverText strings.Builder
-	fmt.Fprintf(&hoverText, "**Block:** `%s`\n\n", blockName)
-
-	if originalHash != nil {
-		fmt.Fprintf(&hoverText, "**Original Hash:** `%s`\n\n", originalHash.Hash)
-		fmt.Fprintf(&hoverText, "**Template Path:** `%s`\n\n", originalHash.RelativePath)
-
-		twigFiles, err := p.twigIndexer.GetTwigFilesByRelPath(twig.ConvertToRelativePath(uri))
-		if err == nil && len(twigFiles) > 0 {
-			if block, exists := twigFiles[0].Blocks[blockName]; exists && block.VersionComment != nil {
-				if block.VersionComment.Hash == originalHash.Hash {
-					hoverText.WriteString("**Status:** Block version is up to date\n\n")
-				} else {
-					hoverText.WriteString("**Status:** Block version is outdated\n\n")
-					fmt.Fprintf(&hoverText, "**Current Version:** `%s`\n\n", block.VersionComment.Version)
-				}
-			} else {
-				hoverText.WriteString("❗ **Status:** No version comment found\n\n")
-			}
-		}
-	} else {
-		hoverText.WriteString("ℹ️ **Status:** No original block found in Storefront templates\n\n")
-	}
-
-	return &protocol.Hover{
-		Contents: protocol.MarkupContent{
-			Kind:  protocol.Markdown,
-			Value: hoverText.String(),
-		},
-	}, nil
-}
-
-func (p *TwigVersioningHoverProvider) findCurrentFileExtends(node *tree_sitter.Node, content []byte, uri string) string {
-	root := treesitterhelper.RootNode(node)
-
-	filePath := strings.TrimPrefix(uri, lsp.FileURIPrefix)
-	twigFile, err := twig.ParseTwig(filePath, root, content)
-	if err != nil || twigFile == nil {
-		return ""
-	}
-
-	return twigFile.ExtendsFile
-}
-
-func (p *TwigVersioningHoverProvider) hoverVersionComment(node *tree_sitter.Node, content string, uri string) (*protocol.Hover, error) {
-	commentText := string(node.Utf8Text([]byte(content)))
-
-	versionComment := twig.ParseVersionComment(commentText, int(node.Range().StartPoint.Row)+1)
-	if versionComment == nil {
+	comment := p.versionCommentAt(params.Node)
+	if comment == nil {
 		return nil, nil
 	}
-
-	var hoverText strings.Builder
-	hoverText.WriteString("**Shopware Block Version Comment**\n\n")
-	fmt.Fprintf(&hoverText, "**Hash:** `%s`\n\n", versionComment.Hash)
-	fmt.Fprintf(&hoverText, "**Version:** `%s`\n\n", versionComment.Version)
-
-	blockName := p.findBlockNameAfterComment(node, content)
-	if blockName != "" {
-		allBlockHashes, err := p.twigIndexer.GetTwigBlockHashes(blockName)
-		if err == nil {
-			originalHash := twig.FindOriginalStorefrontHash(allBlockHashes)
-			if originalHash != nil {
-				if versionComment.Hash == originalHash.Hash {
-					hoverText.WriteString("**Status:** Version comment matches original block\n\n")
-				} else {
-					hoverText.WriteString("**Status:** Version comment is outdated\n\n")
-					fmt.Fprintf(&hoverText, "**Expected Hash:** `%s`\n\n", originalHash.Hash)
-				}
-			}
-		}
+	blockName := p.findBlockNameAfterComment(comment)
+	if blockName == "" {
+		return nil, nil
 	}
-
-	return &protocol.Hover{
-		Contents: protocol.MarkupContent{
-			Kind:  protocol.Markdown,
-			Value: hoverText.String(),
-		},
-	}, nil
+	return p.hoverBlock(*file, blockName)
 }
 
-func (p *TwigVersioningHoverProvider) findBlockNameAfterComment(commentNode *tree_sitter.Node, content string) string {
-	parent := commentNode.Parent()
-	if parent == nil {
-		return ""
+func (p *TwigVersioningHoverProvider) blockAtIdentifier(
+	node *twigsyntax.Node,
+	token *twigsyntax.Token,
+) *twigsyntax.Node {
+	block := twigquery.BlockAt(node)
+	if block == nil || token == nil || token.Text() != twigquery.BlockName(block) {
+		return nil
 	}
+	return block
+}
 
-	for i := 0; i < int(parent.NamedChildCount()); i++ {
-		child := parent.NamedChild(uint(i))
-		if child == commentNode {
-			for j := i + 1; j < int(parent.NamedChildCount()); j++ {
-				nextChild := parent.NamedChild(uint(j))
-				if nextChild.Kind() == "block" {
-					for k := 0; k < int(nextChild.NamedChildCount()); k++ {
-						blockChild := nextChild.NamedChild(uint(k))
-						if blockChild.Kind() == "identifier" {
-							return string(blockChild.Utf8Text([]byte(content)))
-						}
-					}
-				}
-			}
-			break
+func (p *TwigVersioningHoverProvider) versionCommentAt(
+	node *twigsyntax.Node,
+) *twigsyntax.Node {
+	comment := twigquery.ClosestNodeOfKind(node, twigsyntax.TwigComment)
+	if comment == nil || !strings.Contains(comment.Text(), twig.VersionCommentPrefix) {
+		return nil
+	}
+	return comment
+}
+
+func (p *TwigVersioningHoverProvider) hoverBlock(
+	file twig.TwigFile,
+	blockName string,
+) (*protocol.Hover, error) {
+	block, found := file.Blocks[blockName]
+	if !found {
+		return nil, nil
+	}
+	resolution, err := p.versioning.Resolve(file, blockName)
+	if err != nil {
+		return nil, err
+	}
+	var markdown strings.Builder
+	fmt.Fprintf(&markdown, "**Block:** `%s`\n\n", blockName)
+	if len(resolution.Candidates) == 0 {
+		if block.HasVersioningComment && resolution.ParentResolved {
+			markdown.WriteString("**Status:** Upstream block was removed\n\n")
+		} else {
+			markdown.WriteString("**Status:** No resolvable upstream block\n\n")
+		}
+		return twigVersioningHover(markdown.String()), nil
+	}
+	upstream := resolution.Candidates[0]
+	fmt.Fprintf(&markdown, "**Upstream:** `%s`\n\n", upstream.AbsolutePath)
+	fmt.Fprintf(&markdown, "**Upstream hash:** `%s`\n\n", upstream.Hash)
+	if version := p.versioning.VersionForPath(upstream.AbsolutePath); version != "" {
+		fmt.Fprintf(&markdown, "**Upstream version:** `%s`\n\n", version)
+	}
+	if len(resolution.Candidates) > 1 {
+		fmt.Fprintf(&markdown, "**Candidates:** %d compatible upstream blocks\n\n", len(resolution.Candidates))
+	}
+	if block.VersionComment == nil {
+		if block.HasVersioningComment {
+			markdown.WriteString("**Status:** Version comment is malformed\n\n")
+		} else {
+			markdown.WriteString("**Status:** No version comment\n\n")
+		}
+		return twigVersioningHover(markdown.String()), nil
+	}
+	fmt.Fprintf(&markdown, "**Recorded hash:** `%s`\n\n", block.VersionComment.Hash)
+	if block.VersionComment.Version != "" {
+		fmt.Fprintf(&markdown, "**Recorded version:** `%s`\n\n", block.VersionComment.Version)
+	}
+	for _, candidate := range resolution.Candidates {
+		if candidate.Hash == block.VersionComment.Hash {
+			markdown.WriteString("**Status:** Version comment is up to date\n\n")
+			return twigVersioningHover(markdown.String()), nil
 		}
 	}
+	markdown.WriteString("**Status:** Upstream block has changed\n\n")
+	return twigVersioningHover(markdown.String()), nil
+}
 
+func twigVersioningHover(value string) *protocol.Hover {
+	return &protocol.Hover{Contents: protocol.MarkupContent{
+		Kind: protocol.Markdown, Value: value,
+	}}
+}
+
+func (p *TwigVersioningHoverProvider) findBlockNameAfterComment(
+	commentNode *twigsyntax.Node,
+) string {
+	for sibling := commentNode.NextSibling(); sibling != nil; {
+		switch next := sibling.(type) {
+		case *twigsyntax.Token:
+			sibling = next.NextSibling()
+		case *twigsyntax.Node:
+			if next.Kind() == twigsyntax.TwigBlock {
+				return twigquery.BlockName(next)
+			}
+			sibling = next.NextSibling()
+		}
+	}
 	return ""
 }

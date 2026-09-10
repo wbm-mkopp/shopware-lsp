@@ -5,36 +5,23 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/shopware/shopware-lsp/internal/extension"
 	"github.com/shopware/shopware-lsp/internal/lsp"
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
-	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
+	twigparser "github.com/shopware/shopware-lsp/internal/parser/twig"
+	twigquery "github.com/shopware/shopware-lsp/internal/parser/twig/query"
+	twigsyntax "github.com/shopware/shopware-lsp/internal/parser/twig/syntax"
 	"github.com/shopware/shopware-lsp/internal/twig"
-	tree_sitter "github.com/tree-sitter/go-tree-sitter"
+	"github.com/shopware/shopware-lsp/internal/uriutil"
 )
 
 type TwigCodeActionProvider struct {
-	twigIndexer      *twig.TwigIndexer
-	extensionIndexer *extension.ExtensionIndexer
-	projectRoot      string
+	versioning *twig.VersioningService
 }
 
-func NewTwigCodeActionProvider(projectRoot string, server *lsp.Server) *TwigCodeActionProvider {
-	provider := &TwigCodeActionProvider{projectRoot: projectRoot}
-
-	if indexer, ok := server.GetIndexer("twig.indexer"); ok {
-		if twigIndexer, ok := indexer.(*twig.TwigIndexer); ok {
-			provider.twigIndexer = twigIndexer
-		}
-	}
-
-	if indexer, ok := server.GetIndexer("extension.indexer"); ok {
-		if extensionIndexer, ok := indexer.(*extension.ExtensionIndexer); ok {
-			provider.extensionIndexer = extensionIndexer
-		}
-	}
-
-	return provider
+func NewTwigCodeActionProvider(
+	versioning *twig.VersioningService,
+) *TwigCodeActionProvider {
+	return &TwigCodeActionProvider{versioning: versioning}
 }
 
 func (p *TwigCodeActionProvider) GetCodeActionKinds() []protocol.CodeActionKind {
@@ -44,357 +31,226 @@ func (p *TwigCodeActionProvider) GetCodeActionKinds() []protocol.CodeActionKind 
 	}
 }
 
-func (p *TwigCodeActionProvider) GetCodeActions(ctx context.Context, params *protocol.CodeActionParams) []protocol.CodeAction {
-	var codeActions []protocol.CodeAction
-
-	blockNames := twig.ExtendBlockCandidates(params.Node, params.DocumentContent, params.Range.Start.Line)
-	if len(blockNames) > 0 {
-		codeActions = append(codeActions, p.getExtendBlockActions(params, blockNames)...)
+func (p *TwigCodeActionProvider) GetCodeActions(
+	ctx context.Context,
+	params *lsp.CodeActionRequest,
+) []protocol.CodeAction {
+	if params == nil || params.CodeActionParams == nil {
+		return nil
 	}
-
+	if documentPath, err := uriutil.Path(params.TextDocument.URI); err == nil &&
+		isAdministrationTwigPath(documentPath) {
+		return nil
+	}
+	if params.Node == nil && len(params.DocumentContent) > 0 {
+		result := twigparser.Parse(string(params.DocumentContent))
+		lineIndex := twigsyntax.NewLineIndex(result.Tree.Source)
+		params.DocumentTree = result.Tree
+		params.LineIndex = lineIndex
+		offset := lineIndex.OffsetUTF16(
+			uint32(params.Range.Start.Line),
+			uint32(params.Range.Start.Character),
+		)
+		params.Root = result.Tree.Root
+		params.Token = result.Tree.Root.TokenAtOffset(offset)
+		params.Node = result.Tree.Root.NodeAtOffset(offset)
+	}
 	if params.Node == nil {
-		return codeActions
-	}
-
-	if isTwigBlockName(params.Node, params.DocumentContent) {
-		if action := p.getVersioningHashAction(params); action != nil {
-			codeActions = append(codeActions, *action)
-		}
-
-		if action := p.getShowDiffAction(params); action != nil {
-			codeActions = append(codeActions, *action)
-		}
-	}
-
-	if action := p.getShowDiffActionFromComment(params); action != nil {
-		codeActions = append(codeActions, *action)
-	}
-
-	return codeActions
-}
-
-func (p *TwigCodeActionProvider) getExtendBlockActions(params *protocol.CodeActionParams, blockNames []string) []protocol.CodeAction {
-	if p.extensionIndexer == nil || !twig.IsOriginalTemplateSource(params.TextDocument.URI) {
 		return nil
 	}
 
-	extensions, err := p.extensionIndexer.GetAll()
-	if err != nil || len(extensions) == 0 {
-		return nil
-	}
-
-	var codeActions []protocol.CodeAction
-
-	for _, ext := range extensions {
-		if !ext.IsLocal() {
-			continue
-		}
-
-		plan, blockName := p.planFirstExtendableBlock(params, blockNames, ext)
-		if plan == nil || blockName == "" {
-			continue
-		}
-
-		// After the edit is applied, reveal the new block and place the cursor inside
-		// its body via window/showDocument. Clients that execute code-action commands
-		// (e.g. VSCode, Neovim) honor this; clients that ignore it still get the edit.
-		codeActions = append(codeActions, protocol.CodeAction{
-			Title: fmt.Sprintf("Extend block '%s' in %s", blockName, ext.Name),
-			Kind:  protocol.CodeActionQuickFix,
-			Edit:  plan.WorkspaceEdit(),
-			Command: &protocol.CommandAction{
-				Title:   "Focus extended block",
-				Command: lsp.FocusExtendedBlockCommand,
-				Arguments: []any{
-					plan.URI,
-					plan.BlockLine,
+	var actions []protocol.CodeAction
+	blockNode := twigquery.BlockAt(params.Node)
+	blockName := twigquery.BlockName(blockNode)
+	if blockNode != nil && params.Token != nil && params.Token.Text() == blockName {
+		if strings.Contains(params.TextDocument.URI, "Resources/views/storefront") {
+			actions = append(actions, protocol.CodeAction{
+				Title: "Overwrite this block in Extension",
+				Kind:  protocol.CodeActionRefactorExtract,
+				Command: &protocol.CommandAction{
+					Title: "Overwrite Block", Command: "shopware.twig.extendBlock",
+					Arguments: []any{params.TextDocument.URI, blockName},
 				},
-			},
-		})
-	}
-
-	return codeActions
-}
-
-func (p *TwigCodeActionProvider) planFirstExtendableBlock(
-	params *protocol.CodeActionParams,
-	blockNames []string,
-	ext extension.ShopwareExtension,
-) (*twig.ExtendBlockPlan, string) {
-	for _, blockName := range blockNames {
-		plan, planErr := twig.PlanExtendBlock(p.projectRoot, p.twigIndexer, params.TextDocument.URI, blockName, ext)
-		if planErr == nil {
-			return plan, blockName
+			})
 		}
-		if planErr.Code != "block.already_exists" {
-			return nil, ""
+		if !hasDiagnosticCode(
+			params,
+			"twig.versioning.comment_missing",
+			"twig.versioning.outdated",
+		) {
+			if action := p.getVersionCommentAction(params, blockName); action != nil {
+				actions = append(actions, *action)
+			}
+		}
+		if !hasDiagnosticCode(params, "twig.versioning.outdated") {
+			if action := p.getShowDiffAction(params, blockName); action != nil {
+				actions = append(actions, *action)
+			}
 		}
 	}
 
-	return nil, ""
+	if comment := twigquery.ClosestNodeOfKind(params.Node, twigsyntax.TwigComment); comment != nil &&
+		strings.Contains(comment.Text(), twig.VersionCommentPrefix) {
+		if name := versionedBlockAtComment(params, comment); name != "" {
+			if !hasDiagnosticCode(
+				params,
+				"twig.versioning.comment_missing",
+				"twig.versioning.outdated",
+			) {
+				if action := p.getVersionCommentAction(params, name); action != nil {
+					actions = append(actions, *action)
+				}
+			}
+			if !hasDiagnosticCode(params, "twig.versioning.outdated") {
+				if action := p.getShowDiffAction(params, name); action != nil {
+					actions = append(actions, *action)
+				}
+			}
+		}
+	}
+	return actions
 }
 
-func (p *TwigCodeActionProvider) getVersioningHashAction(params *protocol.CodeActionParams) *protocol.CodeAction {
-	if p.twigIndexer == nil {
+func (p *TwigCodeActionProvider) getVersionCommentAction(
+	params *lsp.CodeActionRequest,
+	blockName string,
+) *protocol.CodeAction {
+	if p == nil || p.versioning == nil || blockName == "" {
 		return nil
 	}
-
-	if twig.IsStorefrontTemplate(params.TextDocument.URI) {
+	path, err := uriutil.Path(params.TextDocument.URI)
+	if err != nil || twig.IsUpstreamTemplate(path) {
 		return nil
 	}
-
-	if !isTwigBlockName(params.Node, params.DocumentContent) {
+	_, block, resolution, err := p.versioning.ResolveDocument(
+		path,
+		string(params.DocumentContent),
+		blockName,
+	)
+	if err != nil || len(resolution.Candidates) == 0 {
 		return nil
 	}
-
-	blockName := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
-
-	rootNode := treesitterhelper.RootNode(params.Node)
-
-	twigFile, err := twig.ParseTwig(params.TextDocument.URI, rootNode, params.DocumentContent)
+	update := block.VersionComment != nil
+	if update {
+		for _, candidate := range resolution.Candidates {
+			if candidate.Hash == block.VersionComment.Hash {
+				return nil
+			}
+		}
+	}
+	rng, replacement, err := p.versioning.VersionCommentEdit(
+		path,
+		string(params.DocumentContent),
+		blockName,
+	)
 	if err != nil {
 		return nil
 	}
-
-	// Use the parsed block's version comment rather than the tree-sitter parent:
-	// blocks whose body contains raw HTML are wrapped in an ERROR node and only
-	// recovered by ParseTwig's regex fallback.
-	if block, ok := twigFile.Blocks[blockName]; ok && block.VersionComment != nil {
-		return nil
+	title := "Shopware: Add Twig block version comment"
+	if update {
+		title = "Shopware: Update Twig block version comment"
 	}
-
-	originalHash := twig.ResolveOriginalStorefrontHashForBlock(p.twigIndexer, blockName, twigFile.ExtendsFile)
-	if originalHash == nil {
-		return nil
-	}
-
-	blockLine := int(params.Node.Range().StartPoint.Row)
-	blockCol := int(params.Node.Range().StartPoint.Column)
-	indent := extractLineIndent(params.DocumentContent, blockLine, blockCol)
-	versionComment := indent + twig.FormatVersionComment(originalHash.Hash, twig.ResolveBlockVersion(p.projectRoot, originalHash))
-
-	edit := &protocol.WorkspaceEdit{
-		Changes: map[string][]protocol.TextEdit{
-			params.TextDocument.URI: {
-				{
-					Range: protocol.Range{
-						Start: protocol.Position{Line: blockLine, Character: 0},
-						End:   protocol.Position{Line: blockLine, Character: 0},
-					},
-					NewText: versionComment,
-				},
-			},
-		},
-	}
-
+	lineIndex := codeActionLineIndex(params)
+	startLine, startCharacter := lineIndex.PositionUTF16(rng.Start)
+	endLine, endCharacter := lineIndex.PositionUTF16(rng.End)
 	return &protocol.CodeAction{
-		Title: "Add twig versioning hash",
+		Title: title,
 		Kind:  protocol.CodeActionQuickFix,
-		Edit:  edit,
+		Edit: &protocol.WorkspaceEdit{Changes: map[string][]protocol.TextEdit{
+			params.TextDocument.URI: {{
+				Range: protocol.Range{
+					Start: protocol.Position{Line: int(startLine), Character: int(startCharacter)},
+					End:   protocol.Position{Line: int(endLine), Character: int(endCharacter)},
+				},
+				NewText: replacement,
+			}},
+		}},
 	}
 }
 
-func (p *TwigCodeActionProvider) getShowDiffAction(params *protocol.CodeActionParams) *protocol.CodeAction {
-	if p.twigIndexer == nil {
+func (p *TwigCodeActionProvider) getShowDiffAction(
+	params *lsp.CodeActionRequest,
+	blockName string,
+) *protocol.CodeAction {
+	if p == nil || p.versioning == nil || blockName == "" {
 		return nil
 	}
-
-	if twig.IsStorefrontTemplate(params.TextDocument.URI) {
+	path, err := uriutil.Path(params.TextDocument.URI)
+	if err != nil || twig.IsUpstreamTemplate(path) {
 		return nil
 	}
-
-	if !isTwigBlockName(params.Node, params.DocumentContent) {
+	_, block, resolution, err := p.versioning.ResolveDocument(
+		path,
+		string(params.DocumentContent),
+		blockName,
+	)
+	if err != nil || block.VersionComment == nil ||
+		block.VersionComment.Version == "" || len(resolution.Candidates) == 0 ||
+		!twig.IsStorefrontTemplate(resolution.Candidates[0].AbsolutePath) {
 		return nil
 	}
-
-	blockName := treesitterhelper.GetNodeText(params.Node, params.DocumentContent)
-
-	rootNode := treesitterhelper.RootNode(params.Node)
-
-	twigFile, err := twig.ParseTwig(params.TextDocument.URI, rootNode, params.DocumentContent)
-	if err != nil {
-		return nil
+	for _, candidate := range resolution.Candidates {
+		if candidate.Hash == block.VersionComment.Hash {
+			return nil
+		}
 	}
-
-	block, exists := twigFile.Blocks[blockName]
-	if !exists || block.VersionComment == nil {
-		return nil
-	}
-
-	allBlockHashes, err := p.twigIndexer.GetTwigBlockHashes(blockName)
-	if err != nil || len(allBlockHashes) == 0 {
-		return nil
-	}
-
-	originalHash := twig.FindOriginalStorefrontHash(allBlockHashes)
-	if originalHash == nil {
-		return nil
-	}
-
-	if block.VersionComment.Hash == originalHash.Hash {
-		return nil
-	}
-
 	return &protocol.CodeAction{
-		Title: "Show block difference",
+		Title: "Shopware: Show Twig block difference",
 		Kind:  protocol.CodeActionQuickFix,
 		Command: &protocol.CommandAction{
-			Title:     "Show Block Difference",
-			Command:   "shopware.twig.showBlockDiff",
+			Title: "Show Twig Block Difference", Command: "shopware.twig.showBlockDiff",
 			Arguments: []any{params.TextDocument.URI, blockName},
 		},
 	}
 }
 
-func (p *TwigCodeActionProvider) getShowDiffActionFromComment(params *protocol.CodeActionParams) *protocol.CodeAction {
-	if p.twigIndexer == nil {
-		return nil
-	}
-
-	if twig.IsStorefrontTemplate(params.TextDocument.URI) {
-		return nil
-	}
-
-	if params.Node.Kind() != "comment" {
-		return nil
-	}
-
-	commentText := string(params.Node.Utf8Text(params.DocumentContent))
-	if !strings.Contains(commentText, twig.VersionCommentPrefix) {
-		return nil
-	}
-
-	versionComment := twig.ParseVersionComment(commentText, int(params.Node.Range().StartPoint.Row)+1)
-	if versionComment == nil {
-		return nil
-	}
-
-	commentLine := int(params.Node.Range().StartPoint.Row) + 1
-
-	rootNode := params.Node
-	for rootNode.Parent() != nil {
-		rootNode = rootNode.Parent()
-	}
-
-	twigFile, err := twig.ParseTwig(params.TextDocument.URI, rootNode, params.DocumentContent)
+func versionedBlockAtComment(
+	params *lsp.CodeActionRequest,
+	comment *twigsyntax.Node,
+) string {
+	file, err := parseTwigCodeActionDocument(params)
 	if err != nil {
-		return nil
+		return ""
 	}
-
-	var blockName string
-	for _, block := range twigFile.Blocks {
-		if block.VersionComment != nil && block.VersionComment.Line == commentLine {
-			blockName = block.Name
-			break
+	commentRange := comment.RangeTrimmedTrivia()
+	for _, block := range file.Blocks {
+		if block.VersionCommentRange != nil &&
+			block.VersionCommentRange.Start == commentRange.Start {
+			return block.Name
 		}
 	}
-
-	if blockName == "" {
-		return nil
-	}
-
-	allBlockHashes, err := p.twigIndexer.GetTwigBlockHashes(blockName)
-	if err != nil || len(allBlockHashes) == 0 {
-		return nil
-	}
-
-	originalHash := twig.FindOriginalStorefrontHash(allBlockHashes)
-	if originalHash == nil {
-		return nil
-	}
-
-	if versionComment.Hash == originalHash.Hash {
-		return nil
-	}
-
-	return &protocol.CodeAction{
-		Title: "Show block difference",
-		Kind:  protocol.CodeActionQuickFix,
-		Command: &protocol.CommandAction{
-			Title:     "Show Block Difference",
-			Command:   "shopware.twig.showBlockDiff",
-			Arguments: []any{params.TextDocument.URI, blockName},
-		},
-	}
+	return ""
 }
 
-// isTwigBlockName reports whether node is the block-name identifier in a
-// "{% block NAME %}" tag. It accepts both a proper "block" parent and the ERROR
-// parent tree-sitter produces when the block body contains raw HTML.
-func isTwigBlockName(node *tree_sitter.Node, content []byte) bool {
-	if node == nil || node.Kind() != "identifier" {
-		return false
+func hasDiagnosticCode(params *lsp.CodeActionRequest, codes ...string) bool {
+	for _, diagnostic := range params.Context.Diagnostics {
+		current := fmt.Sprint(diagnostic.Code)
+		for _, code := range codes {
+			if current == code {
+				return true
+			}
+		}
 	}
-	if parent := node.Parent(); parent != nil && parent.Kind() == "block" {
-		return true
-	}
-	return precededByBlockKeyword(content, int(node.StartByte()))
+	return false
 }
 
-// precededByBlockKeyword reports whether the bytes before offset form a
-// "{% block" opening tag, tolerating whitespace and the "-" whitespace-control
-// modifier ("{%- block").
-func precededByBlockKeyword(content []byte, offset int) bool {
-	if offset > len(content) {
-		return false
+func codeActionLineIndex(params *lsp.CodeActionRequest) *twigsyntax.LineIndex {
+	if params.LineIndex != nil {
+		return params.LineIndex
 	}
-	i := offset - 1
-	skipSpace := func() {
-		for i >= 0 && (content[i] == ' ' || content[i] == '\t') {
-			i--
-		}
-	}
-
-	skipSpace()
-	end := i + 1
-	for i >= 0 && isWordByte(content[i]) {
-		i--
-	}
-	if string(content[i+1:end]) != "block" {
-		return false
-	}
-
-	skipSpace()
-	if i >= 0 && content[i] == '-' { // {%- block
-		i--
-		skipSpace()
-	}
-	return i >= 1 && content[i] == '%' && content[i-1] == '{'
+	params.LineIndex = twigsyntax.NewLineIndex(string(params.DocumentContent))
+	return params.LineIndex
 }
 
-func isWordByte(b byte) bool {
-	return b == '_' || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
-}
-
-// extractLineIndent returns the leading whitespace of the given line, capped at
-// maxCol, so an inserted version comment keeps the block's indentation.
-func extractLineIndent(content []byte, line, maxCol int) string {
-	currentLine := 0
-	lineStart := 0
-
-	for i, b := range content {
-		if currentLine == line {
-			lineStart = i
-			break
-		}
-		if b == '\n' {
-			currentLine++
-		}
+func parseTwigCodeActionDocument(
+	params *lsp.CodeActionRequest,
+) (*twig.TwigFile, error) {
+	path, err := uriutil.Path(params.TextDocument.URI)
+	if err != nil {
+		return nil, err
 	}
-
-	end := lineStart + maxCol
-	if end > len(content) {
-		end = len(content)
+	if params.DocumentTree != nil {
+		return twig.ParseTwigTree(path, params.DocumentTree, codeActionLineIndex(params))
 	}
-
-	indent := content[lineStart:end]
-
-	// Only return actual whitespace characters
-	for i, b := range indent {
-		if b != ' ' && b != '\t' {
-			return string(indent[:i])
-		}
-	}
-
-	return string(indent)
+	return twig.ParseTwig(path, params.DocumentContent)
 }

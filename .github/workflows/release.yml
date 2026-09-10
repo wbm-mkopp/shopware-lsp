@@ -1,16 +1,34 @@
 name: Release
+
 on:
   push:
     tags:
-      - "*"
+      # Semver tags; only even minors (stable channel) run this pipeline
+      - '[0-9]+.[0-9]+.[0-9]+'
 
 permissions:
   id-token: write
   contents: write
 
 jobs:
+  route:
+    name: Check stable tag
+    runs-on: ubuntu-latest
+    outputs:
+      pre-release: ${{ steps.parity.outputs.pre-release }}
+    steps:
+      - name: Compute minor parity
+        id: parity
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          minor="$(echo "$TAG" | cut -d. -f2)"
+          echo "pre-release=$((minor % 2))" >> "$GITHUB_OUTPUT"
+
   release-lsp:
     name: Release LSP
+    needs: route
+    if: needs.route.outputs.pre-release == '0'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -31,22 +49,74 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ steps.sts-shopware.outputs.token }}
 
-  build-vscode:
-    name: Build VSCode
-    runs-on: ubuntu-latest
+  build:
+    name: Build VSIX packages
     needs: release-lsp
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [darwin, linux, alpine]
-        arch: [amd64, arm64]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
+    uses: ./.github/workflows/build-vsix.yml
+    with:
+      version: ${{ github.ref_name }}
+      pre-release: false
 
-      - name: Build VSCode
-        run: make release-build-extension VERSION=${{ github.ref_name }} OS=${{ matrix.os }} ARCH=${{ matrix.arch }} PUBLISH=1
+  github-release:
+    name: Attach VSIX packages to release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download VSIX packages
+        uses: actions/download-artifact@v8
+        with:
+          name: vsix-packages
+          path: out
+
+      - name: Verify checksums
+        working-directory: out
+        run: sha256sum --check SHA256SUMS
+
+      - name: Upload to GitHub release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: gh release upload "$TAG" out/*.vsix out/SHA256SUMS
+
+  publish:
+    name: Publish to marketplaces
+    needs: github-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    env:
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Install publishing tools
+        run: npm install --global @vscode/vsce@3.9.1 ovsx@1.1.1
+
+      - name: Download release packages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: >-
+          gh release download "$TAG"
+          --pattern "*.vsix" --pattern "SHA256SUMS"
+          --dir out
+
+      - name: Verify release packages
+        working-directory: out
+        run: sha256sum --check SHA256SUMS
+
+      - name: Publish to Visual Studio Marketplace
+        run: vsce publish --skip-duplicate --packagePath out/*.vsix
+        env:
           VSCE_PAT: ${{ secrets.VSCODE_PUBLISH_TOKEN }}
+
+      - name: Publish to Open VSX
+        run: ovsx publish --skip-duplicate --packagePath out/*.vsix
+        env:
           OVSX_PAT: ${{ secrets.OVSX_PUBLISH_TOKEN }}

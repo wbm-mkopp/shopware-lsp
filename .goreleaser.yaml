@@ -7,12 +7,15 @@ builds:
       - darwin
     goarch:
       - amd64
+    goamd64:
+      - v3
     env:
       - PKG_CONFIG_SYSROOT_DIR=/sysroot/macos/amd64
       - PKG_CONFIG_PATH=/sysroot/macos/amd64/usr/local/lib/pkgconfig
       - CC=o64-clang
       - CXX=o64-clang++
       - CGO_ENABLED=1
+      - GOEXPERIMENT=simd
     ldflags:
       - -s -w -X main.version={{.Version}}
   - id: darwin-arm64
@@ -22,12 +25,15 @@ builds:
       - darwin
     goarch:
       - arm64
+    goarm64:
+      - v8.4,crypto
     env:
       - PKG_CONFIG_SYSROOT_DIR=/sysroot/macos/arm64
       - PKG_CONFIG_PATH=/sysroot/macos/arm64/usr/local/lib/pkgconfig
       - CC=oa64-clang
       - CXX=oa64-clang++
       - CGO_ENABLED=1
+      - GOEXPERIMENT=simd
     ldflags:
       - -s -w -X main.version={{.Version}}
   - id: linux-amd64
@@ -37,6 +43,8 @@ builds:
       - linux
     goarch:
       - amd64
+    goamd64:
+      - v3
     ldflags:
       - -s -w -linkmode external -extldflags -static -X main.version={{.Version}}
     env:
@@ -45,6 +53,7 @@ builds:
       - CC=x86_64-linux-gnu-gcc
       - CXX=x86_64-linux-gnu-g++
       - CGO_ENABLED=1
+      - GOEXPERIMENT=simd
   - id: linux-arm64
     main: ./
     binary: shopware-lsp
@@ -60,6 +69,38 @@ builds:
       - CC=aarch64-linux-gnu-gcc
       - CXX=aarch64-linux-gnu-g++
       - CGO_ENABLED=1
+      - GOEXPERIMENT=simd
+  - id: linux-armv7
+    main: ./
+    binary: shopware-lsp
+    goos:
+      - linux
+    goarch:
+      - arm
+    goarm:
+      - "7"
+    ldflags:
+      - -s -w -linkmode external -extldflags -static -X main.version={{.Version}}
+    env:
+      - CC=arm-linux-gnueabihf-gcc
+      - CXX=arm-linux-gnueabihf-g++
+      - CGO_ENABLED=1
+  - id: windows-amd64
+    main: ./
+    binary: shopware-lsp
+    goos:
+      - windows
+    goarch:
+      - amd64
+    goamd64:
+      - v3
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    env:
+      - CC=x86_64-w64-mingw32-gcc
+      - CXX=x86_64-w64-mingw32-g++
+      - CGO_ENABLED=1
+      - GOEXPERIMENT=simd
 archives:
   - id: golang-cross
     ids:
@@ -67,6 +108,8 @@ archives:
       - darwin-arm64
       - linux-amd64
       - linux-arm64
+      - linux-armv7
+      - windows-amd64
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     formats: [ 'zip' ]
     wrap_in_directory: false
@@ -80,21 +123,21 @@ changelog:
       - '^test:'
 release:
   github:
-    owner: shopwareLabs
+    owner: shopware
     name: shopware-lsp
 
-brews:
+homebrew_casks:
   - repository:
       owner: shopware
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    ids:
+      - golang-cross
+    binaries:
+      - shopware-lsp
     commit_author:
-      name: Frosh Automation
-      email: ci@fos.gg
-    goarm: "7"
+      name: shopwareBot
+      email: 4725494+shopwareBot@users.noreply.github.com
     homepage: https://shopware.com
     description: Shopware Language Server
-    license: MIT
-    directory: Formula
-    install: |-
-      bin.install "shopware-lsp"
+    directory: Casks

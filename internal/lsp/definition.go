@@ -2,30 +2,52 @@ package lsp
 
 import (
 	"context"
-	"path/filepath"
+	"log"
+	"time"
 
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
-	"github.com/shopware/shopware-lsp/internal/php"
 )
 
 // definition handles textDocument/definition requests
 func (s *Server) definition(ctx context.Context, params *protocol.DefinitionParams) []protocol.Location {
-	node, docText, ok := s.documentManager.GetNodeAtPosition(params.TextDocument.URI, params.Position.Line, params.Position.Character)
-	if ok {
-		params.Node = node
-		params.DocumentContent = docText.Text
+	syntax, _ := s.documentManager.SyntaxContext(
+		params.TextDocument.URI,
+		params.Position.Line,
+		params.Position.Character,
+	)
+	request := &DefinitionRequest{DefinitionParams: params, SyntaxContext: syntax}
 
-		if filepath.Ext(params.TextDocument.URI) == ".php" {
-			phpIndex, _ := s.GetIndexer("php.index")
-			ctx = phpIndex.(*php.PHPIndex).AddContext(ctx, node, docText.Text)
-		}
+	ctx = s.enrichContext(ctx, syntax)
+	tracePerformance := s.traceProviders
+	var requestStarted time.Time
+	if tracePerformance {
+		requestStarted = time.Now()
 	}
 
 	// Collect definition locations from all providers
 	var locations []protocol.Location
 	for _, provider := range s.definitionProviders {
-		providerLocations := provider.GetDefinition(ctx, params)
+		var providerStarted time.Time
+		if tracePerformance {
+			providerStarted = time.Now()
+		}
+		providerLocations := provider.GetDefinition(ctx, request)
+		if tracePerformance {
+			log.Printf(
+				"LSP definition provider %T took %s (%d locations)",
+				provider,
+				time.Since(providerStarted).Round(time.Microsecond),
+				len(providerLocations),
+			)
+		}
 		locations = append(locations, providerLocations...)
+	}
+	if tracePerformance {
+		log.Printf(
+			"LSP definition request took %s (%d locations)",
+			time.Since(requestStarted).Round(time.Microsecond),
+			len(locations),
+		)
 	}
 
 	return locations

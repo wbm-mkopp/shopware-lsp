@@ -1,113 +1,281 @@
 package admin
 
 import (
-	"os"
+	"errors"
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/shopware/shopware-lsp/internal/indexer"
-	treesitterhelper "github.com/shopware/shopware-lsp/internal/tree_sitter_helper"
-	tree_sitter "github.com/tree-sitter/go-tree-sitter"
-)
-
-// JavaScript patterns for Shopware.Component.register/extend calls
-var (
-	// Pattern to match Component.register/extend call expressions
-	// Supports both:
-	// - Shopware.Component.register(...)
-	// - Component.register(...) (when destructured from Shopware)
-	JSComponentCallPattern = treesitterhelper.And(
-		treesitterhelper.NodeKind("call_expression"),
-		treesitterhelper.HasChild(
-			treesitterhelper.And(
-				treesitterhelper.NodeKind("member_expression"),
-				treesitterhelper.Or(
-					// Full path: Shopware.Component.register / Shopware.Component.extend
-					treesitterhelper.NodeText("Shopware.Component.register"),
-					treesitterhelper.NodeText("Shopware.Component.extend"),
-					// Destructured: Component.register / Component.extend
-					treesitterhelper.NodeText("Component.register"),
-					treesitterhelper.NodeText("Component.extend"),
-				),
-			),
-		),
-	)
-
-	// Pattern to match export default { ... } statements (Vue component definitions)
-	JSExportDefaultPattern = treesitterhelper.And(
-		treesitterhelper.NodeKind("export_statement"),
-		treesitterhelper.HasChild(treesitterhelper.NodeKind("default")),
-		treesitterhelper.HasChild(treesitterhelper.NodeKind("object")),
-	)
-
-	// Pattern to match export default Shopware.Component.wrapComponentConfig({...})
-	// Used for Meteor component library wrappers
-	JSWrapComponentConfigPattern = treesitterhelper.And(
-		treesitterhelper.NodeKind("export_statement"),
-		treesitterhelper.HasChild(treesitterhelper.NodeKind("default")),
-		treesitterhelper.HasChild(
-			treesitterhelper.And(
-				treesitterhelper.NodeKind("call_expression"),
-				treesitterhelper.HasChild(
-					treesitterhelper.And(
-						treesitterhelper.NodeKind("member_expression"),
-						treesitterhelper.Or(
-							treesitterhelper.NodeText("Shopware.Component.wrapComponentConfig"),
-							treesitterhelper.NodeText("Component.wrapComponentConfig"),
-						),
-					),
-				),
-			),
-		),
-	)
+	"github.com/shopware/shopware-lsp/internal/parser/cst"
+	jsquery "github.com/shopware/shopware-lsp/internal/parser/javascript/query"
+	jssyntax "github.com/shopware/shopware-lsp/internal/parser/javascript/syntax"
+	vueparser "github.com/shopware/shopware-lsp/internal/parser/vue"
 )
 
 type AdminComponentIndexer struct {
-	componentIndex  *indexer.DataIndexer[VueComponent]
-	definitionIndex *indexer.DataIndexer[ComponentDefinition]
+	componentIndex       *indexer.DataIndexer[VueComponent]
+	definitionIndex      *indexer.DataIndexer[ComponentDefinition]
+	mixinIndex           *indexer.DataIndexer[AdminMixin]
+	directiveIndex       *indexer.DataIndexer[AdminDirective]
+	filterIndex          *indexer.DataIndexer[AdminFilter]
+	cmsIndex             *indexer.DataIndexer[AdminCMSRegistration]
+	moduleIndex          *indexer.DataIndexer[AdminModule]
+	serviceIndex         *indexer.DataIndexer[AdminService]
+	storeIndex           *indexer.DataIndexer[AdminStore]
+	storeFactoryIndex    *indexer.DataIndexer[AdminStoreFactory]
+	privilegeIndex       *indexer.DataIndexer[AdminPrivilege]
+	usageIndex           *indexer.DataIndexer[AdminUsageSet]
+	typeIndex            *indexer.DataIndexer[AdminTypeFile]
+	templateCacheMu      sync.RWMutex
+	templateCache        map[string]string
+	templateCatalogBuilt bool
+	effectiveCacheMu     sync.RWMutex
+	effectiveCache       map[string]VueComponent
+	effectiveCacheEpoch  uint64
+	liveDocumentMu       sync.RWMutex
+	liveVueDocuments     map[string]ComponentDefinition
+	liveLegacyDocuments  map[string]liveLegacyDocument
+	liveRuntimeDocuments map[string]liveLegacyDocument
+	liveTwigTemplates    map[string]TemplateParseResult
+	liveTypeFiles        map[string]AdminTypeFile
 }
 
-func NewAdminComponentIndexer(configDir string) (*AdminComponentIndexer, error) {
-	componentIndex, err := indexer.NewDataIndexer[VueComponent](path.Join(configDir, "admin_component.db"))
-	if err != nil {
-		return nil, err
+func NewAdminComponentIndexer(
+	configDir string,
+	stores ...*indexer.Store,
+) (*AdminComponentIndexer, error) {
+	opening := adminRepositoryOpening{configDir: configDir, stores: stores}
+	defer opening.closeOnError()
+
+	componentIndex := openAdminRepository[VueComponent](
+		&opening, "admin_component.db", "admin.components",
+	)
+	definitionIndex := openAdminRepository[ComponentDefinition](
+		&opening, "admin_component_definition.db", "admin.definitions",
+	)
+	mixinIndex := openAdminRepository[AdminMixin](
+		&opening, "admin_mixin.db", "admin.mixins",
+	)
+	directiveIndex := openAdminRepository[AdminDirective](
+		&opening, "admin_directive.db", "admin.directives",
+	)
+	filterIndex := openAdminRepository[AdminFilter](
+		&opening, "admin_filter.db", "admin.filters",
+	)
+	cmsIndex := openAdminRepository[AdminCMSRegistration](
+		&opening, "admin_cms.db", "admin.cms",
+	)
+	moduleIndex := openAdminRepository[AdminModule](
+		&opening, "admin_module.db", "admin.modules",
+	)
+	serviceIndex := openAdminRepository[AdminService](
+		&opening, "admin_service.db", "admin.services",
+	)
+	storeIndex := openAdminRepository[AdminStore](
+		&opening, "admin_store.db", "admin.stores",
+	)
+	storeFactoryIndex := openAdminRepository[AdminStoreFactory](
+		&opening, "admin_store_factory.db", "admin.store_factories",
+	)
+	privilegeIndex := openAdminRepository[AdminPrivilege](
+		&opening, "admin_privilege.db", "admin.privileges",
+	)
+	usageIndex := openAdminRepository[AdminUsageSet](
+		&opening, "admin_usage.db", "admin.usages",
+	)
+	typeIndex := openAdminRepository[AdminTypeFile](
+		&opening, "admin_type.db", "admin.types",
+	)
+	if opening.err != nil {
+		return nil, opening.err
 	}
 
-	definitionIndex, err := indexer.NewDataIndexer[ComponentDefinition](path.Join(configDir, "admin_component_definition.db"))
-	if err != nil {
-		return nil, err
+	result := &AdminComponentIndexer{
+		componentIndex:       componentIndex,
+		definitionIndex:      definitionIndex,
+		mixinIndex:           mixinIndex,
+		directiveIndex:       directiveIndex,
+		filterIndex:          filterIndex,
+		cmsIndex:             cmsIndex,
+		moduleIndex:          moduleIndex,
+		serviceIndex:         serviceIndex,
+		storeIndex:           storeIndex,
+		storeFactoryIndex:    storeFactoryIndex,
+		privilegeIndex:       privilegeIndex,
+		usageIndex:           usageIndex,
+		typeIndex:            typeIndex,
+		liveVueDocuments:     make(map[string]ComponentDefinition),
+		liveLegacyDocuments:  make(map[string]liveLegacyDocument),
+		liveRuntimeDocuments: make(map[string]liveLegacyDocument),
+		liveTwigTemplates:    make(map[string]TemplateParseResult),
+		liveTypeFiles:        make(map[string]AdminTypeFile),
 	}
+	opening.committed = true
+	return result, nil
+}
 
-	return &AdminComponentIndexer{
-		componentIndex:  componentIndex,
-		definitionIndex: definitionIndex,
-	}, nil
+type adminRepositoryOpening struct {
+	configDir string
+	stores    []*indexer.Store
+	opened    []func() error
+	err       error
+	committed bool
+}
+
+func openAdminRepository[T any](
+	opening *adminRepositoryOpening,
+	fileName,
+	namespace string,
+) *indexer.DataIndexer[T] {
+	if opening.err != nil {
+		return nil
+	}
+	repository, err := indexer.NewRepository[T](
+		path.Join(opening.configDir, fileName), namespace, opening.stores...,
+	)
+	if err != nil {
+		opening.err = err
+		return nil
+	}
+	opening.opened = append(opening.opened, repository.Close)
+	return repository
+}
+
+func (opening *adminRepositoryOpening) closeOnError() {
+	if opening.committed {
+		return
+	}
+	for index := len(opening.opened) - 1; index >= 0; index-- {
+		_ = opening.opened[index]()
+	}
 }
 
 func (idx *AdminComponentIndexer) ID() string {
 	return "admin.component.indexer"
 }
 
-func (idx *AdminComponentIndexer) Index(filePath string, node *tree_sitter.Node, fileContent []byte) error {
-	ext := filepath.Ext(filePath)
-	if ext != ".js" && ext != ".ts" {
+func (idx *AdminComponentIndexer) Index(file *indexer.ParsedFile) error {
+	filePath := file.Path
+	if isMeteorDeclarationPath(filePath) {
+		idx.invalidateTemplateComponentCache()
+		if err := idx.saveTypeFile(
+			file.Mutation(), filePath, string(file.Source), file.LineIndex(),
+		); err != nil {
+			return err
+		}
+		component := parseMeteorDeclaration(filePath, file.Source)
+		batch := map[string]map[string]VueComponent{filePath: {}}
+		if component != nil {
+			batch[filePath][component.Name] = *component
+			addAdminComponentWorkspaceSymbols(file, *component)
+		}
+		if err := idx.componentIndex.BatchSaveItemsIn(file.Mutation(), batch); err != nil {
+			return err
+		}
+		return idx.saveUsages(file.Mutation(), filePath, nil)
+	}
+	ext := file.Extension()
+	if ext == ".twig" && isAdministrationSourcePath(filePath) {
+		idx.invalidateTemplateComponentCache()
+		tree := file.SyntaxTree()
+		if tree == nil {
+			return idx.saveUsages(file.Mutation(), filePath, nil)
+		}
+		return idx.saveUsages(
+			file.Mutation(), filePath,
+			parseAdminTwigUsages(tree.Root, filePath, file.LineIndex()),
+		)
+	}
+	if ext != ".js" && ext != ".ts" && ext != ".vue" {
 		return nil
 	}
 
-	// Only index files in Administration directory
-	if !strings.Contains(filePath, "Resources/app/administration") {
+	// Generated Vite, Storybook and test bundles can be several megabytes and
+	// repeat registry-looking strings without declaring project symbols. The
+	// Administration extension contract puts source under this directory.
+	if !isAdministrationSourcePath(filePath) {
 		return nil
 	}
-
+	idx.invalidateTemplateComponentCache()
+	tree := file.SyntaxTree()
+	if tree == nil || tree.Root == nil {
+		return nil
+	}
+	root := tree.Root
+	lineIndex := file.LineIndex()
+	vueSections := []vueparser.Section(nil)
+	vueUsesTypeScript := false
+	if ext == ".vue" {
+		vueSections = vueparser.Sections(file.Source)
+		for _, section := range vueSections {
+			if section.Kind == vueparser.SectionScript &&
+				strings.EqualFold(section.Language, "ts") {
+				vueUsesTypeScript = true
+				break
+			}
+		}
+	}
+	if ext == ".ts" || vueUsesTypeScript {
+		typeSource := string(file.Source)
+		if ext == ".vue" {
+			typeSource = vueScriptTypeSource(typeSource, vueSections)
+		}
+		if err := idx.saveTypeFile(
+			file.Mutation(), filePath, typeSource, lineIndex,
+		); err != nil {
+			return err
+		}
+	}
+	usages := parseAdminJavaScriptUsages(root, filePath, lineIndex)
+	if ext == ".vue" {
+		usages = append(
+			usages,
+			parseAdminTwigUsages(root, filePath, lineIndex)...,
+		)
+	}
+	if err := idx.saveUsages(file.Mutation(), filePath, usages); err != nil {
+		return err
+	}
+	if err := idx.componentIndex.BatchSaveItemsIn(
+		file.Mutation(),
+		map[string]map[string]VueComponent{filePath: {}},
+	); err != nil {
+		return err
+	}
+	if err := idx.definitionIndex.BatchSaveItemsIn(
+		file.Mutation(),
+		map[string]map[string]ComponentDefinition{filePath: {}},
+	); err != nil {
+		return err
+	}
+	if err := idx.mixinIndex.BatchSaveItemsIn(
+		file.Mutation(),
+		map[string]map[string]AdminMixin{filePath: {}},
+	); err != nil {
+		return err
+	}
+	if err := idx.moduleIndex.BatchSaveItemsIn(
+		file.Mutation(),
+		map[string]map[string]AdminModule{filePath: {}},
+	); err != nil {
+		return err
+	}
 	// Try to parse component registrations (Shopware.Component.register/extend or Component.register/extend)
-	if err := idx.indexRegistrations(filePath, node, fileContent); err != nil {
+	if err := idx.indexRegistrations(file, file.Mutation(), filePath, root, lineIndex); err != nil {
+		return err
+	}
+	if err := idx.indexMixinsAndModules(file, file.Mutation(), filePath, root, lineIndex); err != nil {
+		return err
+	}
+	if err := idx.indexRuntimeRegistries(file, file.Mutation(), filePath, root, lineIndex); err != nil {
 		return err
 	}
 
 	// Try to parse wrapped component configs (export default Shopware.Component.wrapComponentConfig({...}))
 	// Returns true if this file was a wrapComponentConfig file
-	handledByWrap, err := idx.indexWrappedComponents(filePath, node, fileContent)
+	handledByWrap, err := idx.indexWrappedComponents(file, file.Mutation(), filePath, root, lineIndex)
 	if err != nil {
 		return err
 	}
@@ -115,17 +283,242 @@ func (idx *AdminComponentIndexer) Index(filePath string, node *tree_sitter.Node,
 	// Try to parse component definitions (export default { ... })
 	// Skip if already handled by wrapComponentConfig to avoid duplicate indexing
 	if !handledByWrap {
-		if err := idx.indexDefinition(filePath, node, fileContent); err != nil {
-			return err
+		var definitionErr error
+		if ext == ".vue" {
+			definitionErr = idx.indexVueDefinition(
+				file.Mutation(), filePath, root, file.Source, lineIndex, vueSections,
+			)
+		} else {
+			definitionErr = idx.indexDefinition(
+				file.Mutation(), filePath, root, lineIndex,
+			)
+		}
+		if definitionErr != nil {
+			return definitionErr
 		}
 	}
 
 	return nil
 }
 
+func (idx *AdminComponentIndexer) saveTypeFile(
+	mutation *indexer.Mutation,
+	filePath,
+	source string,
+	lineIndex *cst.LineIndex,
+) error {
+	if idx == nil || idx.typeIndex == nil {
+		return nil
+	}
+	typeFile := parseAdminTypeFile(filePath, source, lineIndex)
+	items := map[string]AdminTypeFile{}
+	if len(typeFile.Declarations) > 0 || len(typeFile.Imports) > 0 {
+		items[filePath] = typeFile
+	}
+	return idx.typeIndex.BatchSaveItemsIn(
+		mutation, map[string]map[string]AdminTypeFile{filePath: items},
+	)
+}
+
+func vueScriptTypeSource(
+	source string,
+	sections []vueparser.Section,
+) string {
+	masked := []byte(source)
+	for index := range masked {
+		if masked[index] != '\n' && masked[index] != '\r' {
+			masked[index] = ' '
+		}
+	}
+	for _, section := range sections {
+		if section.Kind != vueparser.SectionScript ||
+			section.BodyRange.End > uint32(len(source)) {
+			continue
+		}
+		copy(
+			masked[section.BodyRange.Start:section.BodyRange.End],
+			source[section.BodyRange.Start:section.BodyRange.End],
+		)
+	}
+	return string(masked)
+}
+
+func isAdministrationSourcePath(filePath string) bool {
+	normalized := filepath.ToSlash(filepath.Clean(filePath))
+	if !strings.HasPrefix(normalized, "/") {
+		normalized = "/" + normalized
+	}
+	return strings.Contains(normalized, "/Resources/app/administration/src/")
+}
+
+func (idx *AdminComponentIndexer) saveUsages(
+	mutation *indexer.Mutation,
+	filePath string,
+	usages []AdminUsageSet,
+) error {
+	batch := map[string]map[string]AdminUsageSet{filePath: {}}
+	for _, usage := range usages {
+		batch[filePath][AdminUsageKey(usage.Kind, usage.Owner, usage.Name)] = usage
+	}
+	return idx.usageIndex.BatchSaveItemsIn(mutation, batch)
+}
+
+func (idx *AdminComponentIndexer) ShouldEnterDirectory(directory string) bool {
+	relative, matched := meteorPackageRelativePath(directory)
+	if !matched {
+		return false
+	}
+	relative = filepath.ToSlash(relative)
+	switch relative {
+	case "", "@shopware-ag", meteorPackagePath,
+		meteorPackagePath + "/dist", meteorPackagePath + "/dist/esm":
+		return true
+	default:
+		return false
+	}
+}
+
+func (idx *AdminComponentIndexer) ShouldIndexPath(filePath string) bool {
+	return isMeteorDeclarationPath(filePath)
+}
+
+func (idx *AdminComponentIndexer) ShouldPreparsePath(string) bool {
+	return false
+}
+
+func meteorPackageRelativePath(filePath string) (string, bool) {
+	normalized := filepath.ToSlash(filepath.Clean(filePath))
+	marker := "/Resources/app/administration/node_modules/"
+	position := strings.Index(normalized, marker)
+	if position < 0 {
+		if strings.HasSuffix(normalized, strings.TrimSuffix(marker, "/")) {
+			return "", true
+		}
+		return "", false
+	}
+	return strings.TrimPrefix(normalized[position+len(marker):], "/"), true
+}
+
+func isMeteorDeclarationPath(filePath string) bool {
+	relative, matched := meteorPackageRelativePath(filePath)
+	if !matched {
+		return false
+	}
+	normalized := filepath.ToSlash(relative)
+	if !strings.HasPrefix(normalized, meteorPackagePath+"/dist/esm/") {
+		return false
+	}
+	base := filepath.Base(normalized)
+	return strings.HasPrefix(base, "Mt") && strings.HasSuffix(base, ".d.ts")
+}
+
+func (idx *AdminComponentIndexer) indexRuntimeRegistries(
+	file *indexer.ParsedFile,
+	mutation *indexer.Mutation,
+	filePath string,
+	root *jssyntax.Node,
+	lineIndex *cst.LineIndex,
+) error {
+	services, stores := parseAdminRuntimeRegistries(root, filePath, lineIndex)
+	serviceBatch := map[string]map[string]AdminService{filePath: {}}
+	for _, service := range services {
+		serviceBatch[filePath][service.Name] = service
+	}
+	if err := idx.serviceIndex.BatchSaveItemsIn(mutation, serviceBatch); err != nil {
+		return err
+	}
+	storeBatch := map[string]map[string]AdminStore{filePath: {}}
+	for _, store := range stores {
+		storeBatch[filePath][store.Name] = store
+	}
+	if err := idx.storeIndex.BatchSaveItemsIn(mutation, storeBatch); err != nil {
+		return err
+	}
+	factoryBatch := map[string]map[string]AdminStoreFactory{filePath: {}}
+	if factory := parseAdminStoreFactory(root, filePath, lineIndex); factory != nil {
+		factoryBatch[filePath][normalizeDefinitionPath(filePath)] = *factory
+	}
+	if err := idx.storeFactoryIndex.BatchSaveItemsIn(mutation, factoryBatch); err != nil {
+		return err
+	}
+	directives := parseAdminDirectives(root, filePath, lineIndex)
+	directiveBatch := map[string]map[string]AdminDirective{filePath: {}}
+	for _, directive := range directives {
+		directiveBatch[filePath][directive.Name] = directive
+	}
+	if err := idx.directiveIndex.BatchSaveItemsIn(
+		mutation, directiveBatch,
+	); err != nil {
+		return err
+	}
+	filters := parseAdminFilters(root, filePath, lineIndex)
+	filterBatch := map[string]map[string]AdminFilter{filePath: {}}
+	for _, filter := range filters {
+		filterBatch[filePath][filter.Name] = filter
+	}
+	if err := idx.filterIndex.BatchSaveItemsIn(mutation, filterBatch); err != nil {
+		return err
+	}
+	cmsRegistrations := parseAdminCMSRegistrations(
+		root, filePath, lineIndex,
+	)
+	cmsBatch := map[string]map[string]AdminCMSRegistration{filePath: {}}
+	for _, registration := range cmsRegistrations {
+		cmsBatch[filePath][AdminCMSKey(registration.Kind, registration.Name)] =
+			registration
+	}
+	if err := idx.cmsIndex.BatchSaveItemsIn(mutation, cmsBatch); err != nil {
+		return err
+	}
+	privileges := parseAdminPrivileges(root, filePath, lineIndex)
+	privilegeBatch := map[string]map[string]AdminPrivilege{filePath: {}}
+	for _, privilege := range privileges {
+		privilegeBatch[filePath][privilege.Name] = privilege
+	}
+	if err := idx.privilegeIndex.BatchSaveItemsIn(mutation, privilegeBatch); err != nil {
+		return err
+	}
+	addAdminRuntimeWorkspaceSymbols(
+		file, services, stores, directives, filters, cmsRegistrations, privileges,
+	)
+	return nil
+}
+
+func (idx *AdminComponentIndexer) indexMixinsAndModules(
+	file *indexer.ParsedFile,
+	mutation *indexer.Mutation,
+	filePath string,
+	root *jssyntax.Node,
+	lineIndex *cst.LineIndex,
+) error {
+	mixins, modules := parseMixinsAndModules(root, filePath, lineIndex)
+	mixinBatch := map[string]map[string]AdminMixin{filePath: {}}
+	for _, mixin := range mixins {
+		mixinBatch[filePath][mixin.Name] = mixin
+	}
+	if err := idx.mixinIndex.BatchSaveItemsIn(mutation, mixinBatch); err != nil {
+		return err
+	}
+	moduleBatch := map[string]map[string]AdminModule{filePath: {}}
+	for _, module := range modules {
+		moduleBatch[filePath][module.Name] = module
+	}
+	if err := idx.moduleIndex.BatchSaveItemsIn(mutation, moduleBatch); err != nil {
+		return err
+	}
+	addAdminMixinsAndModulesWorkspaceSymbols(file, mixins, modules)
+	return nil
+}
+
 // indexRegistrations indexes Shopware.Component.register/extend calls
-func (idx *AdminComponentIndexer) indexRegistrations(filePath string, node *tree_sitter.Node, fileContent []byte) error {
-	components := parseComponentRegistrations(node, fileContent, filePath)
+func (idx *AdminComponentIndexer) indexRegistrations(
+	file *indexer.ParsedFile,
+	mutation *indexer.Mutation,
+	filePath string,
+	node *jssyntax.Node,
+	lineIndex *cst.LineIndex,
+) error {
+	components := parseComponentRegistrationsWithLineIndex(node, filePath, lineIndex)
 	if len(components) == 0 {
 		return nil
 	}
@@ -149,15 +542,16 @@ func (idx *AdminComponentIndexer) indexRegistrations(filePath string, node *tree
 		}
 	}
 
-	if err := idx.componentIndex.BatchSaveItems(batchSave); err != nil {
+	if err := idx.componentIndex.BatchSaveItemsIn(mutation, batchSave); err != nil {
 		return err
 	}
 
 	if len(batchSaveDefs) > 0 {
-		if err := idx.definitionIndex.BatchSaveItems(batchSaveDefs); err != nil {
+		if err := idx.definitionIndex.BatchSaveItemsIn(mutation, batchSaveDefs); err != nil {
 			return err
 		}
 	}
+	addAdminComponentWorkspaceSymbols(file, components...)
 
 	return nil
 }
@@ -165,10 +559,25 @@ func (idx *AdminComponentIndexer) indexRegistrations(filePath string, node *tree
 // indexWrappedComponents indexes Shopware.Component.wrapComponentConfig() calls
 // These are used for wrapping Meteor component library components
 // Returns true if the file was handled (contains wrapComponentConfig), false otherwise
-func (idx *AdminComponentIndexer) indexWrappedComponents(filePath string, node *tree_sitter.Node, fileContent []byte) (bool, error) {
-	// Check if this file has an export default with wrapComponentConfig
-	exportNode := treesitterhelper.FindFirst(node, JSWrapComponentConfigPattern, fileContent)
-	if exportNode == nil {
+func (idx *AdminComponentIndexer) indexWrappedComponents(
+	file *indexer.ParsedFile,
+	mutation *indexer.Mutation,
+	filePath string,
+	node *jssyntax.Node,
+	lineIndex *cst.LineIndex,
+) (bool, error) {
+	var exportNode, callExpr *jssyntax.Node
+	for _, candidate := range jsquery.ExportDefaults(node) {
+		expression := jsquery.ExportDefaultExpression(candidate)
+		if expression != nil &&
+			(jsquery.CallName(expression) == "Shopware.Component.wrapComponentConfig" ||
+				jsquery.CallName(expression) == "Component.wrapComponentConfig") {
+			exportNode = candidate
+			callExpr = expression
+			break
+		}
+	}
+	if exportNode == nil || callExpr == nil {
 		return false, nil
 	}
 
@@ -179,38 +588,21 @@ func (idx *AdminComponentIndexer) indexWrappedComponents(filePath string, node *
 		return true, nil // Still handled, just can't derive name
 	}
 
-	// Find the call expression with the config object
-	callExpr := treesitterhelper.GetFirstNodeOfKind(exportNode, "call_expression")
-	if callExpr == nil {
-		return true, nil
-	}
-
-	// Find the arguments (the config object)
-	argsNode := treesitterhelper.GetFirstNodeOfKind(callExpr, "arguments")
-	if argsNode == nil {
-		return true, nil
-	}
-
-	// Find the object inside the arguments
-	var configObject *tree_sitter.Node
-	for i := uint(0); i < argsNode.ChildCount(); i++ {
-		child := argsNode.Child(i)
-		if child.Kind() == "object" {
-			configObject = child
-			break
-		}
-	}
-
+	configObject := componentDefinitionObject(callExpr)
 	if configObject == nil {
 		return true, nil
 	}
 
 	// Parse the component definition from the config object
-	def := parseInlineDefinition(configObject, fileContent, filePath)
+	def := parseInlineDefinition(node, configObject, filePath, lineIndex)
+	if def != nil {
+		def.Deprecated = JavaScriptDeprecation(exportNode)
+	}
 
 	// Find template import from the root node and parse slots/blocks
 	if def != nil {
-		templatePath := findTemplateImport(node, fileContent)
+		setDefinitionFilePath(def, filePath)
+		templatePath := jsquery.ImportPath(node, "template")
 		if templatePath != "" {
 			templateAbsPath := ResolveTemplatePath(filePath, templatePath)
 			def.TemplatePath = templateAbsPath // Store absolute path
@@ -222,22 +614,34 @@ func (idx *AdminComponentIndexer) indexWrappedComponents(filePath string, node *
 	}
 
 	// Create the component entry
+	line, _ := lineIndex.Position(exportNode.RangeTrimmedTrivia().Start)
 	comp := VueComponent{
 		Name:             componentName,
 		FilePath:         filePath,
-		Line:             int(exportNode.StartPosition().Row) + 1,
+		Line:             int(line) + 1,
 		DefinitionPath:   filePath,
 		InlineDefinition: def,
 	}
 
 	// Copy props/emits/methods/computed/slots/blocks from definition to component
 	if def != nil {
+		comp.Deprecated = def.Deprecated
 		comp.Props = def.Props
+		comp.ModelProp = def.ModelProp
+		comp.ModelEvent = def.ModelEvent
 		comp.Emits = def.Emits
+		comp.Events = def.Events
 		comp.Methods = def.Methods
 		comp.Computed = def.Computed
+		comp.Data = def.Data
+		comp.Injected = def.Injected
+		comp.Mixins = def.Mixins
+		comp.LocalComponents = def.LocalComponents
+		comp.LocalDirectives = def.LocalDirectives
+		comp.Members = def.Members
 		comp.Slots = def.Slots
 		comp.Blocks = def.Blocks
+		comp.TemplatePath = def.TemplatePath
 	}
 
 	// Save the component
@@ -246,7 +650,7 @@ func (idx *AdminComponentIndexer) indexWrappedComponents(filePath string, node *
 		componentName: comp,
 	}
 
-	if err := idx.componentIndex.BatchSaveItems(batchSave); err != nil {
+	if err := idx.componentIndex.BatchSaveItemsIn(mutation, batchSave); err != nil {
 		return true, err
 	}
 
@@ -256,10 +660,11 @@ func (idx *AdminComponentIndexer) indexWrappedComponents(filePath string, node *
 		batchSaveDefs[filePath] = map[string]ComponentDefinition{
 			componentName: *def,
 		}
-		if err := idx.definitionIndex.BatchSaveItems(batchSaveDefs); err != nil {
+		if err := idx.definitionIndex.BatchSaveItemsIn(mutation, batchSaveDefs); err != nil {
 			return true, err
 		}
 	}
+	addAdminComponentWorkspaceSymbols(file, comp)
 
 	return true, nil
 }
@@ -271,8 +676,8 @@ func deriveComponentNameFromPath(filePath string) string {
 	dir := filepath.Dir(filePath)
 	base := filepath.Base(filePath)
 
-	// If file is index.js or index.ts, use directory name
-	if base == "index.js" || base == "index.ts" {
+	// If file is an index module/SFC, use directory name.
+	if base == "index.js" || base == "index.ts" || base == "index.vue" {
 		return filepath.Base(dir)
 	}
 
@@ -281,22 +686,140 @@ func deriveComponentNameFromPath(filePath string) string {
 	return strings.TrimSuffix(base, ext)
 }
 
+func (idx *AdminComponentIndexer) indexVueDefinition(
+	mutation *indexer.Mutation,
+	filePath string,
+	root *jssyntax.Node,
+	source string,
+	lineIndex *cst.LineIndex,
+	sections []vueparser.Section,
+) error {
+	definition := ParseComponentDefinitionWithLineIndex(root, lineIndex)
+	hasDefinition := len(jsquery.ExportDefaults(root)) > 0
+	hasTemplate := false
+	for _, section := range sections {
+		switch section.Kind {
+		case vueparser.SectionTemplate:
+			hasTemplate = true
+		case vueparser.SectionScript:
+			if !section.Setup {
+				continue
+			}
+			setup := parseScriptSetupDefinition(
+				root, source, filePath, lineIndex, section.BodyRange,
+			)
+			if setup != nil {
+				definition = mergeComponentDefinitions(definition, setup)
+				hasDefinition = true
+			}
+		}
+	}
+	if !hasDefinition && !hasTemplate {
+		return nil
+	}
+	if definition == nil {
+		definition = &ComponentDefinition{}
+	}
+	if hasTemplate {
+		definition.HasTemplate = true
+		definition.TemplatePath = filePath
+		template := parseTemplateTree(root, source, lineIndex)
+		setTemplateSourcePaths(&template, filePath)
+		definition.Slots = template.Slots
+		definition.Blocks = template.Blocks
+	}
+	setDefinitionFilePath(definition, filePath)
+	return idx.definitionIndex.BatchSaveItemsIn(
+		mutation,
+		map[string]map[string]ComponentDefinition{
+			filePath: {normalizeDefinitionPath(filePath): *definition},
+		},
+	)
+}
+
+func mergeComponentDefinitions(
+	base,
+	overlay *ComponentDefinition,
+) *ComponentDefinition {
+	if base == nil {
+		base = &ComponentDefinition{}
+	}
+	if overlay == nil {
+		return base
+	}
+	base.Props = overlayScriptSetupProps(base.Props, overlay.Props)
+	base.Members = overlayScriptSetupMembers(base.Members, overlay.Members)
+	base.Methods = appendUniqueValues(base.Methods, overlay.Methods...)
+	base.Computed = appendUniqueValues(base.Computed, overlay.Computed...)
+	base.Data = appendUniqueValues(base.Data, overlay.Data...)
+	base.Injected = appendUniqueValues(base.Injected, overlay.Injected...)
+	base.Mixins = appendUniqueValues(base.Mixins, overlay.Mixins...)
+	base.Emits = appendUniqueValues(base.Emits, overlay.Emits...)
+	for _, event := range overlay.Events {
+		base.Events = appendComponentEvent(base.Events, event)
+	}
+	base.ScriptSetupPropTypes = appendUniqueValues(
+		base.ScriptSetupPropTypes, overlay.ScriptSetupPropTypes...,
+	)
+	base.ScriptSetupEventTypes = appendUniqueValues(
+		base.ScriptSetupEventTypes, overlay.ScriptSetupEventTypes...,
+	)
+	base.ScriptSetupSlotTypes = appendUniqueValues(
+		base.ScriptSetupSlotTypes, overlay.ScriptSetupSlotTypes...,
+	)
+	base.ScriptSetupPropDefaults = overlayScriptSetupPropDefaults(
+		base.ScriptSetupPropDefaults, overlay.ScriptSetupPropDefaults,
+	)
+	base.ScriptSetupPropBindings = overlayScriptSetupPropBindings(
+		base.ScriptSetupPropBindings, overlay.ScriptSetupPropBindings,
+	)
+	base.LocalComponents = overlayLocalComponents(
+		base.LocalComponents, overlay.LocalComponents,
+	)
+	base.LocalDirectives = overlayLocalDirectives(
+		base.LocalDirectives, overlay.LocalDirectives,
+	)
+	base.Assignments = append(base.Assignments, overlay.Assignments...)
+	base.OpenRuntimeMembers = base.OpenRuntimeMembers || overlay.OpenRuntimeMembers
+	if overlay.ModelProp != "" || overlay.ModelEvent != "" {
+		base.ModelProp, base.ModelEvent = overlay.ModelProp, overlay.ModelEvent
+	}
+	if overlay.Deprecated != "" {
+		base.Deprecated = overlay.Deprecated
+	}
+	return base
+}
+
+func appendUniqueValues(values []string, additions ...string) []string {
+	for _, value := range additions {
+		values = appendUnique(values, value)
+	}
+	return values
+}
+
 // indexDefinition indexes component definition files (export default { ... })
-func (idx *AdminComponentIndexer) indexDefinition(filePath string, node *tree_sitter.Node, fileContent []byte) error {
-	// Check if this file has an export default with an object
-	exportNode := treesitterhelper.FindFirst(node, JSExportDefaultPattern, fileContent)
-	if exportNode == nil {
+func (idx *AdminComponentIndexer) indexDefinition(
+	mutation *indexer.Mutation,
+	filePath string,
+	node *jssyntax.Node,
+	lineIndex *cst.LineIndex,
+) error {
+	exports := jsquery.ExportDefaults(node)
+	if len(exports) == 0 {
+		return nil
+	}
+	expression := jsquery.ExportDefaultExpression(exports[0])
+	if componentDefinitionObject(expression) == nil {
 		return nil
 	}
 
 	// Parse the component definition
-	def := ParseComponentDefinition(node, fileContent)
+	def := ParseComponentDefinitionWithLineIndex(node, lineIndex)
 	if def == nil {
 		return nil
 	}
 
-	// Set the file path
-	def.FilePath = filePath
+	setDefinitionFilePath(def, filePath)
 
 	// Parse slots and blocks from the template if available
 	if def.TemplatePath != "" {
@@ -321,11 +844,11 @@ func (idx *AdminComponentIndexer) indexDefinition(filePath string, node *tree_si
 		normalizedPath: *def,
 	}
 
-	return idx.definitionIndex.BatchSaveItems(batchSave)
+	return idx.definitionIndex.BatchSaveItemsIn(mutation, batchSave)
 }
 
-// normalizeDefinitionPath creates a normalized key from a definition file path
-// This removes the .js/.ts extension and handles index.js files
+// normalizeDefinitionPath creates a normalized key from a definition file path.
+// It removes the source extension and handles index modules/SFCs.
 func normalizeDefinitionPath(filePath string) string {
 	// Remove extension
 	ext := filepath.Ext(filePath)
@@ -338,549 +861,95 @@ func normalizeDefinitionPath(filePath string) string {
 }
 
 func (idx *AdminComponentIndexer) RemovedFiles(paths []string) error {
-	if err := idx.componentIndex.BatchDeleteByFilePaths(paths); err != nil {
-		return err
-	}
-	return idx.definitionIndex.BatchDeleteByFilePaths(paths)
+	idx.invalidateTemplateComponentCache()
+	return errors.Join(
+		idx.componentIndex.BatchDeleteByFilePaths(paths),
+		idx.definitionIndex.BatchDeleteByFilePaths(paths),
+		idx.mixinIndex.BatchDeleteByFilePaths(paths),
+		idx.directiveIndex.BatchDeleteByFilePaths(paths),
+		idx.filterIndex.BatchDeleteByFilePaths(paths),
+		idx.cmsIndex.BatchDeleteByFilePaths(paths),
+		idx.moduleIndex.BatchDeleteByFilePaths(paths),
+		idx.serviceIndex.BatchDeleteByFilePaths(paths),
+		idx.storeIndex.BatchDeleteByFilePaths(paths),
+		idx.storeFactoryIndex.BatchDeleteByFilePaths(paths),
+		idx.privilegeIndex.BatchDeleteByFilePaths(paths),
+		idx.usageIndex.BatchDeleteByFilePaths(paths),
+		idx.typeIndex.BatchDeleteByFilePaths(paths),
+	)
+}
+
+func (idx *AdminComponentIndexer) RemovedFilesIn(paths []string, mutation *indexer.Mutation) error {
+	idx.invalidateTemplateComponentCache()
+	return errors.Join(
+		idx.componentIndex.BatchDeleteByFilePathsIn(mutation, paths),
+		idx.definitionIndex.BatchDeleteByFilePathsIn(mutation, paths),
+		idx.mixinIndex.BatchDeleteByFilePathsIn(mutation, paths),
+		idx.directiveIndex.BatchDeleteByFilePathsIn(mutation, paths),
+		idx.filterIndex.BatchDeleteByFilePathsIn(mutation, paths),
+		idx.cmsIndex.BatchDeleteByFilePathsIn(mutation, paths),
+		idx.moduleIndex.BatchDeleteByFilePathsIn(mutation, paths),
+		idx.serviceIndex.BatchDeleteByFilePathsIn(mutation, paths),
+		idx.storeIndex.BatchDeleteByFilePathsIn(mutation, paths),
+		idx.storeFactoryIndex.BatchDeleteByFilePathsIn(mutation, paths),
+		idx.privilegeIndex.BatchDeleteByFilePathsIn(mutation, paths),
+		idx.usageIndex.BatchDeleteByFilePathsIn(mutation, paths),
+		idx.typeIndex.BatchDeleteByFilePathsIn(mutation, paths),
+	)
 }
 
 func (idx *AdminComponentIndexer) Close() error {
-	if err := idx.componentIndex.Close(); err != nil {
-		return err
-	}
-	return idx.definitionIndex.Close()
+	return errors.Join(
+		idx.componentIndex.Close(),
+		idx.definitionIndex.Close(),
+		idx.mixinIndex.Close(),
+		idx.directiveIndex.Close(),
+		idx.filterIndex.Close(),
+		idx.cmsIndex.Close(),
+		idx.moduleIndex.Close(),
+		idx.serviceIndex.Close(),
+		idx.storeIndex.Close(),
+		idx.storeFactoryIndex.Close(),
+		idx.privilegeIndex.Close(),
+		idx.usageIndex.Close(),
+		idx.typeIndex.Close(),
+	)
 }
 
 func (idx *AdminComponentIndexer) Clear() error {
-	if err := idx.componentIndex.Clear(); err != nil {
-		return err
-	}
-	return idx.definitionIndex.Clear()
-}
-
-// GetAllComponents returns all registered Vue components
-func (idx *AdminComponentIndexer) GetAllComponents() ([]VueComponent, error) {
-	return idx.componentIndex.GetAllValues()
-}
-
-// GetComponentByTemplatePath returns the component that uses the given template path
-func (idx *AdminComponentIndexer) GetComponentByTemplatePath(templatePath string) (*VueComponent, error) {
-	allComponents, err := idx.componentIndex.GetAllValues()
-	if err != nil {
-		return nil, err
-	}
-
-	// Normalize the template path for comparison
-	normalizedPath := normalizeDefinitionPath(templatePath)
-
-	for _, comp := range allComponents {
-		// Check if the component's template path matches
-		if comp.TemplatePath != "" && normalizeDefinitionPath(comp.TemplatePath) == normalizedPath {
-			// Get full component with definition
-			fullComps, err := idx.GetComponentWithDefinition(comp.Name)
-			if err == nil && len(fullComps) > 0 {
-				return &fullComps[0], nil
-			}
-			return &comp, nil
-		}
-
-		// Also check definition index for template paths
-		if comp.DefinitionPath != "" {
-			def, err := idx.GetComponentDefinition(comp.DefinitionPath)
-			if err == nil && def != nil && def.TemplatePath != "" {
-				if normalizeDefinitionPath(def.TemplatePath) == normalizedPath {
-					fullComps, err := idx.GetComponentWithDefinition(comp.Name)
-					if err == nil && len(fullComps) > 0 {
-						return &fullComps[0], nil
-					}
-					return &comp, nil
-				}
-			}
-		}
-	}
-
-	return nil, nil
-}
-
-// GetAllComponentNames returns all registered component names
-func (idx *AdminComponentIndexer) GetAllComponentNames() ([]string, error) {
-	return idx.componentIndex.GetAllKeys()
-}
-
-// GetComponent returns components by name (may have multiple if extended)
-func (idx *AdminComponentIndexer) GetComponent(name string) ([]VueComponent, error) {
-	return idx.componentIndex.GetValues(name)
-}
-
-// GetComponentDefinition returns the component definition for a given definition path
-func (idx *AdminComponentIndexer) GetComponentDefinition(definitionPath string) (*ComponentDefinition, error) {
-	normalizedPath := normalizeDefinitionPath(definitionPath)
-	defs, err := idx.definitionIndex.GetValues(normalizedPath)
-	if err != nil {
-		return nil, err
-	}
-	if len(defs) == 0 {
-		return nil, nil
-	}
-	return &defs[0], nil
-}
-
-// GetComponentDefinitionByName returns the inline component definition by component name
-func (idx *AdminComponentIndexer) GetComponentDefinitionByName(name string) (*ComponentDefinition, error) {
-	defs, err := idx.definitionIndex.GetValues(name)
-	if err != nil {
-		return nil, err
-	}
-	if len(defs) == 0 {
-		return nil, nil
-	}
-	return &defs[0], nil
-}
-
-// GetComponentWithDefinition returns a component with its definition populated
-// Multiple registrations of the same component are merged into one, preferring
-// the entry with more complete data (has props, inline definition, etc.)
-func (idx *AdminComponentIndexer) GetComponentWithDefinition(name string) ([]VueComponent, error) {
-	components, err := idx.componentIndex.GetValues(name)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(components) == 0 {
-		return components, nil
-	}
-
-	// Populate definitions for all components
-	for i := range components {
-		// First try to get definition by path (for dynamic imports)
-		if components[i].DefinitionPath != "" {
-			def, err := idx.GetComponentDefinition(components[i].DefinitionPath)
-			if err == nil && def != nil {
-				components[i].Props = def.Props
-				components[i].Emits = def.Emits
-				components[i].Methods = def.Methods
-				components[i].Computed = def.Computed
-				components[i].Slots = def.Slots
-				components[i].Blocks = def.Blocks
-				components[i].TemplatePath = def.TemplatePath
-				continue
-			}
-		}
-
-		// Then try by component name (for inline definitions)
-		def, err := idx.GetComponentDefinitionByName(components[i].Name)
-		if err == nil && def != nil {
-			components[i].Props = def.Props
-			components[i].Emits = def.Emits
-			components[i].Methods = def.Methods
-			components[i].Computed = def.Computed
-			components[i].Slots = def.Slots
-			components[i].Blocks = def.Blocks
-			components[i].TemplatePath = def.TemplatePath
-		}
-	}
-
-	// Deduplicate: merge multiple registrations into one
-	// Prefer the component with more complete data
-	return deduplicateComponents(components), nil
-}
-
-// deduplicateComponents merges multiple component entries with the same name
-// into a single entry, preferring entries with more complete data
-func deduplicateComponents(components []VueComponent) []VueComponent {
-	if len(components) <= 1 {
-		return components
-	}
-
-	// Find the best component (one with the most complete data)
-	best := components[0]
-	for i := 1; i < len(components); i++ {
-		comp := components[i]
-		// Prefer component with props defined
-		if len(comp.Props) > len(best.Props) {
-			best = mergeComponents(best, comp)
-		} else if len(comp.Props) < len(best.Props) {
-			best = mergeComponents(comp, best)
-		} else {
-			// Same number of props, prefer one with definition path
-			if comp.DefinitionPath != "" && best.DefinitionPath == "" {
-				best = mergeComponents(best, comp)
-			} else {
-				best = mergeComponents(comp, best)
-			}
-		}
-	}
-
-	return []VueComponent{best}
-}
-
-// SaveComponentDefinition saves a component definition (primarily for testing)
-func (idx *AdminComponentIndexer) SaveComponentDefinition(key string, def ComponentDefinition) error {
-	batchSave := make(map[string]map[string]ComponentDefinition)
-	batchSave[def.FilePath] = map[string]ComponentDefinition{
-		key: def,
-	}
-	return idx.definitionIndex.BatchSaveItems(batchSave)
-}
-
-// SaveComponent saves a component (primarily for testing)
-func (idx *AdminComponentIndexer) SaveComponent(comp VueComponent) error {
-	batchSave := make(map[string]map[string]VueComponent)
-	batchSave[comp.FilePath] = map[string]VueComponent{
-		comp.Name: comp,
-	}
-	return idx.componentIndex.BatchSaveItems(batchSave)
-}
-
-// mergeComponents merges two components, taking data from 'preferred' when available,
-// falling back to 'fallback' for missing data
-func mergeComponents(fallback, preferred VueComponent) VueComponent {
-	result := preferred
-
-	// Use fallback values for empty fields
-	if result.ExtendsComponent == "" && fallback.ExtendsComponent != "" {
-		result.ExtendsComponent = fallback.ExtendsComponent
-	}
-	if result.ImportPath == "" && fallback.ImportPath != "" {
-		result.ImportPath = fallback.ImportPath
-	}
-	if result.DefinitionPath == "" && fallback.DefinitionPath != "" {
-		result.DefinitionPath = fallback.DefinitionPath
-	}
-	if len(result.Props) == 0 && len(fallback.Props) > 0 {
-		result.Props = fallback.Props
-	}
-	if len(result.Emits) == 0 && len(fallback.Emits) > 0 {
-		result.Emits = fallback.Emits
-	}
-	if len(result.Methods) == 0 && len(fallback.Methods) > 0 {
-		result.Methods = fallback.Methods
-	}
-	if len(result.Computed) == 0 && len(fallback.Computed) > 0 {
-		result.Computed = fallback.Computed
-	}
-	if len(result.Slots) == 0 && len(fallback.Slots) > 0 {
-		result.Slots = fallback.Slots
-	}
-	if len(result.Blocks) == 0 && len(fallback.Blocks) > 0 {
-		result.Blocks = fallback.Blocks
-	}
-	if result.TemplatePath == "" && fallback.TemplatePath != "" {
-		result.TemplatePath = fallback.TemplatePath
-	}
-
-	return result
-}
-
-// parseComponentRegistrations extracts Shopware.Component.register and extend calls
-func parseComponentRegistrations(root *tree_sitter.Node, content []byte, filePath string) []VueComponent {
-	// Find all call expressions that match our pattern
-	callNodes := treesitterhelper.FindAll(root, JSComponentCallPattern, content)
-
-	var components []VueComponent
-	for _, node := range callNodes {
-		comp := parseComponentCall(node, content, filePath)
-		if comp != nil {
-			components = append(components, *comp)
-		}
-	}
-
-	return components
-}
-
-// parseComponentCall parses a single component registration call
-func parseComponentCall(node *tree_sitter.Node, content []byte, filePath string) *VueComponent {
-	// Get the member_expression to determine if it's register or extend
-	memberExpr := treesitterhelper.GetFirstNodeOfKind(node, "member_expression")
-	if memberExpr == nil {
-		return nil
-	}
-
-	memberText := string(memberExpr.Utf8Text(content))
-
-	// Check for register or extend (both full path and destructured)
-	isRegister := memberText == "Shopware.Component.register" || memberText == "Component.register"
-	isExtend := memberText == "Shopware.Component.extend" || memberText == "Component.extend"
-
-	if !isRegister && !isExtend {
-		return nil
-	}
-
-	// Get arguments node
-	argsNode := treesitterhelper.GetFirstNodeOfKind(node, "arguments")
-	if argsNode == nil {
-		return nil
-	}
-
-	comp := &VueComponent{
-		FilePath: filePath,
-		Line:     int(node.Range().StartPoint.Row) + 1,
-	}
-
-	// Parse arguments based on call type
-	if isRegister {
-		parseRegisterArgs(argsNode, content, filePath, comp)
-	} else if isExtend {
-		parseExtendArgs(argsNode, content, filePath, comp)
-	}
-
-	if comp.Name == "" {
-		return nil
-	}
-
-	return comp
-}
-
-// parseRegisterArgs parses arguments for Component.register('name', definition | () => import('path'))
-func parseRegisterArgs(argsNode *tree_sitter.Node, content []byte, filePath string, comp *VueComponent) {
-	args := getArguments(argsNode)
-
-	if len(args) < 1 {
-		return
-	}
-
-	// First argument: component name (string)
-	if args[0].Kind() == "string" {
-		comp.Name = extractStringContent(args[0], content)
-	}
-
-	if len(args) < 2 {
-		return
-	}
-
-	// Second argument: either an object (inline definition) or arrow function (dynamic import)
-	secondArg := args[1]
-
-	switch secondArg.Kind() {
-	case "object":
-		// Inline definition: Component.register('name', { ... })
-		def := parseInlineDefinition(secondArg, content, filePath)
-		comp.InlineDefinition = def
-		comp.DefinitionPath = filePath // Definition is in the same file
-
-	case "arrow_function":
-		// Dynamic import: Component.register('name', () => import('path'))
-		importPath := extractImportPath(secondArg, content)
-		if importPath != "" {
-			comp.ImportPath = importPath
-			comp.DefinitionPath = resolveImportPath(filePath, importPath)
-		}
-	}
-}
-
-// parseExtendArgs parses arguments for Component.extend('name', 'parent', definition | () => import('path'))
-func parseExtendArgs(argsNode *tree_sitter.Node, content []byte, filePath string, comp *VueComponent) {
-	args := getArguments(argsNode)
-
-	if len(args) < 2 {
-		return
-	}
-
-	// First argument: component name (string)
-	if args[0].Kind() == "string" {
-		comp.Name = extractStringContent(args[0], content)
-	}
-
-	// Second argument: parent component name (string)
-	if args[1].Kind() == "string" {
-		comp.ExtendsComponent = extractStringContent(args[1], content)
-	}
-
-	if len(args) < 3 {
-		return
-	}
-
-	// Third argument: either an object (inline definition) or arrow function (dynamic import)
-	thirdArg := args[2]
-
-	switch thirdArg.Kind() {
-	case "object":
-		// Inline definition: Component.extend('name', 'parent', { ... })
-		def := parseInlineDefinition(thirdArg, content, filePath)
-		comp.InlineDefinition = def
-		comp.DefinitionPath = filePath
-
-	case "arrow_function":
-		// Dynamic import: Component.extend('name', 'parent', () => import('path'))
-		importPath := extractImportPath(thirdArg, content)
-		if importPath != "" {
-			comp.ImportPath = importPath
-			comp.DefinitionPath = resolveImportPath(filePath, importPath)
-		}
-	}
-}
-
-// getArguments returns the direct argument nodes from an arguments node
-func getArguments(argsNode *tree_sitter.Node) []*tree_sitter.Node {
-	var args []*tree_sitter.Node
-
-	for i := uint(0); i < argsNode.ChildCount(); i++ {
-		child := argsNode.Child(i)
-		kind := child.Kind()
-		// Skip punctuation
-		if kind == "(" || kind == ")" || kind == "," {
-			continue
-		}
-		args = append(args, child)
-	}
-
-	return args
-}
-
-// extractImportPath extracts the import path from an arrow function with dynamic import
-// e.g., () => import('path') -> 'path'
-func extractImportPath(arrowFunc *tree_sitter.Node, content []byte) string {
-	// Find the call_expression with import
-	importCallPattern := treesitterhelper.And(
-		treesitterhelper.NodeKind("call_expression"),
-		treesitterhelper.HasChild(treesitterhelper.NodeKind("import")),
+	idx.invalidateTemplateComponentCache()
+	return errors.Join(
+		idx.componentIndex.Clear(),
+		idx.definitionIndex.Clear(),
+		idx.mixinIndex.Clear(),
+		idx.directiveIndex.Clear(),
+		idx.filterIndex.Clear(),
+		idx.cmsIndex.Clear(),
+		idx.moduleIndex.Clear(),
+		idx.serviceIndex.Clear(),
+		idx.storeIndex.Clear(),
+		idx.storeFactoryIndex.Clear(),
+		idx.privilegeIndex.Clear(),
+		idx.usageIndex.Clear(),
+		idx.typeIndex.Clear(),
 	)
-
-	importCall := treesitterhelper.FindFirst(arrowFunc, importCallPattern, content)
-	if importCall == nil {
-		return ""
-	}
-
-	// Find the string argument
-	stringFragmentPattern := treesitterhelper.NodeKind("string_fragment")
-	fragment := treesitterhelper.FindFirst(importCall, stringFragmentPattern, content)
-	if fragment == nil {
-		return ""
-	}
-
-	return string(fragment.Utf8Text(content))
 }
 
-// parseInlineDefinition parses an inline component definition object
-func parseInlineDefinition(objNode *tree_sitter.Node, content []byte, filePath string) *ComponentDefinition {
-	def := &ComponentDefinition{
-		FilePath: filePath,
-	}
-
-	// Parse the object properties
-	for i := uint(0); i < objNode.ChildCount(); i++ {
-		child := objNode.Child(i)
-
-		switch child.Kind() {
-		case "pair":
-			parseDefinitionPair(child, content, def)
-		case "shorthand_property_identifier":
-			// Handle shorthand like `template,`
-			name := string(child.Utf8Text(content))
-			if name == "template" {
-				def.HasTemplate = true
-			}
-		case "method_definition":
-			// Handle method shorthand like `data() { ... }`
-			propIdent := treesitterhelper.GetFirstNodeOfKind(child, "property_identifier")
-			if propIdent != nil {
-				methodName := string(propIdent.Utf8Text(content))
-				// data, created, mounted etc. are lifecycle methods, not regular methods
-				// We could add them to a separate list if needed
-				switch methodName {
-				case "data", "created", "mounted", "updated", "destroyed", "beforeCreate",
-					"beforeMount", "beforeUpdate", "beforeDestroy", "setup":
-					// Lifecycle hooks - ignore for now
-				default:
-					// Could be a method defined at top level (unusual but valid)
-				}
-			}
-		}
-	}
-
-	return def
-}
-
-// parseDefinitionPair parses a key-value pair in an inline component definition
-func parseDefinitionPair(node *tree_sitter.Node, content []byte, def *ComponentDefinition) {
-	// Get property name
-	propIdent := treesitterhelper.GetFirstNodeOfKind(node, "property_identifier")
-	if propIdent == nil {
-		return
-	}
-	propName := string(propIdent.Utf8Text(content))
-
-	// Get value node
-	var valueNode *tree_sitter.Node
-	for i := uint(0); i < node.ChildCount(); i++ {
-		child := node.Child(i)
-		kind := child.Kind()
-		if kind == "object" || kind == "array" || kind == "identifier" {
-			valueNode = child
-			break
-		}
-	}
-
-	if valueNode == nil {
-		return
-	}
-
-	switch propName {
-	case "props":
-		def.Props = parseProps(valueNode, content)
-	case "emits":
-		def.Emits = parseEmits(valueNode, content)
-	case "methods":
-		def.Methods = parseMethods(valueNode, content)
-	case "computed":
-		def.Computed = parseMethods(valueNode, content)
-	case "template":
-		def.HasTemplate = true
-	}
-}
-
-// resolveImportPath resolves an import path relative to the registration file
-func resolveImportPath(registrationFile, importPath string) string {
-	if importPath == "" {
-		return ""
-	}
-
-	var basePath string
-
-	// If it starts with 'src/', it's an absolute path from the administration root
-	if strings.HasPrefix(importPath, "src/") {
-		// Find the administration root
-		adminIdx := strings.Index(registrationFile, "Resources/app/administration/")
-		if adminIdx != -1 {
-			adminRoot := registrationFile[:adminIdx+len("Resources/app/administration/")]
-			basePath = filepath.Join(adminRoot, importPath)
-		} else {
-			return importPath
-		}
-	} else if strings.HasPrefix(importPath, "./") || strings.HasPrefix(importPath, "../") {
-		// Handle relative paths
-		dir := filepath.Dir(registrationFile)
-		basePath = filepath.Join(dir, importPath)
-	} else {
-		return importPath
-	}
-
-	// Try to resolve the actual file
-	return resolveJSFile(basePath)
-}
-
-// resolveJSFile tries to find the actual JS/TS file for an import path
-// It checks for: path.js, path.ts, path/index.js, path/index.ts
-func resolveJSFile(basePath string) string {
-	// If already has extension, return as-is
-	if strings.HasSuffix(basePath, ".js") || strings.HasSuffix(basePath, ".ts") {
-		return basePath
-	}
-
-	// Try direct file with extensions
-	candidates := []string{
-		basePath + ".js",
-		basePath + ".ts",
-		filepath.Join(basePath, "index.js"),
-		filepath.Join(basePath, "index.ts"),
-	}
-
-	for _, candidate := range candidates {
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate
-		}
-	}
-
-	// Fallback: return with /index.js as most common pattern
-	return filepath.Join(basePath, "index.js")
+func (idx *AdminComponentIndexer) ClearIn(mutation *indexer.Mutation) error {
+	idx.invalidateTemplateComponentCache()
+	return errors.Join(
+		idx.componentIndex.ClearIn(mutation),
+		idx.definitionIndex.ClearIn(mutation),
+		idx.mixinIndex.ClearIn(mutation),
+		idx.directiveIndex.ClearIn(mutation),
+		idx.filterIndex.ClearIn(mutation),
+		idx.cmsIndex.ClearIn(mutation),
+		idx.moduleIndex.ClearIn(mutation),
+		idx.serviceIndex.ClearIn(mutation),
+		idx.storeIndex.ClearIn(mutation),
+		idx.storeFactoryIndex.ClearIn(mutation),
+		idx.privilegeIndex.ClearIn(mutation),
+		idx.usageIndex.ClearIn(mutation),
+		idx.typeIndex.ClearIn(mutation),
+	)
 }

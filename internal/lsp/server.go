@@ -2,66 +2,192 @@ package lsp
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/shopware/shopware-lsp/internal/indexer"
+	"github.com/shopware/shopware-lsp/internal/language"
 	"github.com/shopware/shopware-lsp/internal/lsp/protocol"
+	"github.com/shopware/shopware-lsp/internal/projectconfig"
 	"github.com/sourcegraph/jsonrpc2"
 )
 
 // Server represents the LSP server
 type Server struct {
-	rootPath             string
-	conn                 *jsonrpc2.Conn
-	completionProviders  []CompletionProvider
-	definitionProviders  []GotoDefinitionProvider
-	referencesProviders  []ReferencesProvider
-	codeLensProviders    []CodeLensProvider
-	diagnosticsProviders []DiagnosticsProvider
-	codeActionProviders  []CodeActionProvider
-	hoverProviders       []HoverProvider
-	commandProviders     []CommandProvider
-	indexers             map[string]indexer.Indexer
-	commandMap           map[string]CommandFunc
-	indexerMu            sync.RWMutex
-	documentManager      *DocumentManager
-	fileScanner          *indexer.FileScanner
-	cacheDir             string
-	version              string
+	rootPath                        string
+	version                         string
+	initializationOptions           protocol.InitializationOptions
+	clientProtocolVersion           int
+	presentationProfile             string
+	filterClientCommands            bool
+	supportedClientCommands         map[string]struct{}
+	workDoneProgress                bool
+	progressSequence                atomic.Uint64
+	initializeMu                    sync.Mutex
+	initialized                     bool
+	connMu                          sync.RWMutex
+	conn                            *jsonrpc2.Conn
+	completionProviders             []CompletionProvider
+	definitionProviders             []GotoDefinitionProvider
+	implementationProviders         []ImplementationProvider
+	typeHierarchyProviders          []TypeHierarchyProvider
+	callHierarchyProviders          []CallHierarchyProvider
+	referencesProviders             []ReferencesProvider
+	codeLensProviders               []CodeLensProvider
+	actionProviders                 []ActionProvider
+	inspections                     *inspectionRegistry
+	codeActionResolveSupport        bool
+	hoverProviders                  []HoverProvider
+	signatureProviders              []SignatureHelpProvider
+	renameProviders                 []RenameProvider
+	inlayHintProviders              []InlayHintProvider
+	documentLinkProviders           []DocumentLinkProvider
+	documentSymbolProviders         []DocumentSymbolProvider
+	documentHighlightProviders      []DocumentHighlightProvider
+	linkedEditingProviders          []LinkedEditingRangeProvider
+	foldingRangeProviders           []FoldingRangeProvider
+	documentFormattingProviders     []DocumentFormattingProvider
+	selectionRangeProviders         []SelectionRangeProvider
+	documentColorProviders          []DocumentColorProvider
+	semanticTokensProviders         []SemanticTokensProvider
+	fileRenameProviders             []FileRenameProvider
+	workspaceSymbolProviders        []WorkspaceSymbolProvider
+	commandProviders                []CommandProvider
+	commandMap                      map[string]CommandFunc
+	methodHandlers                  map[string]rpcMethodHandler
+	contextEnrichers                map[language.ID]ContextEnricher
+	documentManager                 *DocumentManager
+	fileScanner                     *indexer.FileScanner
+	workspaceFactory                WorkspaceFactory
+	workspace                       WorkspaceRuntime
+	projectDetectionRequired        bool
+	allowUnsupportedProject         bool
+	inactiveProject                 bool
+	lifecycleCtx                    context.Context
+	lifecycleCancel                 context.CancelFunc
+	lifecycleWG                     sync.WaitGroup
+	backgroundMu                    sync.Mutex
+	closing                         bool
+	closeOnce                       sync.Once
+	closeErr                        error
+	diagnosticsMu                   sync.Mutex
+	diagnosticsPublishMu            sync.Mutex
+	diagnosticsJobs                 map[string]*diagnosticsJob
+	diagnosticsGenerations          map[string]uint64
+	diagnosticsCache                map[string]diagnosticsCacheEntry
+	diagnosticsSuspensions          uint32
+	configurationMu                 sync.RWMutex
+	projectConfiguration            projectconfig.Partial
+	scopedConfigurations            []projectconfig.Scope
+	editorConfiguration             projectconfig.Partial
+	effectiveConfiguration          projectconfig.Effective
+	configurationErr                error
+	configurationIssues             []ConfigurationIssue
+	pendingConfigurationFingerprint string
+	traceProviders                  bool
 }
 
-// NewServer creates a new LSP server
-func NewServer(filescanner *indexer.FileScanner, cacheDir, version string) *Server {
-	s := &Server{
-		completionProviders:  make([]CompletionProvider, 0),
-		definitionProviders:  make([]GotoDefinitionProvider, 0),
-		referencesProviders:  make([]ReferencesProvider, 0),
-		codeLensProviders:    make([]CodeLensProvider, 0),
-		diagnosticsProviders: make([]DiagnosticsProvider, 0),
-		codeActionProviders:  make([]CodeActionProvider, 0),
-		hoverProviders:       make([]HoverProvider, 0),
-		commandProviders:     make([]CommandProvider, 0),
-		indexers:             make(map[string]indexer.Indexer),
-		commandMap:           make(map[string]CommandFunc),
-		documentManager:      NewDocumentManager(),
-		fileScanner:          filescanner,
-		cacheDir:             cacheDir,
-		version:              version,
+func (s *Server) InitializationOptions() protocol.InitializationOptions {
+	configuration := s.EffectiveConfiguration()
+	var shopwareClient *protocol.ShopwareClientOptions
+	if s.initializationOptions.ShopwareClient != nil {
+		current := *s.initializationOptions.ShopwareClient
+		current.SupportedCommands = append(
+			[]string(nil), current.SupportedCommands...,
+		)
+		shopwareClient = &current
 	}
+	return protocol.InitializationOptions{
+		PHPExtensions:         append([]string(nil), configuration.PHP.Extensions...),
+		DisabledPHPExtensions: append([]string(nil), configuration.PHP.DisabledExtensions...),
+		ShopwareTargetVersion: configuration.Shopware.TargetVersion,
+		AllowUnsupportedProject: s.initializationOptions.AllowUnsupportedProject ||
+			s.allowUnsupportedProject,
+		CLIMode:        s.initializationOptions.CLIMode,
+		ShopwareClient: shopwareClient,
+	}
+}
 
-	// Set the update callback to publish diagnostics
-	s.fileScanner.SetOnUpdate(func() {
-		log.Printf("Publishing diagnostics to all open files")
-		go s.PublishDiagnostics(context.Background(), nil)
-	})
+func (s *Server) ConfigureProjectDetection(required, allowUnsupported bool) {
+	s.projectDetectionRequired = required
+	s.allowUnsupportedProject = allowUnsupported
+}
+
+func (s *Server) connection() *jsonrpc2.Conn {
+	s.connMu.RLock()
+	defer s.connMu.RUnlock()
+	return s.conn
+}
+
+func (s *Server) setConnection(conn *jsonrpc2.Conn) {
+	s.connMu.Lock()
+	s.conn = conn
+	s.connMu.Unlock()
+}
+
+type diagnosticsJob struct {
+	cancel context.CancelFunc
+	done   <-chan struct{}
+}
+
+const diagnosticsDebounce = 150 * time.Millisecond
+
+// NewServer creates a new LSP server
+func NewServer(filescanner *indexer.FileScanner, rootPath, version string) *Server {
+	lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
+	s := &Server{
+		completionProviders:         make([]CompletionProvider, 0),
+		definitionProviders:         make([]GotoDefinitionProvider, 0),
+		implementationProviders:     make([]ImplementationProvider, 0),
+		typeHierarchyProviders:      make([]TypeHierarchyProvider, 0),
+		callHierarchyProviders:      make([]CallHierarchyProvider, 0),
+		referencesProviders:         make([]ReferencesProvider, 0),
+		codeLensProviders:           make([]CodeLensProvider, 0),
+		actionProviders:             make([]ActionProvider, 0),
+		inspections:                 newInspectionRegistry(),
+		hoverProviders:              make([]HoverProvider, 0),
+		signatureProviders:          make([]SignatureHelpProvider, 0),
+		renameProviders:             make([]RenameProvider, 0),
+		inlayHintProviders:          make([]InlayHintProvider, 0),
+		documentLinkProviders:       make([]DocumentLinkProvider, 0),
+		documentSymbolProviders:     make([]DocumentSymbolProvider, 0),
+		documentHighlightProviders:  make([]DocumentHighlightProvider, 0),
+		linkedEditingProviders:      make([]LinkedEditingRangeProvider, 0),
+		foldingRangeProviders:       make([]FoldingRangeProvider, 0),
+		documentFormattingProviders: make([]DocumentFormattingProvider, 0),
+		selectionRangeProviders:     make([]SelectionRangeProvider, 0),
+		documentColorProviders:      make([]DocumentColorProvider, 0),
+		semanticTokensProviders:     make([]SemanticTokensProvider, 0),
+		fileRenameProviders:         make([]FileRenameProvider, 0),
+		workspaceSymbolProviders:    make([]WorkspaceSymbolProvider, 0),
+		commandProviders:            make([]CommandProvider, 0),
+		commandMap:                  make(map[string]CommandFunc),
+		supportedClientCommands:     make(map[string]struct{}),
+		contextEnrichers:            make(map[language.ID]ContextEnricher),
+		documentManager:             NewDocumentManager(),
+		fileScanner:                 filescanner,
+		rootPath:                    rootPath,
+		version:                     version,
+		lifecycleCtx:                lifecycleCtx,
+		lifecycleCancel:             lifecycleCancel,
+		diagnosticsJobs:             make(map[string]*diagnosticsJob),
+		diagnosticsGenerations:      make(map[string]uint64),
+		diagnosticsCache:            make(map[string]diagnosticsCacheEntry),
+		effectiveConfiguration:      projectconfig.Default(),
+		traceProviders:              providerPerformanceTraceEnabled(),
+	}
+	s.methodHandlers = s.protocolMethodHandlers()
+
+	if s.fileScanner != nil {
+		s.fileScanner.SetOnUpdate(func() {
+			log.Printf("Publishing diagnostics to all open files")
+			s.PublishDiagnostics(s.lifecycleCtx, nil)
+		})
+	}
 
 	return s
 }
@@ -76,6 +202,61 @@ func (s *Server) RegisterDefinitionProvider(provider GotoDefinitionProvider) {
 	s.definitionProviders = append(s.definitionProviders, provider)
 }
 
+func (s *Server) RegisterImplementationProvider(provider ImplementationProvider) {
+	if provider != nil {
+		s.implementationProviders = append(s.implementationProviders, provider)
+	}
+}
+
+func (s *Server) RegisterTypeHierarchyProvider(provider TypeHierarchyProvider) {
+	if provider != nil {
+		s.typeHierarchyProviders = append(s.typeHierarchyProviders, provider)
+	}
+}
+
+func (s *Server) RegisterCallHierarchyProvider(provider CallHierarchyProvider) {
+	if provider != nil {
+		s.callHierarchyProviders = append(s.callHierarchyProviders, provider)
+	}
+}
+
+func (s *Server) RegisterLinkedEditingRangeProvider(
+	provider LinkedEditingRangeProvider,
+) {
+	if provider != nil {
+		s.linkedEditingProviders = append(s.linkedEditingProviders, provider)
+	}
+}
+
+func (s *Server) RegisterFoldingRangeProvider(provider FoldingRangeProvider) {
+	if provider != nil {
+		s.foldingRangeProviders = append(s.foldingRangeProviders, provider)
+	}
+}
+
+func (s *Server) RegisterDocumentFormattingProvider(
+	provider DocumentFormattingProvider,
+) {
+	if provider != nil {
+		s.documentFormattingProviders = append(
+			s.documentFormattingProviders,
+			provider,
+		)
+	}
+}
+
+func (s *Server) RegisterSelectionRangeProvider(provider SelectionRangeProvider) {
+	if provider != nil {
+		s.selectionRangeProviders = append(s.selectionRangeProviders, provider)
+	}
+}
+
+func (s *Server) RegisterDocumentColorProvider(provider DocumentColorProvider) {
+	if provider != nil {
+		s.documentColorProviders = append(s.documentColorProviders, provider)
+	}
+}
+
 // RegisterReferencesProvider registers a references provider with the server
 func (s *Server) RegisterReferencesProvider(provider ReferencesProvider) {
 	s.referencesProviders = append(s.referencesProviders, provider)
@@ -86,9 +267,9 @@ func (s *Server) RegisterCodeLensProvider(provider CodeLensProvider) {
 	s.codeLensProviders = append(s.codeLensProviders, provider)
 }
 
-// RegisterCodeActionProvider registers a code action provider with the server
-func (s *Server) RegisterCodeActionProvider(provider CodeActionProvider) {
-	s.codeActionProviders = append(s.codeActionProviders, provider)
+// RegisterActionProvider registers a code action provider with the server
+func (s *Server) RegisterActionProvider(provider ActionProvider) {
+	s.actionProviders = append(s.actionProviders, provider)
 }
 
 // RegisterHoverProvider registers a hover provider with the server
@@ -96,68 +277,129 @@ func (s *Server) RegisterHoverProvider(provider HoverProvider) {
 	s.hoverProviders = append(s.hoverProviders, provider)
 }
 
+func (s *Server) RegisterSignatureHelpProvider(provider SignatureHelpProvider) {
+	s.signatureProviders = append(s.signatureProviders, provider)
+}
+
+func (s *Server) RegisterRenameProvider(provider RenameProvider) {
+	s.renameProviders = append(s.renameProviders, provider)
+}
+
+func (s *Server) RegisterInlayHintProvider(provider InlayHintProvider) {
+	if provider != nil {
+		s.inlayHintProviders = append(s.inlayHintProviders, provider)
+	}
+}
+
+func (s *Server) RegisterDocumentLinkProvider(provider DocumentLinkProvider) {
+	if provider != nil {
+		s.documentLinkProviders = append(s.documentLinkProviders, provider)
+	}
+}
+
+func (s *Server) RegisterDocumentSymbolProvider(provider DocumentSymbolProvider) {
+	if provider != nil {
+		s.documentSymbolProviders = append(s.documentSymbolProviders, provider)
+	}
+}
+
+func (s *Server) RegisterDocumentHighlightProvider(
+	provider DocumentHighlightProvider,
+) {
+	if provider != nil {
+		s.documentHighlightProviders = append(
+			s.documentHighlightProviders, provider,
+		)
+	}
+}
+
+func (s *Server) RegisterSemanticTokensProvider(
+	provider SemanticTokensProvider,
+) {
+	if provider != nil {
+		s.semanticTokensProviders = append(
+			s.semanticTokensProviders,
+			provider,
+		)
+	}
+}
+
+func (s *Server) RegisterFileRenameProvider(provider FileRenameProvider) {
+	if provider != nil {
+		s.fileRenameProviders = append(s.fileRenameProviders, provider)
+	}
+}
+
 // RegisterCommandProvider registers a command provider with the server
 func (s *Server) RegisterCommandProvider(provider CommandProvider) {
 	s.commandProviders = append(s.commandProviders, provider)
-}
-
-// RegisterIndexer adds an indexer to the registry
-func (s *Server) RegisterIndexer(indexer indexer.Indexer, err error) {
-	s.indexerMu.Lock()
-	defer s.indexerMu.Unlock()
-	s.indexers[indexer.ID()] = indexer
-	s.fileScanner.AddIndexer(indexer)
-}
-
-// GetIndexer retrieves an indexer by ID
-func (s *Server) GetIndexer(id string) (indexer.Indexer, bool) {
-	s.indexerMu.RLock()
-	defer s.indexerMu.RUnlock()
-	indexer, ok := s.indexers[id]
-	return indexer, ok
-}
-
-// shouldForceReindex checks if the current version differs from the last run
-// and updates the stored version file
-func (s *Server) shouldForceReindex() (bool, error) {
-	if s.cacheDir == "" || s.version == "" || s.version == "dev" {
-		return false, nil
+	for command, fn := range provider.GetCommands(s.lifecycleCtx) {
+		s.commandMap[command] = fn
 	}
+}
 
-	versionFile := filepath.Join(s.cacheDir, "version.txt")
-
-	// Check if version file exists
-	previousVersion := ""
-	forceReindex := false
-
-	data, err := os.ReadFile(versionFile)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			return false, fmt.Errorf("failed to read version file: %w", err)
+func (s *Server) registerCommands() {
+	for _, provider := range s.commandProviders {
+		for command, fn := range provider.GetCommands(s.lifecycleCtx) {
+			s.commandMap[command] = fn
 		}
-		// File doesn't exist, will create it below
-		forceReindex = true
-	} else {
-		previousVersion = strings.TrimSpace(string(data))
-		forceReindex = previousVersion != s.version
 	}
+}
 
-	// Update the version file with current version
-	if err := os.WriteFile(versionFile, []byte(s.version), 0644); err != nil {
-		return forceReindex, fmt.Errorf("failed to write version file: %w", err)
+func (s *Server) startBackground(work func(context.Context)) bool {
+	s.backgroundMu.Lock()
+	defer s.backgroundMu.Unlock()
+	if s.closing {
+		return false
 	}
+	ctx := s.lifecycleCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.lifecycleWG.Add(1)
+	go func() {
+		defer s.lifecycleWG.Done()
+		work(ctx)
+	}()
+	return true
+}
 
-	return forceReindex, nil
+// RegisterContextEnricher adds optional language-specific semantic context
+// without exposing domain indexes through the protocol server.
+func (s *Server) RegisterContextEnricher(languageID language.ID, enricher ContextEnricher) {
+	if enricher != nil {
+		s.contextEnrichers[languageID] = enricher
+	}
+}
+
+// RegisterDocumentObserver exposes the open-document lifecycle to workspace
+// composition without leaking the document manager itself to feature
+// providers. Observers receive immutable snapshots and are replayed for any
+// documents which are already open.
+func (s *Server) RegisterDocumentObserver(observer DocumentObserver) {
+	if s.documentManager != nil {
+		s.documentManager.RegisterObserver(observer)
+	}
 }
 
 // indexAll builds or updates all registered indexes
 // If forceReindex is true, it will clear the existing index before rebuilding
-func (s *Server) indexAll(ctx context.Context, forceReindex bool) error {
+func (s *Server) indexAll(
+	ctx context.Context,
+	forceReindex bool,
+) (returnErr error) {
+	if s.fileScanner == nil {
+		return nil
+	}
 	startTime := time.Now()
+	finishProgress := s.beginIndexingProgress(ctx)
+	defer func() {
+		finishProgress(time.Since(startTime), returnErr)
+	}()
 
 	// Send notification that indexing has started
-	if s.conn != nil {
-		if err := s.conn.Notify(ctx, "shopware/indexingStarted", map[string]interface{}{
+	if conn := s.connection(); conn != nil {
+		if err := conn.Notify(ctx, "shopware/indexingStarted", map[string]interface{}{
 			"message": "Indexing started",
 		}); err != nil {
 			return err
@@ -165,11 +407,17 @@ func (s *Server) indexAll(ctx context.Context, forceReindex bool) error {
 	}
 
 	if forceReindex {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := s.fileScanner.ClearHashes(); err != nil {
 			return err
 		}
 	}
 
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := s.fileScanner.IndexAll(ctx); err != nil {
 		return err
 	}
@@ -177,8 +425,8 @@ func (s *Server) indexAll(ctx context.Context, forceReindex bool) error {
 	elapsedTime := time.Since(startTime)
 
 	// Send notification that indexing has completed
-	if s.conn != nil {
-		if err := s.conn.Notify(ctx, "shopware/indexingCompleted", map[string]interface{}{
+	if conn := s.connection(); conn != nil {
+		if err := conn.Notify(ctx, "shopware/indexingCompleted", map[string]interface{}{
 			"message":       "Indexing completed",
 			"timeInSeconds": elapsedTime.Seconds(),
 		}); err != nil {
@@ -189,42 +437,102 @@ func (s *Server) indexAll(ctx context.Context, forceReindex bool) error {
 	return nil
 }
 
-// CloseAll closes all registered indexers and resources
-func (s *Server) CloseAll() error {
-	// Close document manager first
-	if s.documentManager != nil {
-		s.documentManager.Close()
+func (s *Server) beginIndexingProgress(
+	ctx context.Context,
+) func(time.Duration, error) {
+	if !s.workDoneProgress {
+		return func(time.Duration, error) {}
 	}
-
-	// Then close all indexers
-	s.indexerMu.RLock()
-	defer s.indexerMu.RUnlock()
-
-	for _, indexer := range s.indexers {
-		if err := indexer.Close(); err != nil {
-			return err
+	conn := s.connection()
+	if conn == nil {
+		return func(time.Duration, error) {}
+	}
+	token := fmt.Sprintf(
+		"shopware-index-%d", s.progressSequence.Add(1),
+	)
+	progressContext, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if err := conn.Call(
+		progressContext,
+		"window/workDoneProgress/create",
+		map[string]interface{}{"token": token},
+		nil,
+	); err != nil {
+		if ctx.Err() == nil {
+			log.Printf("Create indexing progress: %v", err)
+		}
+		return func(time.Duration, error) {}
+	}
+	if err := conn.Notify(ctx, "$/progress", map[string]interface{}{
+		"token": token,
+		"value": map[string]interface{}{
+			"kind": "begin", "title": "Shopware indexing",
+			"message": "Indexing workspace", "cancellable": false,
+		},
+	}); err != nil {
+		if ctx.Err() == nil {
+			log.Printf("Publish indexing progress: %v", err)
+		}
+		return func(time.Duration, error) {}
+	}
+	return func(elapsed time.Duration, cause error) {
+		message := fmt.Sprintf(
+			"Indexing completed in %.2fs", elapsed.Seconds(),
+		)
+		if cause != nil {
+			message = "Indexing failed: " + cause.Error()
+		}
+		if err := conn.Notify(ctx, "$/progress", map[string]interface{}{
+			"token": token,
+			"value": map[string]interface{}{
+				"kind": "end", "message": message,
+			},
+		}); err != nil && ctx.Err() == nil {
+			log.Printf("Complete indexing progress: %v", err)
 		}
 	}
-	return nil
+}
+
+// CloseAll closes all registered indexers and resources
+func (s *Server) CloseAll() error {
+	s.closeOnce.Do(func() {
+		s.backgroundMu.Lock()
+		s.closing = true
+		if s.lifecycleCancel != nil {
+			s.lifecycleCancel()
+		}
+		s.backgroundMu.Unlock()
+		s.cancelAllDiagnostics()
+		s.lifecycleWG.Wait()
+		if s.documentManager != nil {
+			s.documentManager.Close()
+		}
+		if s.workspace != nil {
+			s.closeErr = s.workspace.Close()
+		} else if s.fileScanner != nil {
+			s.closeErr = s.fileScanner.Close()
+		}
+	})
+	return s.closeErr
 }
 
 func (s *Server) Start(in io.Reader, out io.Writer) error {
-	// Register commands
-	for _, provider := range s.commandProviders {
-		for command, fn := range provider.GetCommands(context.Background()) {
-			s.commandMap[command] = fn
-		}
-	}
+	s.registerCommands()
 
 	// Create a new JSON-RPC connection
 	stream := jsonrpc2.NewBufferedStream(rwc{in, out}, jsonrpc2.VSCodeObjectCodec{})
-	conn := jsonrpc2.NewConn(context.Background(), stream, jsonrpc2.HandlerWithError(s.handle))
-	s.conn = conn
+	ordered := jsonrpc2.HandlerWithError(s.handle)
+	dispatcher := newRequestDispatcher(ordered)
+	dispatcher.server = s
+	conn := jsonrpc2.NewConn(context.Background(), stream, dispatcher)
+	s.setConnection(conn)
 
 	// Wait for the connection to close
 	<-conn.DisconnectNotify()
+	dispatcher.close()
+	s.setConnection(nil)
 
-	return nil
+	return s.CloseAll()
 }
 
 // rwc combines a reader and writer into a single ReadWriteCloser
@@ -239,645 +547,3 @@ func (rwc) Close() error {
 }
 
 // handle processes incoming JSON-RPC requests and notifications
-func (s *Server) handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.Request) (interface{}, error) {
-	// Handle exit notification after shutdown
-	if req.Method == "exit" {
-		log.Println("Received exit notification, exiting")
-		if err := conn.Close(); err != nil {
-			log.Printf("error closing connection: %v", err)
-		}
-		return nil, nil
-	}
-
-	if cmd, ok := s.commandMap[req.Method]; ok {
-		return cmd(ctx, req.Params)
-	}
-
-	switch req.Method {
-	case "initialize":
-		var params protocol.InitializeParams
-		if err := json.Unmarshal(*req.Params, &params); err != nil {
-			return nil, &jsonrpc2.Error{Code: jsonrpc2.CodeParseError, Message: err.Error()}
-		}
-		return s.initialize(ctx, &params), nil
-
-	case "initialized":
-		// Build the index when the client is initialized
-		go func() {
-			// Check if we need to force reindex due to version change
-			forceReindex, err := s.shouldForceReindex()
-			if err != nil {
-				log.Printf("Warning: Failed to check version for reindex: %v", err)
-			}
-
-			if forceReindex {
-				log.Printf("Version changed to %s, forcing reindex", s.version)
-			}
-
-			// Index all registered indexers
-			if err := s.indexAll(ctx, forceReindex); err != nil {
-				log.Printf("Error indexing: %v", err)
-			} else if forceReindex {
-				log.Println("Force reindex completed successfully")
-			}
-
-			// Start the file watcher after the initial index build to avoid
-			// paying for two recursive traversals during startup.
-			if err := s.fileScanner.StartWatcher(); err != nil {
-				log.Printf("Error starting file watcher: %v", err)
-			} else {
-				log.Println("File watcher started successfully")
-			}
-		}()
-		return nil, nil
-
-	case "textDocument/didOpen":
-		var params struct {
-			TextDocument struct {
-				URI     string `json:"uri"`
-				Text    string `json:"text"`
-				Version int    `json:"version"`
-			} `json:"textDocument"`
-		}
-		if err := json.Unmarshal(*req.Params, &params); err != nil {
-			return nil, err
-		}
-		s.documentManager.OpenDocument(params.TextDocument.URI, params.TextDocument.Text, params.TextDocument.Version)
-
-		// Run diagnostics on the opened document
-		go s.publishDiagnostics(ctx, params.TextDocument.URI, params.TextDocument.Version)
-		return nil, nil
-
-	case "textDocument/didChange":
-		var params struct {
-			TextDocument struct {
-				URI     string `json:"uri"`
-				Version int    `json:"version"`
-			} `json:"textDocument"`
-			ContentChanges []struct {
-				Text string `json:"text"`
-			} `json:"contentChanges"`
-		}
-		if err := json.Unmarshal(*req.Params, &params); err != nil {
-			return nil, err
-		}
-		if len(params.ContentChanges) > 0 {
-			s.documentManager.UpdateDocument(params.TextDocument.URI, params.ContentChanges[0].Text, params.TextDocument.Version)
-
-			// Run diagnostics on the updated document
-			go s.publishDiagnostics(ctx, params.TextDocument.URI, params.TextDocument.Version)
-		}
-		return nil, nil
-
-	case "textDocument/didClose":
-		var params struct {
-			TextDocument struct {
-				URI string `json:"uri"`
-			} `json:"textDocument"`
-		}
-		if err := json.Unmarshal(*req.Params, &params); err != nil {
-			return nil, err
-		}
-		s.documentManager.CloseDocument(params.TextDocument.URI)
-		return nil, nil
-
-	case "textDocument/completion":
-		var params protocol.CompletionParams
-		if err := json.Unmarshal(*req.Params, &params); err != nil {
-			return nil, err
-		}
-
-		return s.completion(ctx, &params), nil
-
-	case "textDocument/definition":
-		var params protocol.DefinitionParams
-		if err := json.Unmarshal(*req.Params, &params); err != nil {
-			return nil, err
-		}
-		return s.definition(ctx, &params), nil
-
-	case "textDocument/references":
-		var params protocol.ReferenceParams
-		if err := json.Unmarshal(*req.Params, &params); err != nil {
-			return nil, err
-		}
-		return s.references(ctx, &params), nil
-
-	case "textDocument/codeLens":
-		var params protocol.CodeLensParams
-		if err := json.Unmarshal(*req.Params, &params); err != nil {
-			return nil, err
-		}
-		return s.codeLens(ctx, &params), nil
-
-	case "textDocument/hover":
-		var params protocol.HoverParams
-		if err := json.Unmarshal(*req.Params, &params); err != nil {
-			return nil, err
-		}
-		return s.hover(ctx, &params)
-
-	case "textDocument/diagnostic":
-		var params protocol.DiagnosticParams
-		if err := json.Unmarshal(*req.Params, &params); err != nil {
-			return nil, err
-		}
-		return s.diagnostic(ctx, &params), nil
-
-	case "codeLens/resolve":
-		var codeLens protocol.CodeLens
-		if err := json.Unmarshal(*req.Params, &codeLens); err != nil {
-			return nil, err
-		}
-		return s.resolveCodeLens(ctx, &codeLens)
-
-	case "textDocument/codeAction":
-		var params protocol.CodeActionParams
-		if err := json.Unmarshal(*req.Params, &params); err != nil {
-			return nil, err
-		}
-		return s.codeAction(ctx, &params), nil
-
-	case "shopware/forceReindex":
-		// Force reindex all indexers
-		go func() {
-			if err := s.indexAll(ctx, true); err != nil {
-				log.Printf("Error force reindexing: %v", err)
-			}
-		}()
-		return map[string]interface{}{
-			"message": "Force reindexing started",
-		}, nil
-
-	case "workspace/executeCommand":
-		var params struct {
-			Command   string            `json:"command"`
-			Arguments []json.RawMessage `json:"arguments"`
-		}
-		if err := json.Unmarshal(*req.Params, &params); err != nil {
-			return nil, err
-		}
-		switch params.Command {
-		case FocusExtendedBlockCommand:
-			return s.executeFocusExtendedBlockCommand(ctx, params.Arguments)
-		default:
-			return nil, &jsonrpc2.Error{
-				Code:    jsonrpc2.CodeMethodNotFound,
-				Message: "Unknown command: " + params.Command,
-			}
-		}
-
-	case "shutdown":
-		// Clean up resources
-		if err := s.CloseAll(); err != nil {
-			log.Printf("Error closing indexers: %v", err)
-		}
-
-		log.Println("Received shutdown request, waiting for exit notification")
-		return nil, nil
-
-	case "workspace/didCreateFiles":
-		var params protocol.CreateFilesParams
-		if err := json.Unmarshal(*req.Params, &params); err != nil {
-			return nil, err
-		}
-
-		files := make([]string, len(params.Files))
-		for i, file := range params.Files {
-			files[i] = strings.TrimPrefix(file.URI, "file://")
-		}
-		if err := s.fileScanner.IndexFiles(ctx, files); err != nil {
-			log.Printf("Error indexing new files: %v", err)
-		}
-
-		log.Printf("Watcher Client: Created files: %v", files)
-
-		return nil, nil
-
-	case "workspace/didRenameFiles":
-		var params protocol.RenameFilesParams
-		if err := json.Unmarshal(*req.Params, &params); err != nil {
-			return nil, err
-		}
-
-		oldFiles := make([]string, len(params.Files))
-		newFiles := make([]string, len(params.Files))
-		for i, file := range params.Files {
-			oldFiles[i] = strings.TrimPrefix(file.OldURI, "file://")
-			newFiles[i] = strings.TrimPrefix(file.NewURI, "file://")
-		}
-
-		if err := s.fileScanner.IndexFiles(ctx, newFiles); err != nil {
-			log.Printf("Error indexing new files: %v", err)
-		}
-		if err := s.fileScanner.RemoveFiles(ctx, oldFiles); err != nil {
-			log.Printf("Error removing old files: %v", err)
-		}
-
-		log.Printf("Watcher Client: Renamed files: %v", oldFiles)
-
-		return nil, nil
-
-	case "workspace/didDeleteFiles":
-		var params protocol.DeleteFilesParams
-		if err := json.Unmarshal(*req.Params, &params); err != nil {
-			return nil, err
-		}
-
-		files := make([]string, len(params.Files))
-		for i, file := range params.Files {
-			files[i] = strings.TrimPrefix(file.URI, "file://")
-		}
-
-		log.Printf("Watcher Client: Deleting files: %v", files)
-
-		if err := s.fileScanner.RemoveFiles(ctx, files); err != nil {
-			log.Printf("Error removing old files: %v", err)
-		}
-		return nil, nil
-
-	case "workspace/didChangeWatchedFiles":
-		var params protocol.DidChangeWatchedFilesParams
-		if err := json.Unmarshal(*req.Params, &params); err != nil {
-			return nil, err
-		}
-
-		createFiles := []string{}
-		deleteFiles := []string{}
-
-		// Handle file change events
-		for _, change := range params.Changes {
-			switch change.Type {
-			case int(protocol.FileCreated):
-				createFiles = append(createFiles, strings.TrimPrefix(change.URI, "file://"))
-			case int(protocol.FileChanged):
-				createFiles = append(createFiles, strings.TrimPrefix(change.URI, "file://"))
-			case int(protocol.FileDeleted):
-				deleteFiles = append(deleteFiles, strings.TrimPrefix(change.URI, "file://"))
-			}
-		}
-
-		if len(createFiles) > 0 {
-			log.Printf("Watcher Client: Creating files: %v", createFiles)
-
-			if err := s.fileScanner.IndexFiles(ctx, createFiles); err != nil {
-				log.Printf("Error indexing new files: %v", err)
-			}
-		}
-
-		if len(deleteFiles) > 0 {
-			log.Printf("Watcher Client: Deleting files: %v", deleteFiles)
-
-			if err := s.fileScanner.RemoveFiles(ctx, deleteFiles); err != nil {
-				log.Printf("Error removing old files: %v", err)
-			}
-		}
-
-		return nil, nil
-
-	default:
-		// Check if this is a notification (no ID)
-		if req.ID == (jsonrpc2.ID{}) {
-			// This is a notification, no response needed
-			return nil, nil
-		}
-		return nil, &jsonrpc2.Error{Code: jsonrpc2.CodeMethodNotFound, Message: "Method not implemented: " + req.Method}
-	}
-}
-
-// initialize handles the LSP initialize request
-func (s *Server) initialize(ctx context.Context, params *protocol.InitializeParams) interface{} {
-	// Extract root path from params
-	s.extractRootPath(params)
-
-	// Collect all trigger characters from providers
-	triggerChars := s.collectTriggerCharacters()
-
-	// Collect all code action kinds from providers
-	codeActionKinds := s.collectCodeActionKinds()
-
-	// Define server capabilities
-	return map[string]interface{}{
-		"capabilities": map[string]interface{}{
-			"textDocumentSync": map[string]interface{}{
-				"openClose": true,
-				"change":    1, // Full sync
-			},
-			"diagnosticProvider": map[string]interface{}{
-				"interFileDependencies": true,
-				"workspaceDiagnostics":  false,
-			},
-			"completionProvider": map[string]interface{}{
-				"triggerCharacters": triggerChars,
-			},
-			"definitionProvider": true,
-			"referencesProvider": true,
-			"hoverProvider":      true,
-			"codeLensProvider": map[string]interface{}{
-				"resolveProvider": true,
-			},
-			"codeActionProvider": map[string]interface{}{
-				"codeActionKinds": codeActionKinds,
-			},
-			"executeCommandProvider": map[string]interface{}{
-				"commands": []string{FocusExtendedBlockCommand},
-			},
-			"workspace": map[string]interface{}{
-				"fileOperations": map[string]interface{}{
-					"didCreate": map[string]interface{}{
-						"filters": []map[string]interface{}{
-							{"pattern": map[string]interface{}{"glob": "**/*.xml"}},
-							{"pattern": map[string]interface{}{"glob": "**/*.php"}},
-						},
-					},
-					"didRename": map[string]interface{}{
-						"filters": []map[string]interface{}{
-							{"pattern": map[string]interface{}{"glob": "**/*.xml"}},
-							{"pattern": map[string]interface{}{"glob": "**/*.php"}},
-						},
-					},
-					"didDelete": map[string]interface{}{
-						"filters": []map[string]interface{}{
-							{"pattern": map[string]interface{}{"glob": "**/*.xml"}},
-							{"pattern": map[string]interface{}{"glob": "**/*.php"}},
-						},
-					},
-				},
-			},
-		},
-	}
-}
-
-// extractRootPath extracts the root path from the initialize params
-func (s *Server) extractRootPath(params *protocol.InitializeParams) {
-	// Try to get from RootPath
-	if params.RootPath != "" {
-		s.rootPath = params.RootPath
-		return
-	}
-
-	// Try to get from RootURI
-	if params.RootURI != "" {
-		rootURI := params.RootURI
-		s.rootPath = strings.TrimPrefix(rootURI, "file://")
-		return
-	}
-
-	// Try to get from WorkspaceFolders
-	if len(params.WorkspaceFolders) > 0 {
-		folder := params.WorkspaceFolders[0]
-		s.rootPath = strings.TrimPrefix(folder.URI, "file://")
-		return
-	}
-
-	// Fall back to current directory
-	s.rootPath, _ = os.Getwd()
-}
-
-// collectTriggerCharacters collects all trigger characters from registered providers
-func (s *Server) collectTriggerCharacters() []string {
-	// Use a map to deduplicate trigger characters
-	triggerCharsMap := make(map[string]bool)
-
-	for _, provider := range s.completionProviders {
-		for _, char := range provider.GetTriggerCharacters() {
-			triggerCharsMap[char] = true
-		}
-	}
-
-	// Convert map keys to slice
-	triggerChars := make([]string, 0, len(triggerCharsMap))
-	for char := range triggerCharsMap {
-		triggerChars = append(triggerChars, char)
-	}
-
-	return triggerChars
-}
-
-// collectCodeActionKinds collects all code action kinds from registered providers
-func (s *Server) collectCodeActionKinds() []protocol.CodeActionKind {
-	// Use a map to deduplicate code action kinds
-	kindsMap := make(map[protocol.CodeActionKind]bool)
-
-	for _, provider := range s.codeActionProviders {
-		for _, kind := range provider.GetCodeActionKinds() {
-			kindsMap[kind] = true
-		}
-	}
-
-	// Convert map keys to slice
-	kinds := make([]protocol.CodeActionKind, 0, len(kindsMap))
-	for kind := range kindsMap {
-		kinds = append(kinds, kind)
-	}
-
-	return kinds
-}
-
-func (s *Server) DocumentManager() *DocumentManager {
-	return s.documentManager
-}
-
-func (s *Server) FileScanner() *indexer.FileScanner {
-	return s.fileScanner
-}
-
-// RegisterDiagnosticsProvider registers a diagnostics provider with the server
-func (s *Server) RegisterDiagnosticsProvider(provider DiagnosticsProvider) {
-	s.diagnosticsProviders = append(s.diagnosticsProviders, provider)
-}
-
-type docAnalyse struct {
-	uri     string
-	version int
-}
-
-func (s *Server) PublishDiagnostics(ctx context.Context, files []string) {
-	var docs []docAnalyse
-
-	if files == nil {
-		for _, doc := range s.DocumentManager().documents {
-			docs = append(docs, docAnalyse{
-				uri:     doc.URI,
-				version: doc.Version,
-			})
-		}
-	} else {
-		for _, uri := range files {
-			version := 0
-
-			if doc, ok := s.DocumentManager().GetDocument(uri); ok {
-				version = doc.Version
-			}
-
-			docs = append(docs, docAnalyse{
-				uri:     uri,
-				version: version,
-			})
-		}
-	}
-
-	for _, doc := range docs {
-		go s.publishDiagnostics(ctx, doc.uri, doc.version)
-	}
-}
-
-// publishDiagnostics collects and publishes diagnostics for a document
-func (s *Server) publishDiagnostics(ctx context.Context, uri string, version int) {
-	if s.conn == nil {
-		return
-	}
-
-	// Get document content
-	content, ok := s.documentManager.GetDocumentText(uri)
-	if !ok {
-		return
-	}
-
-	// Collect diagnostics from all providers
-	allDiagnostics := []protocol.Diagnostic{}
-
-	node := s.documentManager.GetRootNode(uri)
-
-	if node == nil {
-		return
-	}
-
-	for _, provider := range s.diagnosticsProviders {
-		diagnostics, err := provider.GetDiagnostics(ctx, uri, node, content)
-		if err != nil {
-			log.Printf("Error getting diagnostics from provider %s: %v", provider, err)
-			continue
-		}
-
-		allDiagnostics = append(allDiagnostics, diagnostics...)
-	}
-
-	// Publish diagnostics
-	params := protocol.PublishDiagnosticsParams{
-		URI:         uri,
-		Version:     version,
-		Diagnostics: allDiagnostics,
-	}
-
-	if err := s.conn.Notify(ctx, "textDocument/publishDiagnostics", params); err != nil {
-		log.Printf("Error publishing diagnostics: %v", err)
-	}
-}
-
-// diagnostic handles textDocument/diagnostic requests
-func (s *Server) diagnostic(ctx context.Context, params *protocol.DiagnosticParams) interface{} {
-	uri := params.TextDocument.URI
-
-	// Get document content
-	content, ok := s.documentManager.GetDocumentText(uri)
-	if !ok {
-		return protocol.DiagnosticResult{
-			Items: []protocol.Diagnostic{},
-		}
-	}
-
-	// Collect diagnostics from all providers
-	allDiagnostics := []protocol.Diagnostic{}
-
-	node := s.documentManager.GetRootNode(uri)
-
-	if node == nil {
-		return protocol.DiagnosticResult{
-			Items: []protocol.Diagnostic{},
-		}
-	}
-
-	for _, provider := range s.diagnosticsProviders {
-		diagnostics, err := provider.GetDiagnostics(ctx, uri, node, content)
-		if err != nil {
-			log.Printf("Error getting diagnostics from provider %s: %v", provider, err)
-			continue
-		}
-
-		allDiagnostics = append(allDiagnostics, diagnostics...)
-	}
-
-	return protocol.DiagnosticResult{
-		Items: allDiagnostics,
-	}
-}
-
-// codeAction handles textDocument/codeAction requests
-func (s *Server) codeAction(ctx context.Context, params *protocol.CodeActionParams) []protocol.CodeAction {
-	node, docText, ok := s.documentManager.GetNodeAtPosition(params.TextDocument.URI, params.Range.Start.Line, params.Range.Start.Character)
-	if ok {
-		params.Node = node
-		params.DocumentContent = docText.Text
-	} else if strings.HasPrefix(params.TextDocument.URI, FileURIPrefix) {
-		// Strict clients (e.g. Zed) may not keep the document open in the server;
-		// fall back to reading the file so content-based code actions still work.
-		path := strings.TrimPrefix(params.TextDocument.URI, FileURIPrefix)
-		if content, err := os.ReadFile(path); err == nil {
-			params.DocumentContent = content
-		}
-	}
-
-	// Collect code actions from all providers
-	var allCodeActions []protocol.CodeAction
-	for _, provider := range s.codeActionProviders {
-		codeActions := provider.GetCodeActions(ctx, params)
-		allCodeActions = append(allCodeActions, codeActions...)
-	}
-
-	return allCodeActions
-}
-
-func (s *Server) executeFocusExtendedBlockCommand(ctx context.Context, arguments []json.RawMessage) (interface{}, error) {
-	uri, line, err := parseFocusExtendedBlockArgs(arguments)
-	if err != nil {
-		return nil, &jsonrpc2.Error{
-			Code:    jsonrpc2.CodeInvalidParams,
-			Message: err.Error(),
-		}
-	}
-
-	s.showDocumentAtLine(ctx, uri, line)
-	return nil, nil
-}
-
-func parseFocusExtendedBlockArgs(arguments []json.RawMessage) (string, int, error) {
-	if len(arguments) < 2 {
-		return "", 0, fmt.Errorf("focus extended block requires uri and line arguments")
-	}
-
-	uri, err := decodeJSONString(arguments[0])
-	if err != nil {
-		return "", 0, err
-	}
-	if uri == "" {
-		return "", 0, fmt.Errorf("focus extended block requires uri argument")
-	}
-
-	line, err := decodeJSONInt(arguments[1])
-	if err != nil {
-		return "", 0, err
-	}
-	if line <= 0 {
-		return "", 0, fmt.Errorf("focus extended block requires a positive line argument")
-	}
-
-	return uri, line, nil
-}
-
-func decodeJSONInt(raw json.RawMessage) (int, error) {
-	var line int
-	if err := json.Unmarshal(raw, &line); err != nil {
-		return 0, err
-	}
-
-	return line, nil
-}
-
-func decodeJSONString(raw json.RawMessage) (string, error) {
-	var value string
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return "", err
-	}
-	return value, nil
-}

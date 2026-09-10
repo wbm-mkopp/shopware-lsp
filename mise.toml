@@ -1,0 +1,79 @@
+[tools]
+go = "1.27.0"
+node = "24.18.1"
+golangci-lint = "2.13.0"
+"npm:@vscode/vsce" = "3.9.1"
+
+[env]
+CGO_ENABLED = "1"
+
+[tasks.setup]
+description = "Install Go and VSCode extension dependencies"
+run = [
+  "go mod download",
+  "npm --prefix vscode-extension ci",
+]
+
+[tasks.build]
+description = "Build the language server"
+run = "go build ./..."
+
+[tasks.test]
+description = "Run the Go test suite"
+run = "go test ./..."
+
+[tasks."test:simd"]
+description = "Run parser tests with Go's experimental SIMD implementation"
+run = "GOEXPERIMENT=simd go test ./internal/parser/..."
+
+[tasks."test:race"]
+description = "Run internal Go tests with the race detector"
+run = "go test -race ./internal/..."
+
+[tasks."test:integration-compile"]
+description = "Compile opt-in real-world integration tests without running them"
+run = "go test -tags=integration ./internal/app -run '^$'"
+
+[tasks.lint]
+description = "Run Go lint checks"
+run = "golangci-lint run"
+
+[tasks."vscode:install"]
+description = "Install VSCode extension dependencies"
+dir = "vscode-extension"
+run = "npm ci"
+
+[tasks."vscode:check"]
+description = "Type-check the VSCode extension"
+dir = "vscode-extension"
+run = "npm run check-types"
+
+[tasks."vscode:build"]
+description = "Build the VSCode extension"
+dir = "vscode-extension"
+run = "npm run compile"
+
+[tasks."vscode:test"]
+description = "Run VSCode extension tests"
+dir = "vscode-extension"
+run = [
+  "npm run test:entity-designer",
+  "npm run test:configuration",
+  "npm run test:mcp",
+  "npm run test:project-detection",
+  "npm run test:workspace-roots",
+  "npm run test:workspace-clients",
+]
+
+[tasks.release]
+description = "Build platform-specific VSIX packages into out/"
+depends = ["vscode:install"]
+run = "node scripts/build-vsix-release.mjs"
+
+[tasks.check]
+description = "Run backend and VSCode validation"
+depends = ["test", "test:integration-compile", "lint", "vscode:check", "vscode:test"]
+
+[tasks.default]
+description = "Build the backend and VSCode extension"
+depends = ["build", "vscode:build"]
