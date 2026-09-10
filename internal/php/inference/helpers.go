@@ -305,6 +305,15 @@ func resolveSpecialType(
 // enough headroom for valid chains while bounding adversarial type graphs.
 const maxSpecialTypeDepth = 128
 
+// Depth alone does not bound substitution cost. `self` and `static` expand to
+// the complete receiver, and a PHPDoc conditional names the placeholder once
+// per branch: Symfony's ArrayNodeDefinition::prototype() mentions `$this` nine
+// times, so one fluent link multiplies the inferred type ninefold while adding
+// a single level of nesting. Chaining such links, as Symfony's Configuration
+// classes do, grows the graph exponentially while staying far below
+// maxSpecialTypeDepth. Real workspaces resolve well under two thousand nodes.
+const maxSpecialTypeNodes = 4096
+
 func resolveSpecialTypeAtDepth(
 	value,
 	receiver,
@@ -563,10 +572,18 @@ func copyShapeFields(value types.Type) []types.ShapeField {
 	return result
 }
 
+// applySpecialTypeArguments substitutes a resolved `self` or `static`. The
+// whole base is copied into the placeholder, so refusing an oversized base
+// breaks a fluent chain instead of letting each link multiply the previous
+// one. Unknown matches how callers already treat a depth-truncated result, so
+// a later parent-return call cannot look definite.
 func applySpecialTypeArguments(
 	base types.Type,
 	special types.Type,
 ) types.Type {
+	if exceedsSpecialTypeNodes(base, maxSpecialTypeNodes) {
+		return types.Unknown()
+	}
 	argumentCount := special.ArgumentCount()
 	if argumentCount == 0 || base.Kind() != types.ObjectKind ||
 		base.Name() == "" {
@@ -577,6 +594,44 @@ func applySpecialTypeArguments(
 		arguments[index] = special.Argument(index)
 	}
 	return types.Named(base.Name(), arguments...)
+}
+
+// exceedsSpecialTypeNodes reports whether value holds more than limit nodes.
+// Counting stops at the limit so an already oversized graph cannot make the
+// guard itself expensive.
+func exceedsSpecialTypeNodes(value types.Type, limit int) bool {
+	return countSpecialTypeNodes(value, 0, limit) > limit
+}
+
+func countSpecialTypeNodes(value types.Type, counted, limit int) int {
+	counted++
+	if counted > limit {
+		return counted
+	}
+	for index := 0; index < value.ArgumentCount(); index++ {
+		counted = countSpecialTypeNodes(value.Argument(index), counted, limit)
+		if counted > limit {
+			return counted
+		}
+	}
+	for index := 0; index < value.ParameterCount(); index++ {
+		counted = countSpecialTypeNodes(
+			value.Parameter(index).Type, counted, limit,
+		)
+		if counted > limit {
+			return counted
+		}
+	}
+	for index := 0; index < value.FieldCount(); index++ {
+		counted = countSpecialTypeNodes(value.Field(index).Type, counted, limit)
+		if counted > limit {
+			return counted
+		}
+	}
+	if value.Kind() == types.CallableKind {
+		counted = countSpecialTypeNodes(value.Result(), counted, limit)
+	}
+	return counted
 }
 
 func joinTypes(relations types.Relations, values []types.Type) types.Type {

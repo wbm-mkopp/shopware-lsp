@@ -3703,6 +3703,46 @@ func TestResolveSpecialTypeBoundsAdversarialNesting(t *testing.T) {
 	require.True(t, resolved.IsUnknown())
 }
 
+func TestResolveSpecialTypeBoundsFluentReceiverGrowth(t *testing.T) {
+	t.Parallel()
+
+	// A PHPDoc conditional names `$this` once per branch, so every link of a
+	// fluent chain copies the whole receiver into each of them. Symfony's
+	// ArrayNodeDefinition::prototype() has nine branches and its Configuration
+	// classes chain dozens of calls, which multiplies the inferred type far
+	// beyond any depth bound.
+	branches := make([]types.Type, 0, 9)
+	for index := range 9 {
+		branches = append(branches, types.Named(
+			"NodeDefinition"+strconv.Itoa(index),
+			types.Static(),
+		))
+	}
+	declared := types.Union(branches...)
+
+	receiver := types.Named("ArrayNodeDefinition")
+	for range 40 {
+		receiver = resolveSpecialType(declared, receiver, receiver)
+		require.False(
+			t,
+			exceedsSpecialTypeNodes(receiver, 16*maxSpecialTypeNodes),
+			"one fluent link must not grow the receiver without bound",
+		)
+	}
+}
+
+func TestResolveSpecialTypeSubstitutesModestReceivers(t *testing.T) {
+	t.Parallel()
+
+	receiver := types.Named("Receiver")
+	resolved := resolveSpecialType(
+		types.Named("Builder", types.Static()),
+		receiver,
+		types.Named("Current"),
+	)
+	require.True(t, types.Named("Builder", receiver).Equal(resolved))
+}
+
 func TestUntypedMagicMethodParameterAcceptsTypedArray(t *testing.T) {
 	t.Parallel()
 	source := `<?php
