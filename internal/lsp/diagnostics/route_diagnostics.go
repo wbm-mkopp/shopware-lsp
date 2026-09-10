@@ -147,15 +147,14 @@ func (p *RouteAnalyzer) missingRoutes(
 			continue
 		}
 		if !candidatesLoaded {
-			allRoutes, queryErr := p.routeIndex.GetRoutes()
+			// Routes named by a class constant reach the index without a
+			// literal name, because the constant lives in another file. Ask
+			// for them here, where the PHP index is available to resolve
+			// them, before deciding anything is missing.
+			allRoutes, queryErr := p.routeIndex.ResolvedRoutes(p.phpIndex)
 			if queryErr != nil {
 				return nil, fmt.Errorf("query Symfony routes: %w", queryErr)
 			}
-			// Routes named by a class constant reach the index without a
-			// literal name, because the constant lives in another file.
-			// Resolve them here, where the PHP index is available, before
-			// deciding anything is missing.
-			allRoutes = symfony.ResolveConstantRouteNames(allRoutes, p.phpIndex)
 			seen := make(map[string]struct{}, len(allRoutes))
 			for _, route := range allRoutes {
 				if _, exists := seen[route.Name]; route.Name == "" || exists {

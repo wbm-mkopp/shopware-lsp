@@ -738,7 +738,14 @@ func ArgumentExpression(node *syntax.Node, index int) *syntax.Node {
 // Unlike ArgumentExpression it also preserves parser-recovered composite
 // expressions such as Foo::class . '.inner'.
 func ArgumentValueText(node *syntax.Node, index int) string {
-	argument := Argument(node, index)
+	return ArgumentValue(Argument(node, index))
+}
+
+// ArgumentValue returns the complete expression text of one argument node,
+// without the label a named argument carries. Use it to tell a whole value
+// apart from a fragment of it: a caller that matched a descendant cannot
+// otherwise see that Foo::BAR is only half of Foo::BAR . Baz::QUX.
+func ArgumentValue(argument *syntax.Node) string {
 	if argument == nil {
 		return ""
 	}

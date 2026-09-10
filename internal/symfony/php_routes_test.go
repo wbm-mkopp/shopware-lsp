@@ -225,6 +225,21 @@ func TestExtractRouteNamedByClassConstant(t *testing.T) {
 	assert.Equal(t, "/detail/{productId}", routes[0].Path)
 }
 
+func TestExtractRouteIgnoresConcatenatedConstantNames(t *testing.T) {
+	// `RouteNames::PREFIX . RouteNames::DETAIL` is a name this cannot
+	// evaluate. Recording the first half would key the route under a name no
+	// reference uses while the real one still reported as missing.
+	filePath := "testdata/controller_concatenated_name.php"
+	node, content := parsePHPFile(filePath)
+
+	routes := parsePHPRoutes(filePath, node, content)
+	require.Len(t, routes, 1)
+
+	assert.Equal(t, "", routes[0].Name)
+	assert.Equal(t, "", routes[0].NameConstant)
+	assert.Equal(t, "/detail/{productId}", routes[0].Path)
+}
+
 func TestExtractRouteIgnoresClassConstantForControllerNames(t *testing.T) {
 	// `Foo::class` names a controller, not a route, and must not be mistaken
 	// for a route name reference.

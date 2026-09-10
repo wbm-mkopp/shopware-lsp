@@ -122,3 +122,46 @@ func requireRouteNamed(t *testing.T, routes []Route, name string) {
 	}
 	t.Fatalf("route %q not found in %#v", name, routes)
 }
+
+func TestRouteIndexerKeepsUnresolvedRoutesOutOfGetRoutes(t *testing.T) {
+	routeIndex, err := NewRouteIndexer(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, routeIndex.Close()) })
+	require.NoError(t, routeIndex.Index(indexer.NewParsedFile(
+		"/project/src/Controller/ProductController.php",
+		[]byte(`<?php
+namespace App\Controller;
+use App\Seo\ProductPageSeoUrlRoute;
+class ProductController
+{
+    #[Route(path: '/detail/{productId}', name: ProductPageSeoUrlRoute::ROUTE_NAME)]
+    public function detail(): void {}
+
+    #[Route(path: '/address', name: 'frontend.account.address.page')]
+    public function address(): void {}
+}`),
+	)))
+
+	// A route whose name is still a constant would reach completion and
+	// workspace symbols as a blank entry, so only the literal one is offered.
+	routes, err := routeIndex.GetRoutes()
+	require.NoError(t, err)
+	require.Len(t, routes, 1)
+	require.Equal(t, "frontend.account.address.page", routes[0].Name)
+
+	resolved, err := routeIndex.ResolvedRoutes(stubConstantLookup{
+		"App\\Seo\\ProductPageSeoUrlRoute": {
+			literalConstant("ROUTE_NAME", "frontend.detail.page"),
+		},
+	})
+	require.NoError(t, err)
+	requireRouteNamed(t, resolved, "frontend.detail.page")
+	requireRouteNamed(t, resolved, "frontend.account.address.page")
+
+	// Without a lookup the constant stays unresolved and is dropped, rather
+	// than being offered under an empty name.
+	unresolved, err := routeIndex.ResolvedRoutes(nil)
+	require.NoError(t, err)
+	require.Len(t, unresolved, 1)
+	require.Equal(t, "frontend.account.address.page", unresolved[0].Name)
+}

@@ -127,10 +127,31 @@ func (idx *RouteIndexer) ID() string {
 	return "symfony.route"
 }
 
+// GetRoutes returns every route that has a literal name. A route named by a
+// class constant is left out: the constant lives in another file, so only a
+// caller holding the PHP index can evaluate it, and a route with no name would
+// otherwise reach completion, workspace symbols, and catalogs as a blank
+// entry. Those callers use ResolvedRoutes instead.
 func (idx *RouteIndexer) GetRoutes() (RouteList, error) {
-	routes, err := idx.dataIndexer.GetAllValues()
-	if err != nil || idx.compiledRoutes == nil {
-		return routes, err
+	return idx.routes(nil)
+}
+
+// ResolvedRoutes returns what GetRoutes returns plus the routes whose name is
+// a class constant, with lookup supplying the literal behind each one.
+func (idx *RouteIndexer) ResolvedRoutes(
+	lookup ClassConstantLookup,
+) (RouteList, error) {
+	return idx.routes(lookup)
+}
+
+func (idx *RouteIndexer) routes(lookup ClassConstantLookup) (RouteList, error) {
+	stored, err := idx.dataIndexer.GetAllValues()
+	if err != nil {
+		return nil, err
+	}
+	routes := RouteList(ResolveConstantRouteNames(stored, lookup))
+	if idx.compiledRoutes == nil {
+		return routes, nil
 	}
 	seen := make(map[string]struct{}, len(routes))
 	for _, route := range routes {

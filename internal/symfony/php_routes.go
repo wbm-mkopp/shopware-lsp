@@ -187,6 +187,11 @@ func phpRouteConstantReference(
 	if argument == nil || resolver == nil {
 		return ""
 	}
+	// The constant has to be the whole value. `Names::PREFIX . Names::DETAIL`
+	// names a route this cannot evaluate, and taking the first half would key
+	// the route under a name no reference uses while the real one still
+	// reports as missing.
+	value := collapseRouteExpression(phpquery.ArgumentValue(argument))
 	// `Foo::BAR` parses as a member access here, not a scoped access; match
 	// both, as phpquery.ScopedAccessClass does.
 	for _, access := range phpquery.Nodes(
@@ -194,7 +199,10 @@ func phpRouteConstantReference(
 		phpsyntax.PhpScopedAccess,
 		phpsyntax.PhpMemberAccess,
 	) {
-		text := strings.Join(strings.Fields(access.Text()), "")
+		text := collapseRouteExpression(access.Text())
+		if text != value {
+			continue
+		}
 		separator := strings.LastIndex(text, "::")
 		if separator <= 0 {
 			continue
@@ -207,6 +215,12 @@ func phpRouteConstantReference(
 		return strings.TrimPrefix(resolver.Resolve(class), "\\") + "::" + member
 	}
 	return ""
+}
+
+// collapseRouteExpression removes the whitespace a multi-line attribute puts
+// inside an expression, so a node's text can be compared to its argument's.
+func collapseRouteExpression(text string) string {
+	return strings.Join(strings.Fields(text), "")
 }
 
 func firstStringValue(node *phpsyntax.Node) string {
