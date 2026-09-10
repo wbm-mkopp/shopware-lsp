@@ -53,6 +53,55 @@ func TestTwigIndexerUsesPureGoParserThroughFileScanner(t *testing.T) {
 	require.Equal(t, templatePath, hashes[0].AbsolutePath)
 }
 
+func TestTwigIndexerIndexesTemplatesWithoutATwigExtension(t *testing.T) {
+	tempDir := t.TempDir()
+	collector := filepath.Join(
+		tempDir, "src", "Core", "Profiling", "Resources", "views", "Collector",
+	)
+	require.NoError(t, os.MkdirAll(collector, 0755))
+	// Symfony's profiler includes this from db.html.twig, and Twig serves
+	// whatever sits below a loader path regardless of extension.
+	iconPath := filepath.Join(collector, "checkmark.svg")
+	require.NoError(t, os.WriteFile(iconPath, []byte(`<svg></svg>`), 0644))
+	assetPath := filepath.Join(
+		tempDir, "src", "Core", "Profiling", "Resources", "public", "checkmark.svg",
+	)
+	require.NoError(t, os.MkdirAll(filepath.Dir(assetPath), 0755))
+	require.NoError(t, os.WriteFile(assetPath, []byte(`<svg></svg>`), 0644))
+
+	twigIndexer, err := NewTwigIndexer(filepath.Join(tempDir, "cache"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, twigIndexer.Close()) })
+
+	fileScanner, err := indexer.NewFileScanner(
+		tempDir,
+		filepath.Join(tempDir, "scanner.db"),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, fileScanner.Close()) })
+	fileScanner.AddIndexer(twigIndexer)
+
+	require.NoError(t, fileScanner.IndexFiles(
+		context.Background(),
+		[]string{iconPath, assetPath},
+	))
+
+	files, err := twigIndexer.GetTwigFilesByRelPath("@Profiling/Collector/checkmark.svg")
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	require.Equal(t, iconPath, files[0].Path)
+
+	// The same file outside a template root is an asset, not a template.
+	_, found, err := twigIndexer.GetTwigFileByPath(assetPath)
+	require.NoError(t, err)
+	require.False(t, found)
+
+	require.NoError(t, twigIndexer.RemovedFiles([]string{iconPath}))
+	files, err = twigIndexer.GetTwigFilesByRelPath("@Profiling/Collector/checkmark.svg")
+	require.NoError(t, err)
+	require.Empty(t, files)
+}
+
 func TestTwigIndexerStoresSymfonyTemplateAliases(t *testing.T) {
 	idx, err := NewTwigIndexer(t.TempDir())
 	require.NoError(t, err)

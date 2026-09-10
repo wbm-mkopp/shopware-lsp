@@ -7,6 +7,33 @@ import (
 	"strings"
 )
 
+// templateRootMarkers are the directories a Twig loader is pointed at. Anything
+// below one of them is addressable as a template.
+var templateRootMarkers = []string{"/Resources/views/", "/templates/"}
+
+// IsTemplateAssetPath reports whether a file lives under a template root while
+// carrying an extension other than .twig. Twig loaders serve whatever sits
+// below their paths — Symfony's profiler includes .svg views — so whether a
+// template exists must not depend on it being parseable Twig.
+func IsTemplateAssetPath(templatePath string) bool {
+	normalized := filepath.ToSlash(templatePath)
+	extension := filepath.Ext(normalized)
+	// An extension-less entry is a directory, a symlink to one, or a tooling
+	// file. A template root can hold any of those, and reading one as a
+	// template fails the whole index run.
+	if extension == "" || strings.EqualFold(extension, ".twig") ||
+		strings.HasPrefix(filepath.Base(normalized), ".") ||
+		isExcludedTwigPath(normalized) {
+		return false
+	}
+	for _, marker := range templateRootMarkers {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 func ConvertToRelativePath(twigPath string) string {
 	index := strings.Index(twigPath, "Resources/views")
 	if index != -1 {
@@ -26,6 +53,16 @@ func ConvertToRelativePath(twigPath string) string {
 	}
 
 	return fmt.Sprintf("@Storefront/%s", path)
+}
+
+// isExcludedTwigPath reports whether a file uses Twig syntax without being a
+// template the Symfony loader can resolve: administration sources, migration
+// fixtures, and phpDocumentor's own templates.
+func isExcludedTwigPath(templatePath string) bool {
+	normalized := filepath.ToSlash(templatePath)
+	return strings.Contains(normalized, "Resources/app/administration") ||
+		strings.Contains(normalized, "Migration/Fixtures") ||
+		strings.Contains(normalized, ".phpdoc/template")
 }
 
 // TemplateNames returns the portable names by which Twig can address a file.

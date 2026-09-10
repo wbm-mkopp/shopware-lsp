@@ -33,3 +33,25 @@ func TestTemplateNames(t *testing.T) {
 		TemplateNames("/project/MyBundle/src/Resources/views/card.html.twig"),
 	)
 }
+
+func TestIsTemplateAssetPath(t *testing.T) {
+	assert.True(t, IsTemplateAssetPath(
+		"/project/src/Core/Profiling/Resources/views/Collector/checkmark.svg",
+	))
+	assert.True(t, IsTemplateAssetPath("/project/templates/mail/logo.svg"))
+	// Twig files take the full indexing path instead.
+	assert.False(t, IsTemplateAssetPath(
+		"/project/src/Storefront/Resources/views/storefront/base.html.twig",
+	))
+	// Not below a template root, so no loader can address it.
+	assert.False(t, IsTemplateAssetPath("/project/public/bundles/storefront/logo.svg"))
+	assert.False(t, IsTemplateAssetPath(
+		"/project/src/Administration/Resources/app/administration/src/icon.svg",
+	))
+	assert.False(t, IsTemplateAssetPath("/project/templates/.gitignore"))
+	// Shopware symlinks node_modules into a template root, and os.ReadDir
+	// reports the link as a file.
+	assert.False(t, IsTemplateAssetPath(
+		"/project/src/Storefront/Resources/views/components/node_modules",
+	))
+}
