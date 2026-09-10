@@ -42,6 +42,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      GH_REPO: ${{ github.repository }}
     steps:
       - name: Download VSIX packages
         uses: actions/download-artifact@v8
@@ -70,6 +72,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: preview
+    env:
+      GH_REPO: ${{ github.repository }}
     steps:
       - name: Set up Node.js
         uses: actions/setup-node@v7
