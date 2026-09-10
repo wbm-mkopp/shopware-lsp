@@ -123,7 +123,7 @@ changelog:
       - '^test:'
 release:
   github:
-    owner: shopwareLabs
+    owner: shopware
     name: shopware-lsp
 
 homebrew_casks:
@@ -136,8 +136,8 @@ homebrew_casks:
     binaries:
       - shopware-lsp
     commit_author:
-      name: Frosh Automation
-      email: ci@fos.gg
+      name: shopwareBot
+      email: 4725494+shopwareBot@users.noreply.github.com
     homepage: https://shopware.com
     description: Shopware Language Server
     directory: Casks

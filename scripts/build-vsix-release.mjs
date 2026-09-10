@@ -24,12 +24,22 @@ const goreleaserDirectory = path.join(repositoryRoot, 'dist');
 const crossImage = process.env.GORELEASER_CROSS_IMAGE ||
   'ghcr.io/shyim/goreleaser-cross:v1.27.0';
 
+const versionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+
 const options = new Set(process.argv.slice(2));
 if (options.has('--help')) {
-  console.log('Usage: build-vsix-release.mjs [--pre-release]');
+  console.log('Usage: build-vsix-release.mjs [--pre-release] [--version=<version>]');
   process.exit(0);
 }
 const preRelease = options.delete('--pre-release');
+let versionOverride;
+for (const option of options) {
+  if (option.startsWith('--version=')) {
+    versionOverride = option.slice('--version='.length);
+    options.delete(option);
+    break;
+  }
+}
 if (options.size > 0) {
   throw new Error(`Unknown release option: ${[...options].join(', ')}`);
 }
@@ -38,8 +48,8 @@ const packageManifest = JSON.parse(await readFile(
   path.join(extensionDirectory, 'package.json'),
   'utf8',
 ));
-const version = packageManifest.version;
-if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
+const version = versionOverride ?? packageManifest.version;
+if (!versionPattern.test(version)) {
   throw new Error(`Invalid VSCode extension version: ${version}`);
 }
 
@@ -130,19 +140,39 @@ async function checksum(filePath) {
   return createHash('sha256').update(content).digest('hex');
 }
 
+function isExactTag() {
+  const result = spawnSync(
+    'git',
+    ['describe', '--tags', '--exact-match'],
+    {cwd: repositoryRoot, stdio: 'pipe'},
+  );
+  return result.status === 0;
+}
+
 await rm(outputDirectory, {recursive: true, force: true});
 await mkdir(outputDirectory, {recursive: true});
+// On an exact tag, build through the release pipe (without publishing) so
+// binaries embed the tagged version. GoReleaser rejects a dirty worktree in
+// release mode, so the version override is applied only after this step.
+// Untagged checkouts (local development) fall back to a snapshot build.
+const goreleaserArguments = isExactTag()
+  ? ['release', '--clean', '--skip=validate', '--skip=publish']
+  : ['build', '--clean', '--snapshot', '--skip=validate'];
 run('docker', [
   'run',
   '--rm',
   '--volume', `${repositoryRoot}:/go/src/shopware-lsp`,
   '--workdir', '/go/src/shopware-lsp',
   crossImage,
-  'build',
-  '--clean',
-  '--snapshot',
-  '--skip=validate',
+  ...goreleaserArguments,
 ]);
+if (versionOverride) {
+  run(
+    'npm',
+    ['version', version, '--no-git-tag-version', '--allow-same-version'],
+    {cwd: extensionDirectory},
+  );
+}
 run('npm', ['run', 'package'], {cwd: extensionDirectory});
 
 const binaries = await loadBinaries();

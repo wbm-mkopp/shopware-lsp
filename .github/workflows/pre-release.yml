@@ -1,48 +1,28 @@
-name: Release
+name: Pre-release
 
 on:
   push:
     tags:
-      # Stable semver tags, e.g. 0.3.0 (pre-release tags are handled by pre-release.yml)
-      - '[0-9]+.[0-9]+.[0-9]+'
+      # Semver pre-release tags, e.g. 0.3.0-rc.1
+      - '[0-9]+.[0-9]+.[0-9]+-*'
 
 permissions:
-  id-token: write
   contents: write
 
 jobs:
-  release-lsp:
-    name: Release LSP
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Gather Homebrew Token
-        uses: octo-sts/action@6177b4481c00308b3839969c3eca88c96a91775f # ratchet:octo-sts/action@v1.0.0
-        id: sts-shopware
-        with:
-          scope: shopware/homebrew-tap
-          identity: lsp
-
-      - name: Release
-        run: make release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_GITHUB_TOKEN: ${{ steps.sts-shopware.outputs.token }}
+  validate:
+    uses: ./.github/workflows/tests.yml
 
   build:
     name: Build VSIX packages
-    needs: release-lsp
+    needs: validate
     uses: ./.github/workflows/build-vsix.yml
     with:
       version: ${{ github.ref_name }}
-      pre-release: false
+      pre-release: true
 
   github-release:
-    name: Attach VSIX packages to release
+    name: Create GitHub pre-release
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -57,18 +37,23 @@ jobs:
         working-directory: out
         run: sha256sum --check SHA256SUMS
 
-      - name: Upload to GitHub release
+      - name: Create GitHub pre-release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
-        run: gh release upload "$TAG" out/*.vsix out/SHA256SUMS
+        run: >-
+          gh release create "$TAG"
+          --prerelease
+          --title "$TAG"
+          --generate-notes
+          out/*.vsix out/SHA256SUMS
 
   publish:
-    name: Publish to marketplaces
+    name: Publish pre-release to marketplaces
     needs: github-release
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment: release
+    environment: preview
     steps:
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -78,7 +63,7 @@ jobs:
       - name: Install publishing tools
         run: npm install --global @vscode/vsce@3.9.1 ovsx@1.1.1
 
-      - name: Download release packages
+      - name: Download pre-release packages
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
@@ -87,16 +72,27 @@ jobs:
           --pattern "*.vsix" --pattern "SHA256SUMS"
           --dir out
 
-      - name: Verify release packages
+      - name: Verify pre-release packages
         working-directory: out
         run: sha256sum --check SHA256SUMS
 
       - name: Publish to Visual Studio Marketplace
-        run: vsce publish --skip-duplicate --packagePath out/*.vsix
+        run: vsce publish --pre-release --skip-duplicate --packagePath out/*.vsix
         env:
           VSCE_PAT: ${{ secrets.VSCODE_PUBLISH_TOKEN }}
 
       - name: Publish to Open VSX
-        run: ovsx publish --skip-duplicate --packagePath out/*.vsix
+        run: ovsx publish --pre-release --skip-duplicate --packagePath out/*.vsix
         env:
           OVSX_PAT: ${{ secrets.OVSX_PUBLISH_TOKEN }}
+
+      - name: Add publishing summary
+        env:
+          PREVIEW_VERSION: ${{ github.ref_name }}
+        run: |
+          {
+            echo "### Published VSIX pre-release ${PREVIEW_VERSION}"
+            echo ""
+            echo "- [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=shopware.shopware-lsp)"
+            echo "- [Open VSX](https://open-vsx.org/extension/shopware/shopware-lsp)"
+          } >> "$GITHUB_STEP_SUMMARY"

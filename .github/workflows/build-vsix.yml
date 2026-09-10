@@ -1,0 +1,59 @@
+name: Build VSIX packages
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Extension version to package (e.g. 0.3.0 or 0.3.0-rc.1)
+        required: true
+        type: string
+      pre-release:
+        description: Mark packages as VSCode pre-releases
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    name: Build VSIX packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+
+      - name: Install extension tooling
+        run: |
+          npm ci --prefix vscode-extension
+          npm install --global @vscode/vsce@3.9.1
+
+      - name: Build VSIX packages
+        env:
+          VSIX_VERSION: ${{ inputs.version }}
+          PRE_RELEASE: ${{ inputs.pre-release }}
+        run: |
+          args=(--version="$VSIX_VERSION")
+          if [ "$PRE_RELEASE" = "true" ]; then
+            args+=(--pre-release)
+          fi
+          node scripts/build-vsix-release.mjs "${args[@]}"
+
+      - name: Upload VSIX packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: vsix-packages
+          path: |
+            out/*.vsix
+            out/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

@@ -1547,14 +1547,16 @@ Pass `--pre-release` through mise to mark every VSIX as a VSCode pre-release:
 mise run release -- --pre-release
 ```
 
-Every commit pushed to `feat/next-gen` also runs the `VSIX Preview` GitHub
-Actions workflow. The workflow assigns a unique odd-minor preview version,
-builds all platform-specific pre-release packages, and stores each target's
-VSIX plus a separate `SHA256SUMS` file as commit-associated artifacts for 14
-days. It does not publish to the VSCode Marketplace, Open VSX, GitHub Releases,
-or Homebrew. Open the workflow check for a commit, download the artifact for
-your platform, and install it with VSCode's **Extensions: Install from VSIX...**
-command.
+Pushing a semver pre-release tag (for example `0.3.0-rc.1`) runs the
+`Pre-release` GitHub Actions workflow. The workflow runs the test suite,
+builds all platform-specific pre-release packages through the shared
+`build-vsix` workflow, verifies their `SHA256SUMS`, and attaches every VSIX
+to a GitHub pre-release. A separate publish job, gated by the `preview`
+deployment environment, then publishes the verified packages to the VSCode
+Marketplace and Open VSX pre-release channels. Stable tags (for example
+`0.3.0`) run the `Release` workflow, which reuses the same build and
+verification steps, attaches the packages to the stable GitHub release, and
+publishes through the `release` deployment environment.
 
 ### Building
 

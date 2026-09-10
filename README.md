@@ -137,16 +137,19 @@ not index unrelated PHP projects.
 
 ### Preview builds
 
-Successful `feat/next-gen` workflow runs produce platform-specific preview VSIX
-packages for macOS, Linux, Alpine, and Windows.
+Pre-release tags (for example `0.3.0-rc.1`) run the
+[Pre-release workflow](https://github.com/shopware/shopware-lsp/actions/workflows/pre-release.yml),
+which builds platform-specific pre-release VSIX packages for macOS, Linux,
+Alpine, and Windows and attaches them to a GitHub pre-release.
 
-1. Open the latest successful
-   [VSIX Preview workflow](https://github.com/shopware/shopware-lsp/actions/workflows/vsix-preview.yml?query=branch%3Afeat%2Fnext-gen).
-2. Download the artifact for your operating system and architecture.
+1. Open the latest pre-release on
+   [GitHub Releases](https://github.com/shopware/shopware-lsp/releases).
+2. Download the VSIX for your operating system and architecture.
 3. Run **Extensions: Install from VSIX...** in VS Code.
 
-Preview artifacts are tied to a commit and expire after 14 days. Use the
-Marketplace or Open VSX release for the stable channel.
+After approval through the gated `preview` deployment environment, pre-release
+packages are also published to the pre-release channel of the Marketplace and
+Open VSX. Use the stable channel for production installations.
 
 ### Other editors and standalone use
 
