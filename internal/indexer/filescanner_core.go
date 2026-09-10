@@ -417,7 +417,13 @@ func (fs *FileScanner) IndexAll(ctx context.Context) error {
 	// the filesystem reconciliation that may invalidate it is still running.
 	// Request-time consumers use this marker to reject destructive previews
 	// against partial or stale indexes.
+	resuming := false
 	if fs.symbols != nil {
+		ready, err := fs.symbols.Ready(ctx)
+		if err != nil {
+			return fmt.Errorf("read workspace index readiness: %w", err)
+		}
+		resuming = !ready
 		if err := fs.symbols.SetReady(ctx, false); err != nil {
 			return fmt.Errorf("mark workspace indexes rebuilding: %w", err)
 		}
@@ -442,6 +448,9 @@ func (fs *FileScanner) IndexAll(ctx context.Context) error {
 
 	if fs.symbols != nil {
 		fs.symbols.BeginBulkPopulation()
+		if resuming {
+			fs.symbols.RequireBulkRebuild()
+		}
 	}
 	indexErr := fs.indexFiles(ctx, files, false, storedStates)
 	var symbolErr error

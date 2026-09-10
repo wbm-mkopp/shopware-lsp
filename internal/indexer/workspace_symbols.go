@@ -185,6 +185,16 @@ func (catalog *WorkspaceSymbolCatalog) BeginBulkPopulation() {
 	}
 }
 
+// RequireBulkRebuild forces the deferred FTS rebuild even when the run indexes
+// no file. A run that ends early leaves the catalog populated but unrebuilt;
+// because tracked states now survive that interruption, the resuming run can
+// legitimately have nothing left to index and would otherwise skip the repair.
+func (catalog *WorkspaceSymbolCatalog) RequireBulkRebuild() {
+	if catalog != nil {
+		catalog.bulkDirty.Store(true)
+	}
+}
+
 func (catalog *WorkspaceSymbolCatalog) EndBulkPopulation(
 	ctx context.Context,
 ) error {
