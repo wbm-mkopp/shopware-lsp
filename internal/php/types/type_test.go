@@ -1117,3 +1117,21 @@ func TestParseNativeDoesNotGuessTemplates(t *testing.T) {
 	require.Equal(t, ObjectKind, value.Kind())
 	require.Equal(t, "T", value.Name())
 }
+
+// Nesting unions the way self resolution through a fluent builder chain does
+// used to grow the rendered text multiplicatively until the process ran out of
+// memory. The render budget must cut that off.
+func TestUnionDegradesToMixedBeyondRenderBudget(t *testing.T) {
+	value := Union(Named("A"), Named("B"))
+	for depth := 0; depth < 40; depth++ {
+		value = Union(
+			Named("Traversable", value, value),
+			Named("Iterator", value, value),
+		)
+		require.LessOrEqual(t, len(value.String()), maxCompositeRenderedBytes*2)
+		if value.Kind() == MixedKind {
+			return
+		}
+	}
+	t.Fatalf("union never degraded to mixed, final length %d", len(value.String()))
+}

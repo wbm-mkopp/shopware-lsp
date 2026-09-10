@@ -639,11 +639,32 @@ func union(values []Type, cacheText bool) Type {
 		return flat[0]
 	}
 	slices.SortStableFunc(flat, canonicalTypeCompare)
+	if compositeExceedsRenderBudget(flat) {
+		return Mixed()
+	}
 	value := rawType(UnionKind, "", flat...)
 	if cacheText {
 		return finishType(value.node)
 	}
 	return value
+}
+
+// Fluent builders such as Symfony's TreeBuilder nest generic arguments once per
+// chained call. Resolving self and static through that chain composes unions
+// whose rendered text grows multiplicatively with the nesting depth, so a
+// single class can allocate gigabytes of type strings. Real unions stay orders
+// of magnitude below the budget; anything past it degrades to mixed.
+const maxCompositeRenderedBytes = 8 << 10
+
+func compositeExceedsRenderBudget(values []Type) bool {
+	total := 0
+	for _, value := range values {
+		total += renderedLengthHint(value)
+		if total > maxCompositeRenderedBytes {
+			return true
+		}
+	}
+	return false
 }
 
 // Intersection canonicalizes and deduplicates an intersection.
@@ -675,6 +696,9 @@ func Intersection(values ...Type) Type {
 		return flat[0]
 	}
 	slices.SortStableFunc(flat, canonicalTypeCompare)
+	if compositeExceedsRenderBudget(flat) {
+		return Mixed()
+	}
 	return newType(IntersectionKind, "", flat...)
 }
 
