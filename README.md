@@ -10,6 +10,7 @@ Framework-aware code intelligence for Shopware and Symfony projects.
 [![Open VSX](https://img.shields.io/open-vsx/v/shopware/shopware-lsp?label=Open%20VSX)](https://open-vsx.org/extension/shopware/shopware-lsp)
 [![GitHub release](https://img.shields.io/github/v/release/shopware/shopware-lsp)](https://github.com/shopware/shopware-lsp/releases)
 [![License](https://img.shields.io/github/license/shopware/shopware-lsp)](LICENSE)
+[![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/shopware/shopware-lsp?utm_source=badge)
 
 Shopware Language Server understands how PHP classes, Twig templates, routes,
 services, configuration, translations, Administration components, and DAL
