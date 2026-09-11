@@ -255,8 +255,42 @@ func (idx *TwigIndexer) Index(file *indexer.ParsedFile) error {
 	case ".yaml", ".yml":
 		return idx.indexYAMLGlobals(file)
 	default:
+		return idx.indexTemplateAsset(file)
+	}
+}
+
+// ShouldEnterDirectory keeps template assets to directories the scanner walks
+// anyway. Template roots are part of a normal scan; a skipped directory such as
+// var/cache holds no template a project can address.
+func (idx *TwigIndexer) ShouldEnterDirectory(string) bool {
+	return false
+}
+
+// ShouldIndexPath adds the template files the language registry does not claim,
+// such as the .svg views Symfony's profiler includes. Files it does claim are
+// already scanned, so they reach Index without help.
+func (idx *TwigIndexer) ShouldIndexPath(path string) bool {
+	return !indexer.IsScannedPath(path) && IsTemplateAssetPath(path)
+}
+
+// indexTemplateAsset records the names a non-Twig template can be addressed by.
+// Nothing is parsed: the file is data to whatever template includes it, so only
+// its existence under a template root is indexed. PHP and YAML files are left
+// out on purpose — under Resources/views they are classes and configuration,
+// not templates.
+func (idx *TwigIndexer) indexTemplateAsset(parsed *indexer.ParsedFile) error {
+	if !IsTemplateAssetPath(parsed.Path) {
 		return nil
 	}
+	file := newTwigFile(parsed.Path)
+	names := make(map[string]TwigFile)
+	for _, name := range TemplateNames(parsed.Path) {
+		names[name] = *file
+	}
+	return idx.twigFileIndex.BatchSaveItemsIn(
+		parsed.Mutation(),
+		map[string]map[string]TwigFile{parsed.Path: names},
+	)
 }
 
 func (idx *TwigIndexer) indexYAMLGlobals(
@@ -336,7 +370,7 @@ func (idx *TwigIndexer) saveGlobals(
 
 func (idx *TwigIndexer) indexTwig(parsed *indexer.ParsedFile) error {
 	path := parsed.Path
-	if strings.Contains(path, "Resources/app/administration") || strings.Contains(path, "Migration/Fixtures") || strings.Contains(path, ".phpdoc/template") {
+	if isExcludedTwigPath(path) {
 		return errors.Join(
 			idx.twigFileIndex.BatchSaveItemsIn(parsed.Mutation(), map[string]map[string]TwigFile{path: {}}),
 			idx.twigBlockIndex.BatchSaveItemsIn(parsed.Mutation(), map[string]map[string]TwigBlock{path: {}}),
