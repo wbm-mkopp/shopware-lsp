@@ -11,15 +11,7 @@ Small fixes can go straight to a PR. Examples:
 - small documentation improvements
 - obvious bug fixes with a clear test or reproduction
 
-For anything larger, please open an issue first and describe what you want to change before starting implementation. This includes:
-
-- new LSP capabilities (code actions, rename, signature help, …)
-- support for new file types or new Twig/XML/YAML/PHP constructs
-- changes to existing completion, diagnostic, hover, or go-to-definition behavior
-- changes to the indexer or its cache format
-- larger refactors
-
-This helps us confirm the direction, avoid duplicate work, and keep the project maintainable.
+For anything larger, please open an issue first and describe what you want to change before starting implementation. This includes things like support for new file types or new Twig/XML/YAML/PHP constructs, and large refactors. Doing this helps us confirm the direction, avoid duplicate work, and keep the project maintainable.
 
 A draft PR is welcome if it helps explain the idea, but feature PRs should generally be discussed before they are reviewed or merged.
 
