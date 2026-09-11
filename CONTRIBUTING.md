@@ -39,7 +39,7 @@ Please keep PRs focused. Smaller PRs are easier to review and merge.
 
 Branch from `main` and target `main` with your pull request.
 
-Before submitting, run the relevant checks locally:
+Before submitting, make sure your changes work locally as they should, and run the checks below:
 
 ```sh
 go test ./...
