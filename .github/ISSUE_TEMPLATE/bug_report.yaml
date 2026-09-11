@@ -61,7 +61,7 @@ body:
         - Indexing / startup
         - Other
     validations:
-      required: true
+      required: false
 
   - type: dropdown
     id: file-type
@@ -78,7 +78,7 @@ body:
         - SCSS
         - JSON
     validations:
-      required: true
+      required: false
 
   - type: dropdown
     id: project-type
