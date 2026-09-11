@@ -13,12 +13,18 @@ import (
 
 // Route represents a Symfony route from YAML, PHP, or other sources
 type Route struct {
-	Name       string
-	Path       string
-	Controller string
-	Methods    []string
-	FilePath   string
-	Line       int
+	Name string
+	// NameConstant holds a `Fully\Qualified\Class::CONSTANT` reference when
+	// the route name is a class constant rather than a literal. Resolving it
+	// needs another file's symbols, which the indexer does not have, so
+	// consumers holding the PHP index resolve it at query time via
+	// ResolveConstantRouteName.
+	NameConstant string
+	Path         string
+	Controller   string
+	Methods      []string
+	FilePath     string
+	Line         int
 }
 
 // Parameters returns path placeholders in source order. Symfony's inline
@@ -121,10 +127,31 @@ func (idx *RouteIndexer) ID() string {
 	return "symfony.route"
 }
 
+// GetRoutes returns every route that has a literal name. A route named by a
+// class constant is left out: the constant lives in another file, so only a
+// caller holding the PHP index can evaluate it, and a route with no name would
+// otherwise reach completion, workspace symbols, and catalogs as a blank
+// entry. Those callers use ResolvedRoutes instead.
 func (idx *RouteIndexer) GetRoutes() (RouteList, error) {
-	routes, err := idx.dataIndexer.GetAllValues()
-	if err != nil || idx.compiledRoutes == nil {
-		return routes, err
+	return idx.routes(nil)
+}
+
+// ResolvedRoutes returns what GetRoutes returns plus the routes whose name is
+// a class constant, with lookup supplying the literal behind each one.
+func (idx *RouteIndexer) ResolvedRoutes(
+	lookup ClassConstantLookup,
+) (RouteList, error) {
+	return idx.routes(lookup)
+}
+
+func (idx *RouteIndexer) routes(lookup ClassConstantLookup) (RouteList, error) {
+	stored, err := idx.dataIndexer.GetAllValues()
+	if err != nil {
+		return nil, err
+	}
+	routes := RouteList(ResolveConstantRouteNames(stored, lookup))
+	if idx.compiledRoutes == nil {
+		return routes, nil
 	}
 	seen := make(map[string]struct{}, len(routes))
 	for _, route := range routes {
@@ -613,13 +640,19 @@ func (idx *RouteIndexer) indexPhp(file *indexer.ParsedFile) error {
 
 	batchSave := map[string]map[string]Route{file.Path: {}}
 	for _, route := range parsedRoutes {
-		if route.Name == "" {
+		// A constant-named route has no literal name yet; key it by the
+		// reference so it survives indexing and can be resolved later.
+		key := route.Name
+		if key == "" {
+			key = route.NameConstant
+		}
+		if key == "" {
 			continue
 		}
 		if _, ok := batchSave[route.FilePath]; !ok {
 			batchSave[route.FilePath] = make(map[string]Route)
 		}
-		batchSave[route.FilePath][route.Name] = route
+		batchSave[route.FilePath][key] = route
 	}
 	addRouteWorkspaceSymbols(file, parsedRoutes)
 

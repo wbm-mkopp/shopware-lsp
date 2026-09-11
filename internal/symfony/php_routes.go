@@ -43,13 +43,14 @@ func parsePHPRoutesWithLineIndex(filePath string, root *phpsyntax.Node, content 
 		return nil
 	}
 	namespace := phpquery.Namespace(root)
+	resolver := php.NewNameResolver(root)
 	var routes []Route
 
 	for _, classNode := range phpquery.Classes(root) {
 		className := phpquery.ClassName(classNode)
 		basePath := ""
 		for _, attribute := range routeAttributes(classNode) {
-			classRoute := extractRouteFromAttribute(attribute, lineIndex)
+			classRoute := extractRouteFromAttribute(attribute, lineIndex, resolver)
 			if basePath == "" {
 				basePath = classRoute.Path
 			}
@@ -61,7 +62,7 @@ func parsePHPRoutesWithLineIndex(filePath string, root *phpsyntax.Node, content 
 				continue
 			}
 			for _, attribute := range routeAttributes(methodNode) {
-				route := extractRouteFromAttribute(attribute, lineIndex)
+				route := extractRouteFromAttribute(attribute, lineIndex, resolver)
 				if basePath != "" && route.Path != "" {
 					route.Path = joinRoutePath(basePath, route.Path)
 				}
@@ -71,7 +72,8 @@ func parsePHPRoutesWithLineIndex(filePath string, root *phpsyntax.Node, content 
 				}
 				route.Controller = controller
 				route.FilePath = filePath
-				if route.Name != "" || route.Path != "" {
+				if route.Name != "" || route.NameConstant != "" ||
+					route.Path != "" {
 					routes = append(routes, route)
 				}
 			}
@@ -85,7 +87,7 @@ func parsePHPRoutesWithLineIndex(filePath string, root *phpsyntax.Node, content 
 				!isRouteAttribute(attribute) {
 				continue
 			}
-			route := extractRouteFromAttribute(attribute, lineIndex)
+			route := extractRouteFromAttribute(attribute, lineIndex, resolver)
 			route.FilePath = filePath
 			if route.Name != "" || route.Path != "" {
 				routes = append(routes, route)
@@ -123,7 +125,11 @@ func isRouteAttribute(attribute *phpsyntax.Node) bool {
 	return name == "Route"
 }
 
-func extractRouteFromAttribute(node *phpsyntax.Node, lineIndex *phpsyntax.LineIndex) Route {
+func extractRouteFromAttribute(
+	node *phpsyntax.Node,
+	lineIndex *phpsyntax.LineIndex,
+	resolver *php.NameResolver,
+) Route {
 	var route Route
 	if node == nil {
 		return route
@@ -141,6 +147,13 @@ func extractRouteFromAttribute(node *phpsyntax.Node, lineIndex *phpsyntax.LineIn
 		}
 		value := firstStringValue(argument)
 		if value == "" {
+			// Symfony accepts any constant expression for `name`, and
+			// Shopware core names most routes that way. The value lives in
+			// another file, so record the reference and let a consumer with
+			// the PHP index resolve it.
+			if phpquery.ArgumentName(argument) == "name" {
+				route.NameConstant = phpRouteConstantReference(argument, resolver)
+			}
 			continue
 		}
 		switch phpquery.ArgumentName(argument) {
@@ -161,6 +174,53 @@ func extractRouteFromAttribute(node *phpsyntax.Node, lineIndex *phpsyntax.LineIn
 		}
 	}
 	return route
+}
+
+// phpRouteConstantReference returns a `Fully\Qualified\Class::CONSTANT`
+// reference for a route argument written as a class constant. Returns "" for
+// anything else, including `Foo::class`, which names a controller rather than
+// a route.
+func phpRouteConstantReference(
+	argument *phpsyntax.Node,
+	resolver *php.NameResolver,
+) string {
+	if argument == nil || resolver == nil {
+		return ""
+	}
+	// The constant has to be the whole value. `Names::PREFIX . Names::DETAIL`
+	// names a route this cannot evaluate, and taking the first half would key
+	// the route under a name no reference uses while the real one still
+	// reports as missing.
+	value := collapseRouteExpression(phpquery.ArgumentValue(argument))
+	// `Foo::BAR` parses as a member access here, not a scoped access; match
+	// both, as phpquery.ScopedAccessClass does.
+	for _, access := range phpquery.Nodes(
+		argument,
+		phpsyntax.PhpScopedAccess,
+		phpsyntax.PhpMemberAccess,
+	) {
+		text := collapseRouteExpression(access.Text())
+		if text != value {
+			continue
+		}
+		separator := strings.LastIndex(text, "::")
+		if separator <= 0 {
+			continue
+		}
+		class := text[:separator]
+		member := text[separator+2:]
+		if class == "" || member == "" || strings.EqualFold(member, "class") {
+			continue
+		}
+		return strings.TrimPrefix(resolver.Resolve(class), "\\") + "::" + member
+	}
+	return ""
+}
+
+// collapseRouteExpression removes the whitespace a multi-line attribute puts
+// inside an expression, so a node's text can be compared to its argument's.
+func collapseRouteExpression(text string) string {
+	return strings.Join(strings.Fields(text), "")
 }
 
 func firstStringValue(node *phpsyntax.Node) string {
