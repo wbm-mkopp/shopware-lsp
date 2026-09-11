@@ -52,6 +52,7 @@ go test ./...
 go test ./internal/php/... -count=1
 go test ./internal/twig -run '^TestName$' -count=1
 go test -race ./internal/...
+go test -bench=. -run '^$' ./internal/parser/...
 golangci-lint run
 
 # VS Code extension
@@ -65,6 +66,11 @@ npm --prefix vscode-extension run test:mcp
 # Full local validation
 mise run check
 ```
+
+Benchmarks written with the `testing` package run in CI through CodSpeed
+(`.github/workflows/codspeed.yml`, walltime instrument, sharded per package
+group). `mise run bench` reproduces that locally once the `codspeed` CLI is
+installed.
 
 `mise run check` also compiles the opt-in real-world integration suite without
 running it. Production Go files are capped at 2,500 lines by
