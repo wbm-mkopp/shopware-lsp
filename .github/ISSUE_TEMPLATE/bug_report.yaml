@@ -1,0 +1,149 @@
+name: Bug report 🐛
+description: Errors or flaws in Shopware LSP leading to incorrect or unexpected behavior.
+type: Bug
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+
+  - type: input
+    id: shopware-version
+    attributes:
+      label: Shopware Version
+      description: Version from your project's composer.lock (e.g. 6.6.10.0). Leave empty for non-Shopware Symfony projects.
+    validations:
+      required: false
+
+  - type: input
+    id: shopware-lsp-version
+    attributes:
+      label: Shopware LSP Version
+      description: Output of `shopware-lsp --version`
+    validations:
+      required: true
+
+  - type: dropdown
+    id: editor
+    attributes:
+      label: Editor / IDE
+      description: Which client are you connecting to the language server with?
+      options:
+        - VS Code
+        - Neovim
+        - JetBrains (PhpStorm/IntelliJ)
+        - Zed
+        - Helix
+        - Other (name it in the next field)
+    validations:
+      required: true
+
+  - type: input
+    id: editor-version
+    attributes:
+      label: Editor & extension version
+      description: e.g. "VS Code 1.99.0, Shopware Language Server extension 0.5.2" or "Neovim 0.10.4, nvim-lspconfig"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: feature
+    attributes:
+      label: Affected feature
+      options:
+        - Completion
+        - Go to definition
+        - Hover
+        - Diagnostics
+        - Code actions / quick fixes
+        - References
+        - Indexing / startup
+        - Other
+    validations:
+      required: false
+
+  - type: dropdown
+    id: file-type
+    attributes:
+      label: File type
+      description: Which file were you editing when the issue occurred?
+      multiple: true
+      options:
+        - PHP
+        - Twig
+        - XML
+        - YAML
+        - JavaScript / TypeScript
+        - SCSS
+        - JSON
+    validations:
+      required: false
+
+  - type: dropdown
+    id: project-type
+    attributes:
+      label: Project type
+      options:
+        - Shopware platform (contributing)
+        - Production template / symfony-flex setup
+        - Plugin
+        - App
+        - Plain Symfony project
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include a minimal code snippet and the exact cursor position if relevant.
+      placeholder: |
+        1. Open a Twig file in a plugin's Resources/views directory
+        2. Type `{% sw_extends '` and trigger completion
+        3. No suggestions appear
+    validations:
+      required: true
+
+  - type: input
+    id: php-version
+    attributes:
+      label: PHP Version
+      description: PHP version of the analysed project (output of `php -v`), if applicable.
+    validations:
+      required: false
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating System
+      description: e.g. macOS 14.3, Ubuntu 22.04, Windows 11
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual-behaviour
+    attributes:
+      label: Actual behaviour
+      description: Please describe the issue.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behaviour
+    attributes:
+      label: Expected behaviour
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log/output
+      description: |
+        Server output, not editor notifications.
+        VS Code: Output panel → "Shopware Language Server" channel.
+        Neovim: `:LspLog`.
+      render: shell
